@@ -1,0 +1,68 @@
+.recovery-title { font-size: 19px; font-weight: 600; margin-bottom: 12px; }
+.recovery-help { color: var(--tc-text-muted); font-size: 13px; line-height: 1.7; margin-bottom: 18px; }
+.recovery-notice { background: var(--tc-primary-light); color: #174c8f; padding: 12px 14px; border: 1px solid #cbdff8; border-radius: 10px; font-size: 13px; margin-bottom: 20px; overflow-wrap: anywhere; }
+.recovery-destination { display:flex; align-items:center; gap:12px; background:#F8FAFC; border:1px solid var(--tc-border-input); border-radius:10px; padding:12px 14px; margin-bottom:18px; color:var(--tc-text-muted); font-size:12.5px; line-height:1.55; }
+.recovery-destination i { color:var(--tc-primary); font-size:19px; }
+.recovery-destination strong { color:var(--tc-text-main); font-weight:600; letter-spacing:.02em; }
+.recovery-contact-hint { display:flex; align-items:center; gap:8px; color:var(--tc-text-muted); font-size:12.5px; line-height:1.6; margin:7px 0; }
+.recovery-contact-hint i { color:var(--tc-primary); font-size:16px; }
+.recovery-contact-hint strong { color:var(--tc-text-main); font-weight:600; letter-spacing:.02em; }
+.recovery-contact-form { margin-top: 8px; }
+.recovery-choice { display:flex; align-items:center; gap:12px; border:1px solid var(--tc-border-input); border-radius:10px; padding:13px 14px; margin-bottom:12px; cursor:pointer; font-size:12.5px; color:var(--tc-text-muted); }
+.recovery-choice:has(input:checked) { border-color:var(--tc-primary); background:var(--tc-primary-light); }
+.recovery-choice input { accent-color:var(--tc-primary); }
+.recovery-choice i { color:var(--tc-primary); font-size:19px; }
+.recovery-choice strong { color:var(--tc-text-main); }
+.recovery-choice small { display:block; margin-top:3px; }
+.recovery-method { display: flex; align-items: center; gap: 14px; padding: 16px; border: 1px solid var(--tc-border-input); border-radius: 10px; margin-bottom: 14px; text-decoration: none; color: var(--tc-text-main); font-size: 13px; font-weight: 500; }
+.recovery-method:hover { background: var(--tc-primary-light); border-color: var(--tc-primary); }
+.recovery-method i { color: var(--tc-primary); font-size: 20px; }
+.recovery-method small { display: block; font-size: 11px; color: var(--tc-text-muted); margin-top: 4px; font-weight: 400; }
+.recovery-secondary { margin-top: 20px; margin-bottom: 16px; text-align: center; }
+.recovery-link { border: 0; background: none; color: var(--tc-primary); font: inherit; font-size: 13px; padding: 4px; text-decoration: underline; }
+.recovery-code { letter-spacing: 7px; font-size: 22px; }
+.input-field { min-width: 0; width: 100%; }
+button:disabled { opacity: .6; cursor: not-allowed; transform: none; }
+#resend-countdown { display: block; margin: 4px 0 0; }
+
+/* Recovery screens: flat surfaces, one action color, and no motion. */
+.recovery-page { background: #f5f6f7; color: #20252b; --tc-text-muted: #59616b; --tc-primary: #246bc1; --tc-primary-hover: #1e5da9; }
+.recovery-page *, .recovery-page *::before, .recovery-page *::after {
+  animation: none !important;
+  transition: none !important;
+  scroll-behavior: auto !important;
+}
+.recovery-page .login-wrapper { max-width: 460px; }
+.recovery-page .login-card { border: 1px solid #dce0e5; border-radius: 10px; box-shadow: none; }
+.recovery-page .login-header { display: flex; align-items: center; gap: 12px; padding: 24px 28px; text-align: left; background: #fff; color: inherit; border-bottom: 1px solid #e5e7eb; }
+.recovery-page .logo-container { width: 42px; height: 42px; margin: 0; flex-shrink: 0; }
+.recovery-page .logo-container::before { display: none; }
+.recovery-page .brand-name { font-size: 17px; font-weight: 600; color: #20252b; margin: 0 0 2px; }
+.recovery-page .brand-sub { color: var(--tc-text-muted); font-size: 12px; margin: 0; }
+.recovery-page .login-body { padding: 28px; }
+.recovery-page .recovery-title { font-size: 21px; line-height: 1.4; letter-spacing: -.025em; margin-bottom: 10px; }
+.recovery-page .recovery-help { font-size: 13px; line-height: 1.65; margin-bottom: 20px; }
+.recovery-page .recovery-notice { background: #f5f6f7; border: 1px solid #dce0e5; color: #343b44; border-radius: 6px; }
+.recovery-page .recovery-destination { display: block; padding: 0; border: 0; border-radius: 0; background: none; margin-bottom: 10px; font-size: 13px; overflow-wrap: anywhere; }
+.recovery-page .recovery-contact-hint { display: block; font-size: 13px; overflow-wrap: anywhere; }
+.recovery-page .recovery-contact-hint i, .recovery-page .input-icon { display: none; }
+.recovery-page .recovery-contact-form { margin-top: 24px; }
+.recovery-page .input-wrapper { background: #fff; border: 1px solid #aab2bd; border-radius: 6px; box-shadow: none; }
+.recovery-page .input-wrapper:focus-within { border-color: var(--tc-primary); outline: 2px solid var(--tc-primary); outline-offset: 2px; box-shadow: none; }
+.recovery-page .input-field { padding: 12px; min-height: 46px; font-size: 16px; }
+.recovery-page .input-field::placeholder { color: #69727d; font-size: 13px; }
+.recovery-page .recovery-code { text-align: center; font-size: 24px; letter-spacing: 8px; font-variant-numeric: tabular-nums; }
+.recovery-page .btn-signin, .recovery-page .btn-signin:hover, .recovery-page .btn-signin:active { border-radius: 6px; box-shadow: none; transform: none; min-height: 46px; }
+.recovery-page button:disabled { opacity: 1; color: #657080; background: #e8ebef; }
+.recovery-page .recovery-link:disabled { background: none; color: #657080; text-decoration: none; }
+.recovery-page .recovery-link, .recovery-page .forgot-link { font-size: 13px; }
+.recovery-page .recovery-link { min-height: 44px; padding: 10px; }
+.recovery-page a:focus-visible, .recovery-page button:focus-visible { outline: 2px solid var(--tc-primary); outline-offset: 3px; }
+.recovery-page .recovery-secondary { margin: 16px 0 8px; }
+.recovery-page .login-footer { margin-top: 20px; padding-top: 20px; border-color: #e5e7eb; }
+@media (max-width: 480px) {
+  .recovery-page { padding: 16px; }
+  .recovery-page .login-header { padding: 20px; }
+  .recovery-page .login-body { padding: 24px 20px; }
+  .recovery-page .recovery-title { font-size: 20px; }
+}

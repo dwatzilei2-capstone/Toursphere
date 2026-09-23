@@ -1,0 +1,29 @@
+# Environment and Local Secrets
+.env
+.env.local
+.env.*.local
+*.env
+config/*.local.php
+config/maps.local.php
+
+# Operating System & IDE
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/
+*.sublime-project
+*.sublime-workspace
+
+# Logs and Scratch Files
+*.log
+scratch/
+logs/
+temp/
+tmp/
+vendor/
+_archive_unused/
+
+# Database dumps containing sensitive credentials / data
+database/backups/
+*.dump
+*.backup
