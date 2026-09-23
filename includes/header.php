@@ -80,9 +80,9 @@ if (!isset($header_notifications)) {
   <link rel="icon" href="<?= e(company_logo()) ?>">
 
    
-  <link href="<?= BASE_URL ?>/css/vendor/bootstrap.min.css" rel="stylesheet">
+  <link href="<?= BASE_URL ?>/css/lib/bootstrap.min.css" rel="stylesheet">
    
-  <link href="<?= BASE_URL ?>/css/vendor/bootstrap-icons.min.css" rel="stylesheet">
+  <link href="<?= BASE_URL ?>/css/lib/bootstrap-icons.min.css" rel="stylesheet">
   <?php if ($include_leaflet): ?>
    
   <link rel="stylesheet" href="<?= BASE_URL ?>/css/vendor/leaflet/leaflet.css">
