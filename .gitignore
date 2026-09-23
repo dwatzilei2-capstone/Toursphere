@@ -20,7 +20,7 @@ scratch/
 logs/
 temp/
 tmp/
-vendor/
+/vendor/
 _archive_unused/
 
 # Database dumps containing sensitive credentials / data
