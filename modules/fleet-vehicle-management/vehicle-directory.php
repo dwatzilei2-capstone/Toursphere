@@ -29,6 +29,12 @@ $stmt = $pdo->prepare($sql);
 $stmt->execute($params);
 $vehicles = $stmt->fetchAll();
 
+$vehicle_types = [];
+if (can('vehicles.manage')) {
+    $vehicle_types = $pdo->query("SELECT id, name FROM vehicle_types WHERE status = 'Active' ORDER BY name")->fetchAll();
+    $_SESSION['vehicle_csrf_token'] ??= bin2hex(random_bytes(32));
+}
+
  
 $vehicle_json = [];
 foreach ($vehicles as $v) {
@@ -69,6 +75,8 @@ $active_page = 'vehicles';
 $page_title  = 'Vehicle Directory — Fleet & Vehicle Management';
 require ROOT_PATH . '/includes/header.php';
 ?>
+
+<link rel="stylesheet" href="<?= BASE_URL ?>/css/vehicle-registration.css?v=<?= (int)filemtime(ROOT_PATH . '/css/vehicle-registration.css') ?>">
 
 <div class="d-flex flex-wrap justify-content-between align-items-center mb-4 gap-2">
   <div>
@@ -187,50 +195,100 @@ require ROOT_PATH . '/includes/header.php';
 <?php if (can('vehicles.manage')): ?>
  
 <div id="modal-add-vehicle" class="tc-modal-backdrop">
-  <div class="tc-modal">
+  <div class="tc-modal vehicle-registration-modal">
     <div class="tc-card-header">
       <h4 class="mb-0 fw-bold fs-6"><i class="bi bi-plus-circle me-2 text-primary-custom"></i>Register New Tour Vehicle</h4>
       <button type="button" class="btn-close" onclick="App.closeModal('modal-add-vehicle')"></button>
     </div>
     <div class="tc-card-body">
-      <form method="post" action="<?= BASE_URL ?>/actions/vehicle.php">
+      <form method="post" action="<?= BASE_URL ?>/actions/vehicle.php" enctype="multipart/form-data" id="vehicle-registration-form">
         <input type="hidden" name="action" value="create">
         <input type="hidden" name="return" value="<?= e(BASE_URL . '/modules/fleet-vehicle-management/vehicle-directory.php') ?>">
-        <div class="row g-2 mb-3">
-          <div class="col-6">
-            <label class="tc-form-label">Plate Number</label>
-            <input type="text" name="plate_number" class="tc-form-control" placeholder="e.g. NBO-1234" required>
-          </div>
-          <div class="col-6">
-            <label class="tc-form-label">Vehicle Type</label>
-            <select class="tc-form-select" name="type">
-              <option>Tour Bus</option>
-              <option>Coaster Bus</option>
-              <option>Executive Van</option>
-              <option>VIP SUV</option>
-            </select>
-          </div>
-          <div class="col-6">
-            <label class="tc-form-label">Brand</label>
-            <input type="text" name="brand" class="tc-form-control" placeholder="e.g. Toyota / Hino" required>
-          </div>
-          <div class="col-6">
-            <label class="tc-form-label">Model & Year</label>
-            <input type="text" name="model" class="tc-form-control" placeholder="e.g. Grandia Tourer" required>
-            <input type="number" name="year" class="tc-form-control mt-2" placeholder="Year e.g. 2024" required>
-          </div>
-          <div class="col-6">
-            <label class="tc-form-label">Passenger Capacity</label>
-            <input type="number" name="capacity" class="tc-form-control" placeholder="14" required>
-          </div>
-          <div class="col-6">
-            <label class="tc-form-label">Fuel Tank Capacity (L)</label>
-            <input type="number" name="fuel_capacity" class="tc-form-control" placeholder="70" required>
-          </div>
+        <input type="hidden" name="csrf_token" value="<?= e($_SESSION['vehicle_csrf_token']) ?>">
+
+        <div class="vehicle-step-label">Step 1 — Upload vehicle document</div>
+        <div id="vehicle-document-drop" class="vehicle-upload-zone" role="button" tabindex="0" aria-controls="vehicle-document">
+          <input id="vehicle-document" type="file" name="registration_document" accept="application/pdf,image/jpeg,image/png,.pdf,.jpg,.jpeg,.png" required>
+          <i class="bi bi-file-earmark-arrow-up fs-3 text-primary-custom d-block mb-2"></i>
+          <strong>Drop the OR/CR or supporting document here</strong>
+          <div class="text-muted-custom small mt-1">or select a PDF, JPG, JPEG, or PNG file (maximum 8 MB)</div>
         </div>
-        <div class="d-flex justify-content-end gap-2">
-          <button type="button" class="tc-btn tc-btn-secondary" onclick="App.closeModal('modal-add-vehicle')">Cancel</button>
-          <button type="submit" class="tc-btn tc-btn-primary">Register Vehicle</button>
+        <div id="vehicle-document-preview" class="vehicle-document-preview mt-3" hidden>
+          <div id="vehicle-document-name" class="small fw-semibold p-2 border-bottom"></div>
+          <img id="vehicle-preview-image" alt="Uploaded vehicle document preview" hidden>
+          <iframe id="vehicle-preview-pdf" title="Uploaded vehicle document preview" hidden></iframe>
+        </div>
+
+        <div id="vehicle-registration-workflow" hidden>
+          <div class="vehicle-step">
+            <div class="vehicle-step-label">Step 2 — Plate number from document</div>
+            <label class="tc-form-label" for="vehicle-plate-number">Plate Number</label>
+            <input id="vehicle-plate-number" type="text" name="plate_number" class="tc-form-control text-uppercase" placeholder="e.g. ABC-1234" maxlength="20" required>
+            <div class="vehicle-source-note">Manually encoded from the uploaded document. This is document-based review, not LTO verification.</div>
+          </div>
+
+          <div class="vehicle-step">
+            <div class="vehicle-step-label">Steps 3–5 — Select vehicle configuration</div>
+            <div class="row g-3">
+              <div class="col-md-6">
+                <label class="tc-form-label" for="vehicle-type">Vehicle Type</label>
+                <select id="vehicle-type" class="tc-form-select" name="vehicle_type_id" required>
+                  <option value="">Select vehicle type</option>
+                  <?php foreach ($vehicle_types as $vehicle_type): ?>
+                    <option value="<?= (int)$vehicle_type['id'] ?>"><?= e($vehicle_type['name']) ?></option>
+                  <?php endforeach; ?>
+                </select>
+                <div class="vehicle-source-note">Selected by Admin from active tour fleet categories.</div>
+              </div>
+              <div class="col-md-6">
+                <label class="tc-form-label" for="vehicle-brand">Brand</label>
+                <select id="vehicle-brand" class="tc-form-select" name="brand_id" required disabled><option value="">Select brand</option></select>
+              </div>
+              <div class="col-md-6">
+                <label class="tc-form-label" for="vehicle-model">Model</label>
+                <select id="vehicle-model" class="tc-form-select" name="model_id" required disabled><option value="">Select model</option></select>
+              </div>
+              <div class="col-md-6">
+                <label class="tc-form-label" for="vehicle-variant">Variant</label>
+                <select id="vehicle-variant" class="tc-form-select" name="variant_id" required disabled><option value="">Select variant</option></select>
+              </div>
+            </div>
+          </div>
+
+          <div id="vehicle-specifications" class="vehicle-step" hidden>
+            <div class="vehicle-step-label">Steps 6–7 — Review auto-filled specifications</div>
+            <div class="row g-3">
+              <div class="col-md-6">
+                <label class="tc-form-label">Model Year</label>
+                <input type="number" name="year" class="tc-form-control" min="1980" max="<?= (int)date('Y') + 1 ?>" required>
+              </div>
+              <div class="col-md-6">
+                <label class="tc-form-label">Passenger Capacity</label>
+                <input type="number" name="capacity" class="tc-form-control" min="1" max="100" required>
+              </div>
+              <div class="col-md-6">
+                <label class="tc-form-label">Fuel Tank Capacity (L)</label>
+                <input type="number" name="fuel_capacity" class="tc-form-control" min="1" max="1000" required>
+              </div>
+              <div class="col-md-6">
+                <label class="tc-form-label">Fuel Type</label>
+                <select name="fuel_type" class="tc-form-select" required>
+                  <option value="">Select fuel type</option>
+                  <option value="Diesel">Diesel</option>
+                  <option value="Gasoline">Gasoline</option>
+                  <option value="Hybrid">Hybrid</option>
+                  <option value="Electric">Electric</option>
+                </select>
+              </div>
+            </div>
+            <div class="vehicle-source-note">Auto-filled from the selected model/variant specification. Review and edit for the actual unit where necessary.</div>
+          </div>
+
+          <div id="vehicle-form-status" class="small text-muted-custom mt-3" role="status" aria-live="polite"></div>
+          <div class="d-flex flex-column flex-sm-row justify-content-end gap-2 mt-3">
+            <button type="button" class="tc-btn tc-btn-secondary" onclick="App.closeModal('modal-add-vehicle')">Cancel</button>
+            <button id="vehicle-register-submit" type="submit" class="tc-btn tc-btn-primary" disabled>Register Vehicle</button>
+          </div>
         </div>
       </form>
     </div>
@@ -241,5 +299,7 @@ require ROOT_PATH . '/includes/header.php';
 <script>
   window.TC_VEHICLES_DATA = <?= json_encode($vehicle_json, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES) ?>;
 </script>
+
+<?php $page_scripts = '<script src="' . BASE_URL . '/js/vehicle-registration.js?v=' . (int)filemtime(ROOT_PATH . '/js/vehicle-registration.js') . '"></script>'; ?>
 
 <?php require ROOT_PATH . '/includes/footer.php'; ?>
