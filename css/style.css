@@ -1016,6 +1016,38 @@ p { margin-bottom: 0.5rem; }
   min-height: calc(100vh - 210px);
 }
 
+.ai-workspace-container > * {
+  min-width: 0;
+}
+
+.ai-workspace-results .row.g-2 {
+  display: flex;
+  flex-wrap: wrap;
+}
+
+.ai-workspace-results .col-6 {
+  display: flex;
+}
+
+.ai-workspace-results .col-6 .bg-light {
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  height: 100%;
+  min-height: 80px;
+}
+
+.ai-workspace-results .p-3 {
+  display: flex;
+  flex-direction: column;
+}
+
+.ai-workspace-results .row.g-2.h-100 {
+  flex: 1;
+  display: flex;
+  flex-wrap: wrap;
+}
+
 @media (max-width: 1280px) {
   .ai-workspace-container {
     grid-template-columns: 320px 1fr;
@@ -1938,6 +1970,23 @@ p { margin-bottom: 0.5rem; }
   max-width: 1100px;
 }
 
+#modal-reservation-details .tc-modal {
+  max-height: calc(100vh - 2rem);
+  max-height: calc(100dvh - 2rem);
+}
+
+#modal-reservation-details .tc-card-header,
+#modal-reservation-details #reservation-details-actions {
+  flex: 0 0 auto;
+}
+
+#modal-reservation-details #reservation-details-body {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+}
+
 @keyframes modalFadeIn {
   from { opacity: 0; transform: scale(0.97); }
   to { opacity: 1; transform: scale(1); }
@@ -2039,3 +2088,23 @@ html[data-bs-theme="dark"] .nav-link-custom:hover,
 html[data-bs-theme="dark"] .nav-sublink:hover { background: var(--tc-primary-light); color: #b9d8ff; }
 html[data-bs-theme="dark"] .stat-card { background: var(--tc-bg-card); }
 html[data-bs-theme="dark"] .settings-nav a.is-active { color: #9dccff; }
+.fare-estimate,.reservation-review{border:1px solid var(--tc-border);border-radius:12px;padding:1rem;background:var(--tc-bg-card)}
+.fare-lines{display:grid;grid-template-columns:minmax(0,1fr) auto;gap:.55rem 1rem;align-items:baseline;font-size:.875rem}
+.fare-lines span{color:var(--tc-text-muted)}.fare-lines small{font-size:.72rem}
+.fare-total{display:flex;justify-content:space-between;align-items:center;gap:1rem;border-top:1px solid var(--tc-border);margin-top:.9rem;padding-top:.9rem;text-transform:uppercase;font-size:.8rem;font-weight:600;letter-spacing:.03em}
+.fare-total strong{font-size:1.25rem;color:var(--tc-primary)}
+.reservation-review .row span{display:block;color:var(--tc-text-muted);margin-bottom:.2rem}.reservation-review .row strong{display:block;overflow-wrap:anywhere}
+@media(max-width:575.98px){.fare-total{align-items:flex-start;flex-direction:column;gap:.25rem}.fare-total strong{font-size:1.1rem}}
+
+/* Anchored activity preview leaves the existing header layout unchanged. */
+.notification-anchor { position: relative; }
+.notification-preview { --notification-blue: #1565D8; position: absolute; top: calc(100% + 10px); right: -12px; width: min(260px, calc(100vw - 32px)); height: 34px; box-sizing: border-box; display: flex; align-items: center; padding: 0 32px 0 12px; border-radius: 9px; border: 2px solid var(--tc-danger, #EB5757); background: var(--notification-blue); color: #fff; box-shadow: 0 3px 10px rgba(21,101,216,.18); z-index: 1090; }
+.notification-preview[hidden] { display: none; }
+.notification-preview::before { content: ''; position: absolute; top: -4px; left: var(--notification-arrow-left, auto); right: 21px; width: 8px; height: 8px; transform: rotate(45deg); background: var(--notification-blue); border-left: 2px solid var(--tc-danger, #EB5757); border-top: 2px solid var(--tc-danger, #EB5757); }
+.notification-preview-link, .notification-preview-link:hover { color: #fff; text-decoration: none; display: block; width: 100%; overflow: hidden; font-size: 12px; line-height: 18px; white-space: nowrap; }
+.notification-preview-track { display: flex; width: max-content; animation: notification-preview-scroll var(--notification-scroll-duration, 12s) linear infinite; }
+.notification-preview-message { display: block; flex: none; padding-right: 28px; }
+.notification-preview-close { position: absolute; top: 0; right: 0; width: 30px; height: 34px; padding: 0; border: 0; border-radius: 0 9px 9px 0; background: transparent; color: #fff; font-size: 20px; line-height: 34px; }
+.notification-preview-close:hover { background: rgba(255,255,255,.12); }
+.notification-preview-link:focus-visible, .notification-preview-close:focus-visible { outline: 2px solid #fff; outline-offset: -2px; }
+@keyframes notification-preview-scroll { to { transform: translateX(-50%); } }

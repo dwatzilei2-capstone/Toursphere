@@ -1,0 +1,118 @@
+.login-2fa-page .login-body {
+  text-align: center;
+}
+
+.verification-icon {
+  width: 52px;
+  height: 52px;
+  margin: 0 auto .9rem;
+  border-radius: 50%;
+  display: grid;
+  place-items: center;
+  color: var(--tc-primary);
+  background: var(--tc-primary-light);
+  font-size: 1.35rem;
+}
+
+.verification-title {
+  font-size: 1.2rem;
+  font-weight: 700;
+  margin-bottom: .55rem;
+}
+
+.verification-copy,
+.verification-destination,
+.verification-muted,
+.verification-timer {
+  color: var(--tc-text-muted);
+  font-size: .8rem;
+}
+
+.verification-copy {
+  line-height: 1.55;
+  margin-bottom: .35rem;
+}
+
+.verification-destination {
+  color: var(--tc-text-main);
+  font-weight: 600;
+  margin-bottom: 1.15rem;
+}
+
+.login-2fa-page .form-group,
+.login-2fa-page form {
+  text-align: left;
+}
+
+.login-otp-input {
+  font-size: 1.3rem;
+  font-weight: 700;
+  letter-spacing: .42rem;
+  text-align: center;
+  padding-right: 2.5rem;
+  font-variant-numeric: tabular-nums;
+}
+
+.login-2fa-notice {
+  background: #F0FDF4;
+  border: 1px solid #BBF7D0;
+  color: #166534;
+  border-radius: 10px;
+  padding: 10px 12px;
+  font-size: .78rem;
+  line-height: 1.45;
+  margin-bottom: 1rem;
+  text-align: left;
+}
+
+.verification-timer {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: .4rem;
+  margin-top: 1rem;
+}
+
+.verification-secondary {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: .45rem;
+  margin-top: .85rem;
+}
+
+.verification-link {
+  appearance: none;
+  border: 0;
+  background: transparent;
+  color: var(--tc-primary);
+  font: inherit;
+  font-size: .8rem;
+  font-weight: 600;
+  cursor: pointer;
+  padding: .2rem;
+}
+
+.verification-link:hover:not(:disabled) {
+  color: var(--tc-primary-hover);
+  text-decoration: underline;
+}
+
+.verification-link:disabled,
+.btn-signin:disabled {
+  cursor: not-allowed;
+  opacity: .58;
+  transform: none;
+}
+
+.verification-back {
+  margin-top: 1.1rem;
+  text-align: center !important;
+}
+
+@media (max-width: 480px) {
+  .login-otp-input {
+    font-size: 1.15rem;
+    letter-spacing: .3rem;
+  }
+}

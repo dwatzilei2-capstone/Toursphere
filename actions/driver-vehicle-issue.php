@@ -75,10 +75,7 @@ try {
             ->execute(['Issue Reported - For Inspection', $vehicleId]);
     }
 
-    $pdo->prepare(
-        "INSERT INTO notifications (title, body, time_label, type, category, target, is_read)
-         VALUES ('Driver Vehicle Issue Report', ?, 'Just now', ?, 'Maintenance', 'maintenance', 0)"
-    )->execute(["{$workOrderId}: {$vehicleId} - {$issueType} ({$severity}).", $severity === 'Critical' ? 'danger' : 'warning']);
+
 
     $pdo->commit();
     redirect_with_toast($return, "Issue report {$workOrderId} sent to Fleet Maintenance for review.", 'success');

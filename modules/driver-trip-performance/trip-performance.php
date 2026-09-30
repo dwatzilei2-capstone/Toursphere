@@ -88,11 +88,13 @@ $chart_data = [
 ];
 
 $active_page = 'trip-performance';
+$body_class = trim(($body_class ?? '') . ' driver-trip-monitoring-module trip-performance-page');
 $page_title  = 'Trip Performance & Punctuality Analytics';
 $include_chart = true;
 require ROOT_PATH . '/includes/header.php';
 ?>
 
+<div class="driver-trip-page-shell">
 <div class="d-flex justify-content-between align-items-center mb-4">
   <div>
     <h1 class="mb-1">Trip Performance & Punctuality Analytics</h1>
@@ -146,5 +148,7 @@ require ROOT_PATH . '/includes/header.php';
     <div class="text-center text-muted-custom py-5">Complete a trip with scheduled and actual departure timestamps to populate this graph.</div>
   <?php endif; ?>
 </div>
+</div>
 
+<script src="<?= BASE_URL ?>/js/driver-trip-monitoring.js?v=<?= (int)filemtime(ROOT_PATH . '/js/driver-trip-monitoring.js') ?>"></script>
 <?php require ROOT_PATH . '/includes/footer.php'; ?>

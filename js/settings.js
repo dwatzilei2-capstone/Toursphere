@@ -60,3 +60,35 @@ logoInput?.addEventListener('change', () => {
   document.getElementById('company-logo-preview').src = logoPreviewUrl;
   document.getElementById('logo-help').textContent = file.name + ' · Save company profile to apply.';
 });
+
+const scheduleEditor = document.getElementById('schedule-editor');
+if (scheduleEditor) {
+  const action = document.getElementById('schedule-action');
+  const id = document.getElementById('schedule-id');
+  const name = document.getElementById('schedule-name');
+  const time = document.getElementById('schedule-time');
+  const title = document.getElementById('schedule-editor-title');
+  const save = document.getElementById('schedule-save');
+  const cancel = document.getElementById('schedule-cancel-edit');
+  const resetEditor = () => {
+    scheduleEditor.reset(); action.value = 'create'; id.value = '';
+    title.textContent = 'Add operating schedule'; save.textContent = 'Add schedule'; cancel.hidden = true;
+  };
+  document.querySelectorAll('.schedule-edit').forEach((button) => button.addEventListener('click', () => {
+    resetEditor(); action.value = 'update'; id.value = button.dataset.id;
+    name.value = button.dataset.name; time.value = button.dataset.time.slice(0, 5);
+    const days = JSON.parse(button.dataset.days);
+    days.forEach((day) => { const checkbox = scheduleEditor.querySelector(`[name="operating_days[]"][value="${day}"]`); if (checkbox) checkbox.checked = true; });
+    title.textContent = 'Edit operating schedule'; save.textContent = 'Save schedule'; cancel.hidden = false;
+    scheduleEditor.scrollIntoView({ behavior: 'smooth', block: 'start' }); name.focus();
+  }));
+  cancel.addEventListener('click', resetEditor);
+  scheduleEditor.addEventListener('submit', (event) => {
+    if (!scheduleEditor.querySelector('[name="operating_days[]"]:checked')) {
+      event.preventDefault();
+      const first = scheduleEditor.querySelector('[name="operating_days[]"]');
+      first.setCustomValidity('Select at least one operating day.'); first.reportValidity();
+      first.addEventListener('change', () => first.setCustomValidity(''), { once: true });
+    }
+  });
+}

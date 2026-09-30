@@ -1,6 +1,7 @@
 <?php
  
 require_once dirname(__DIR__, 2) . '/includes/bootstrap.php';
+require_once ROOT_PATH . '/includes/driver_fuel_context.php';
 require_login();
 require_permission('fuel.view');
 
@@ -15,11 +16,13 @@ $transactions = $pdo->query(
 )->fetchAll();
 
 $active_page = 'fuel-transactions';
+$body_class = trim(($body_class ?? '') . ' fuel-management-module fuel-transactions-page');
 $page_title  = 'Fuel Transactions Log';
 require ROOT_PATH . '/includes/header.php';
 ?>
 
-<div class="d-flex justify-content-between align-items-center mb-4">
+<div class="fuel-management-page-shell">
+<div class="d-flex justify-content-between align-items-center mb-4 fuel-page-heading">
   <div>
     <h1 class="mb-1">Fuel Transactions Log</h1>
     <p class="text-muted-custom mb-0">Detailed records of all depot and partner gas station refills with odometer readings.</p>
@@ -30,6 +33,7 @@ require ROOT_PATH . '/includes/header.php';
       <button class="tc-btn tc-btn-primary tc-btn-sm" onclick="App.openModal('modal-log-fuel')"><i class="bi bi-plus-lg"></i> Log Fuel Refill</button>
     <?php endif; ?>
   </div>
+</div>
 </div>
 
 <div class="tc-card">
@@ -54,7 +58,7 @@ require ROOT_PATH . '/includes/header.php';
           <tr><td colspan="10" class="text-center text-muted-custom py-4">No fuel transactions recorded.</td></tr>
         <?php else: foreach ($transactions as $f): ?>
           <tr>
-            <td><span class="fw-semibold text-primary-custom"><?= e($f['id']) ?></span></td>
+            <td id="record-<?= e($f['id']) ?>"><span class="fw-semibold text-primary-custom"><?= e($f['id']) ?></span></td>
             <td>
               <div class="fw-semibold"><?= e($f['plate_number']) ?></div>
               <div class="text-muted-custom small"><?= e($f['vehicle_id']) ?></div>
@@ -85,9 +89,7 @@ require ROOT_PATH . '/includes/header.php';
   $current_driver_vehicle_id = null;
   $current_driver_id = null;
   if (($current_user['role_code'] ?? '') === 'driver') {
-      $dStmt = $pdo->prepare('SELECT d.id AS driver_id, v.id AS vehicle_id FROM drivers d LEFT JOIN vehicles v ON v.assigned_driver_id = d.id WHERE d.user_id = ?');
-      $dStmt->execute([$current_user['id']]);
-      $dRow = $dStmt->fetch();
+      $dRow = driver_fuel_context($pdo, (string)$current_user['id']);
       if ($dRow) {
           $current_driver_id = $dRow['driver_id'];
           $current_driver_vehicle_id = $dRow['vehicle_id'];
@@ -105,13 +107,22 @@ require ROOT_PATH . '/includes/header.php';
       <form method="post" action="<?= BASE_URL ?>/actions/fuel.php">
         <input type="hidden" name="action" value="create">
         <input type="hidden" name="return" value="<?= e(BASE_URL . '/modules/fuel-management/fuel-transactions.php') ?>">
+        <?php if (($current_user['role_code'] ?? '') === 'driver' && !$current_driver_vehicle_id): ?>
+          <div class="alert alert-warning">No vehicle is assigned to you. Ask Dispatch to assign a vehicle before logging fuel.</div>
+        <?php endif; ?>
         <div class="row g-2 mb-3">
           <div class="col-6">
             <label class="tc-form-label">Vehicle</label>
             <select class="tc-form-select" name="vehicle_id" required>
               <option value="">— Choose vehicle —</option>
               <?php
-              $fuel_vehicles = $pdo->query('SELECT id, plate_number, brand, model FROM vehicles ORDER BY id')->fetchAll();
+              if (($current_user['role_code'] ?? '') === 'driver') {
+                  $vehicleStmt = $pdo->prepare('SELECT id, plate_number, brand, model FROM vehicles WHERE id=?');
+                  $vehicleStmt->execute([$current_driver_vehicle_id]);
+                  $fuel_vehicles = $vehicleStmt->fetchAll();
+              } else {
+                  $fuel_vehicles = $pdo->query('SELECT id, plate_number, brand, model FROM vehicles ORDER BY id')->fetchAll();
+              }
               foreach ($fuel_vehicles as $fv):
               ?>
                 <option value="<?= e($fv['id']) ?>" <?= $current_driver_vehicle_id === $fv['id'] ? 'selected' : '' ?>><?= e($fv['id']) ?> (<?= e($fv['plate_number']) ?>) - <?= e($fv['brand']) ?> <?= e($fv['model']) ?></option>
@@ -122,7 +133,13 @@ require ROOT_PATH . '/includes/header.php';
             <label class="tc-form-label">Driver</label>
             <select class="tc-form-select" name="driver_id">
               <option value="">— Optional —</option>
-              <?php foreach ($pdo->query('SELECT id, name FROM drivers ORDER BY name')->fetchAll() as $fd): ?>
+              <?php
+              if (($current_user['role_code'] ?? '') === 'driver') {
+                  $fuel_drivers = $dRow ? [['id' => $dRow['driver_id'], 'name' => $dRow['driver_name']]] : [];
+              } else {
+                  $fuel_drivers = $pdo->query('SELECT id, name FROM drivers ORDER BY name')->fetchAll();
+              }
+              foreach ($fuel_drivers as $fd): ?>
                 <option value="<?= e($fd['id']) ?>" <?= $current_driver_id === $fd['id'] ? 'selected' : '' ?>><?= e($fd['name']) ?></option>
               <?php endforeach; ?>
             </select>
@@ -168,4 +185,5 @@ require ROOT_PATH . '/includes/header.php';
 </div>
 <?php endif; ?>
 
+<script src="<?= BASE_URL ?>/js/fuel-management.js?v=<?= (int)filemtime(ROOT_PATH . '/js/fuel-management.js') ?>"></script>
 <?php require ROOT_PATH . '/includes/footer.php'; ?>

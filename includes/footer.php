@@ -98,6 +98,8 @@ $page_scripts = $page_scripts ?? '';
   <script src="<?= BASE_URL ?>/js/map-route.js?v=<?= (int)@filemtime(ROOT_PATH . '/js/map-route.js') ?>"></script>
   <?php endif; ?>
   <script src="<?= BASE_URL ?>/js/app.js?v=<?= (int)@filemtime(ROOT_PATH . '/js/app.js') ?>"></script>
+  <script src="<?= BASE_URL ?>/js/notifications.js?v=<?= (int)@filemtime(ROOT_PATH . '/js/notifications.js') ?>"></script>
+  <?php if (!empty($include_role_portal_polish)): ?><script src="<?= BASE_URL ?>/js/role-portals.js?v=<?= (int)filemtime(ROOT_PATH . '/js/role-portals.js') ?>"></script><?php endif; ?>
   <?php if (!empty($page_scripts)): ?>
   <?= $page_scripts   ?>
   <?php endif; ?>

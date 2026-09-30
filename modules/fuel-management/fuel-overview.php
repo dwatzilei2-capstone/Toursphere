@@ -6,8 +6,9 @@ require_permission('fuel.view');
 
 $pdo = db();
 
-$report_year = (int)($_GET['year'] ?? date('Y'));
-if ($report_year < 2000 || $report_year > 2100) $report_year = (int)date('Y');
+$current_year = (int)date('Y');
+$report_year = (int)($_GET['year'] ?? $current_year);
+if ($report_year < 2000 || $report_year > $current_year) $report_year = $current_year;
 $current_month_key = date('Y-m');
 $current_month_label = date('F Y');
 
@@ -62,12 +63,14 @@ $chart_data = [
 ];
 
 $active_page = 'fuel-dashboard';
+$body_class = trim(($body_class ?? '') . ' fuel-management-module fuel-overview-page');
 $page_title  = 'Fuel Management System';
 $include_chart = true;
 require ROOT_PATH . '/includes/header.php';
 ?>
 
-<div class="d-flex flex-wrap justify-content-between align-items-center mb-4 gap-2">
+<div class="fuel-management-page-shell">
+<div class="d-flex flex-wrap justify-content-between align-items-center mb-4 gap-2 fuel-page-heading">
   <div>
     <h1 class="mb-1">Fuel Management System</h1>
     <p class="text-muted-custom mb-0">Monitor fleet fuel transactions, diesel prices per liter, consumption efficiency, and odometer metrics.</p>
@@ -78,6 +81,7 @@ require ROOT_PATH . '/includes/header.php';
       <button class="tc-btn tc-btn-primary tc-btn-sm" onclick="App.openModal('modal-log-fuel')"><i class="bi bi-plus-lg"></i> Log Fuel Refill</button>
     <?php endif; ?>
   </div>
+</div>
 </div>
 
  
@@ -118,9 +122,20 @@ require ROOT_PATH . '/includes/header.php';
     <div class="tc-card">
       <div class="tc-card-header d-flex justify-content-between align-items-center">
         <h4 class="mb-0 fw-bold fs-6"><i class="bi bi-graph-up me-2 text-primary-custom"></i>Monthly Fuel Spend Trend (<?= $report_year ?>)</h4>
-        <div class="btn-group" aria-label="Fuel trend year navigation">
-          <a class="btn btn-sm btn-light border" href="?year=<?= $report_year - 1 ?>">← <?= $report_year - 1 ?></a>
-          <a class="btn btn-sm btn-light border" href="?year=<?= $report_year + 1 ?>"><?= $report_year + 1 ?> →</a>
+        <div class="btn-group" role="group" aria-label="Fuel trend year navigation">
+          <?php if ($report_year > 2000): ?>
+            <a class="btn btn-sm btn-light border" href="?year=<?= $report_year - 1 ?>"
+               aria-label="Previous year, <?= $report_year - 1 ?>">&larr; Previous (<?= $report_year - 1 ?>)</a>
+          <?php else: ?>
+            <button type="button" class="btn btn-sm btn-light border" disabled>&larr; Previous</button>
+          <?php endif; ?>
+          <span class="btn btn-sm btn-primary" aria-current="true"><?= $report_year ?></span>
+          <?php if ($report_year < $current_year): ?>
+            <a class="btn btn-sm btn-light border" href="?year=<?= $report_year + 1 ?>"
+               aria-label="Next year, <?= $report_year + 1 ?>">Next (<?= $report_year + 1 ?>) &rarr;</a>
+          <?php else: ?>
+            <button type="button" class="btn btn-sm btn-light border" disabled title="Future years are not available">Next &rarr;</button>
+          <?php endif; ?>
         </div>
       </div>
       <div class="tc-card-body">
@@ -136,7 +151,7 @@ require ROOT_PATH . '/includes/header.php';
   $current_driver_vehicle_id = null;
   $current_driver_id = null;
   if (($current_user['role_code'] ?? '') === 'driver') {
-      $dStmt = $pdo->prepare('SELECT d.id AS driver_id, v.id AS vehicle_id FROM drivers d LEFT JOIN vehicles v ON v.assigned_driver_id = d.id WHERE d.user_id = ?');
+      $dStmt = $pdo->prepare("SELECT d.id AS driver_id, COALESCE(active_trip.vehicle_id,v.id) AS vehicle_id FROM drivers d LEFT JOIN vehicles v ON v.assigned_driver_id=d.id LEFT JOIN LATERAL (SELECT t.vehicle_id FROM trips t WHERE t.driver_id=d.id AND t.status IN ('In Transit','Returning to Depot') ORDER BY t.actual_departure DESC NULLS LAST LIMIT 1) active_trip ON TRUE WHERE d.user_id=?");
       $dStmt->execute([$current_user['id']]);
       $dRow = $dStmt->fetch();
       if ($dRow) {
@@ -219,4 +234,5 @@ require ROOT_PATH . '/includes/header.php';
 </div>
 <?php endif; ?>
 
+<script src="<?= BASE_URL ?>/js/fuel-management.js?v=<?= (int)filemtime(ROOT_PATH . '/js/fuel-management.js') ?>"></script>
 <?php require ROOT_PATH . '/includes/footer.php'; ?>

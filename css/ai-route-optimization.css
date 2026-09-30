@@ -1,0 +1,159 @@
+.ai-route-optimization-module .ai-route-page-heading {
+  opacity: 0;
+  transform: translateY(8px);
+  transition: opacity 360ms ease, transform 360ms cubic-bezier(.2, .7, .2, 1);
+}
+
+.ai-route-optimization-module.ai-route-motion-ready .ai-route-page-heading {
+  opacity: 1;
+  transform: none;
+}
+
+.ai-route-optimization-module .tc-card,
+.ai-route-optimization-module .map-card-container {
+  transition: transform 190ms ease, box-shadow 190ms ease, border-color 190ms ease;
+}
+
+.ai-route-optimization-module.ai-route-motion-ready .tc-card,
+.ai-route-optimization-module.ai-route-motion-ready .map-card-container {
+  animation: ai-route-section-in 400ms cubic-bezier(.2, .7, .2, 1) both;
+}
+
+.ai-route-optimization-module.ai-route-motion-ready .ai-workspace-container > :nth-child(2) { animation-delay: 55ms; }
+.ai-route-optimization-module.ai-route-motion-ready .ai-workspace-container > :nth-child(3) { animation-delay: 110ms; }
+
+.ai-route-optimization-module .tc-btn,
+.ai-route-optimization-module .btn,
+.ai-route-optimization-module .map-control-btn,
+.ai-route-optimization-module .opt-option-card {
+  transition: transform 140ms ease, box-shadow 180ms ease, background-color 180ms ease,
+    border-color 180ms ease, color 180ms ease, opacity 180ms ease;
+}
+
+.ai-route-optimization-module .tc-btn:active,
+.ai-route-optimization-module .btn:active,
+.ai-route-optimization-module .map-control-btn:active,
+.ai-route-optimization-module .opt-option-card:active {
+  transform: scale(.97);
+}
+
+.ai-route-optimization-module .tc-form-control,
+.ai-route-optimization-module .tc-form-select,
+.ai-route-optimization-module .form-control,
+.ai-route-optimization-module .form-select,
+.ai-route-optimization-module .form-check-input {
+  transition: border-color 170ms ease, box-shadow 170ms ease, background-color 170ms ease;
+}
+
+.ai-route-optimization-module .tc-table tbody tr {
+  transition: background-color 160ms ease, box-shadow 160ms ease;
+}
+
+.ai-route-optimization-module .tc-table tbody tr.ai-route-row-pressed {
+  background-color: rgba(15, 23, 42, .04);
+}
+
+.ai-route-optimization-module .badge,
+.ai-route-optimization-module .progress-bar,
+.ai-route-optimization-module #ai-res-title,
+.ai-route-optimization-module #ai-res-reason,
+.ai-route-optimization-module #ai-itinerary-list {
+  transition: color 180ms ease, background-color 180ms ease, border-color 180ms ease,
+    opacity 180ms ease, transform 180ms ease, width 400ms ease;
+}
+
+.ai-route-optimization-module .ai-route-content-updated {
+  animation: ai-route-content-update 300ms ease-out both;
+}
+
+.ai-route-optimization-module #map-loading-indicator {
+  transition: opacity 240ms ease;
+}
+
+@media (hover: hover) and (pointer: fine) {
+  .ai-route-optimization-module:not(.ai-route-planner-page) .tc-card:hover,
+  .ai-route-optimization-module .route-config-panel:hover,
+  .ai-route-optimization-module .ai-workspace-results:hover {
+    transform: translateY(-2px);
+    box-shadow: 0 10px 24px rgba(15, 23, 42, .08);
+  }
+
+  .ai-route-optimization-module .tc-btn:hover,
+  .ai-route-optimization-module .btn:hover,
+  .ai-route-optimization-module .map-control-btn:hover {
+    transform: translateY(-1px);
+  }
+
+  .ai-route-optimization-module .tc-table tbody tr:not(:has(td[colspan])):hover {
+    background-color: rgba(15, 23, 42, .025);
+    box-shadow: inset 0 1px rgba(15, 23, 42, .035), inset 0 -1px rgba(15, 23, 42, .035);
+  }
+
+  .ai-route-optimization-module .opt-option-card:hover {
+    transform: translateY(-1px);
+  }
+}
+
+@keyframes ai-route-section-in {
+  from { opacity: 0; transform: translateY(7px); }
+  to { opacity: 1; transform: none; }
+}
+
+@keyframes ai-route-content-update {
+  from { opacity: .72; transform: translateY(3px); }
+  to { opacity: 1; transform: none; }
+}
+
+@media (max-width: 767.98px) {
+  .ai-route-optimization-module .ai-route-page-heading {
+    align-items: stretch !important;
+    flex-direction: column;
+    gap: .85rem !important;
+  }
+
+  .ai-route-optimization-module .ai-route-page-heading > .d-flex,
+  .ai-route-optimization-module .ai-route-page-heading > form {
+    width: 100%;
+    flex-wrap: wrap;
+  }
+
+  .ai-route-optimization-module .ai-route-page-heading .tc-btn {
+    flex: 1 1 auto;
+    justify-content: center;
+  }
+
+  .ai-route-optimization-module .tc-table-container {
+    overflow-x: auto;
+    -webkit-overflow-scrolling: touch;
+  }
+
+  .ai-route-optimization-module .tc-table {
+    min-width: 860px;
+  }
+
+  .ai-route-optimization-module.route-comparison-page .tc-card > .d-flex {
+    align-items: stretch !important;
+    flex-direction: column;
+  }
+
+  .ai-route-optimization-module.route-comparison-page .tc-card form,
+  .ai-route-optimization-module.route-comparison-page .tc-card select {
+    width: 100%;
+    max-width: none !important;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .ai-route-optimization-module *,
+  .ai-route-optimization-module *::before,
+  .ai-route-optimization-module *::after {
+    animation-duration: .01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: .01ms !important;
+  }
+
+  .ai-route-optimization-module .ai-route-page-heading {
+    opacity: 1;
+    transform: none;
+  }
+}

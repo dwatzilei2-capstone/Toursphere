@@ -1,6 +1,8 @@
 <?php
  
 require_once dirname(__DIR__) . '/includes/bootstrap.php';
+require_once ROOT_PATH . '/includes/vehicle_compliance.php';
+require_once ROOT_PATH . '/includes/driver_vehicle_assignment.php';
 require_login();
 require_permission('vehicles.assign');
 
@@ -18,17 +20,25 @@ if ($vehicle_id === '' || $driver_id === '') {
 
 try {
     $pdo = db();
+    $pdo->beginTransaction();
 
-    $vehicle = $pdo->prepare('SELECT * FROM vehicles WHERE id = ?');
+    $vehicle = $pdo->prepare('SELECT * FROM vehicles WHERE id = ? FOR UPDATE');
     $vehicle->execute([$vehicle_id]);
     $v = $vehicle->fetch();
 
-    $driver = $pdo->prepare('SELECT * FROM drivers WHERE id = ?');
+    $driver = $pdo->prepare('SELECT * FROM drivers WHERE id = ? FOR UPDATE');
     $driver->execute([$driver_id]);
     $d = $driver->fetch();
 
     if (!$v || !$d) {
-        redirect_with_toast($return, 'Selected vehicle or driver no longer exists.', 'danger');
+        throw new RuntimeException('Selected vehicle or driver no longer exists.');
+    }
+    if (driver_has_active_trip($pdo, $driver_id) || vehicle_has_active_trip($pdo, $vehicle_id)) {
+        throw new RuntimeException('Default assignment cannot be changed while the selected driver or vehicle has an active trip.');
+    }
+    $compliance = vehicle_operational_compliance($pdo, $vehicle_id);
+    if (!$compliance['operational']) {
+        redirect_with_toast($return, 'Vehicle cannot be assigned. ' . $compliance['reason'], 'danger');
     }
     if (strtolower($v['status']) === 'maintenance') {
         redirect_with_toast($return, 'Vehicles undergoing maintenance are locked from driver assignment.', 'danger');
@@ -43,7 +53,7 @@ try {
 
     $existing = $pdo->prepare('SELECT id, plate_number FROM vehicles WHERE assigned_driver_id = ? AND id <> ? LIMIT 1');
     $existing->execute([$driver_id, $vehicle_id]);
-    if ($existing->fetch() || (strtolower((string)($d['status'] ?? '')) === 'assigned' && (string)($v['assigned_driver_id'] ?? '') !== (string)$driver_id)) {
+    if ($existing->fetch()) {
         redirect_with_toast($return, 'This driver is currently assigned to another vehicle. Unassign that vehicle first before continuing.', 'danger');
     }
 
@@ -60,14 +70,15 @@ try {
     }
 
      
-    if ($v['assigned_driver_id']) {
-        $pdo->prepare("UPDATE drivers SET status = 'Active' WHERE id = ?")->execute([$v['assigned_driver_id']]);
-    }
+    $previousDriverId = $v['assigned_driver_id'] ?: null;
      
     $pdo->prepare("UPDATE vehicles SET assigned_driver_id = ?, status = 'Assigned' WHERE id = ?")->execute([$driver_id, $vehicle_id]);
     $pdo->prepare("UPDATE drivers SET status = 'Assigned' WHERE id = ?")->execute([$driver_id]);
+    if ($previousDriverId && $previousDriverId !== $driver_id) refresh_driver_operational_status($pdo, $previousDriverId);
+    $pdo->commit();
 
     redirect_with_toast($return, $d['name'] . ' assigned to ' . $v['id'] . ' (' . $v['plate_number'] . ').', 'success');
 } catch (Exception $ex) {
+    if (isset($pdo) && $pdo instanceof PDO && $pdo->inTransaction()) $pdo->rollBack();
     redirect_with_toast($return, 'Assignment failed: ' . $ex->getMessage(), 'danger');
 }

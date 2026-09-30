@@ -6,9 +6,51 @@
   const search = document.getElementById('va-search');
   const statusFilter = document.getElementById('va-status-filter');
   const picker = document.getElementById('va-driver-picker');
+  const unassignModal = document.getElementById('modal-unassign-confirm');
+  const unassignMessage = document.getElementById('unassign-confirm-message');
+  const unassignCancel = document.getElementById('unassign-confirm-cancel');
+  const unassignConfirm = document.getElementById('unassign-confirm-submit');
   const trigger = picker.querySelector('.va-driver-trigger');
   const menu = picker.querySelector('.va-driver-menu');
   const rows = Array.from(form.querySelectorAll('.va-vehicle-row'));
+  let pendingUnassignButton = null;
+  let confirmedUnassign = false;
+
+  function closeUnassignModal() {
+    App.closeModal('modal-unassign-confirm');
+    const button = pendingUnassignButton;
+    pendingUnassignButton = null;
+    button?.focus();
+  }
+
+  unassignCancel.addEventListener('click', closeUnassignModal);
+  unassignModal.addEventListener('click', (event) => {
+    if (event.target === unassignModal) closeUnassignModal();
+  });
+  unassignModal.addEventListener('keydown', (event) => {
+    if (event.key === 'Escape') {
+      event.preventDefault();
+      closeUnassignModal();
+      return;
+    }
+    if (event.key === 'Tab') {
+      const focusable = [unassignCancel, unassignConfirm];
+      const currentIndex = focusable.indexOf(document.activeElement);
+      if (event.shiftKey && currentIndex === 0) {
+        event.preventDefault();
+        unassignConfirm.focus();
+      } else if (!event.shiftKey && currentIndex === focusable.length - 1) {
+        event.preventDefault();
+        unassignCancel.focus();
+      }
+    }
+  });
+  unassignConfirm.addEventListener('click', () => {
+    if (!pendingUnassignButton?.isConnected) return closeUnassignModal();
+    confirmedUnassign = true;
+    App.closeModal('modal-unassign-confirm');
+    form.requestSubmit(pendingUnassignButton);
+  });
   function filterVehicles() {
     const query = search.value.trim().toLocaleLowerCase();
     let visible = 0;
@@ -83,13 +125,26 @@
     }
   });
   form.addEventListener('change', update);
-  form.addEventListener('submit', () => {
-    const button = form.querySelector('[type="submit"]');
+  form.addEventListener('submit', (event) => {
+    if (event.submitter?.classList.contains('va-unassign')) {
+      if (!confirmedUnassign) {
+        event.preventDefault();
+        pendingUnassignButton = event.submitter;
+        unassignMessage.textContent = event.submitter.dataset.confirm || 'Unassign this driver?';
+        App.openModal('modal-unassign-confirm');
+        unassignCancel.focus();
+        return;
+      }
+      confirmedUnassign = false;
+      pendingUnassignButton = null;
+      return;
+    }
+    const button = form.querySelector('.va-submit');
     button.disabled = true;
     button.textContent = 'Saving assignment…';
   });
   window.addEventListener('pageshow', () => {
-    const button = form.querySelector('[type="submit"]');
+    const button = form.querySelector('.va-submit');
     button.disabled = !form.querySelector('[name="vehicle_id"]') || driver.options.length < 2;
     button.innerHTML = 'Save assignment <i class="bi bi-arrow-right" aria-hidden="true"></i>';
     update();

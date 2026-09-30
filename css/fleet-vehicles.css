@@ -1,0 +1,208 @@
+/* Shared polish for the three Fleet & Vehicles pages only. */
+.fleet-vehicles-module {
+  --fv-ease: cubic-bezier(.22, 1, .36, 1);
+}
+
+.fleet-vehicles-module .fleet-vehicles-page-shell :is(.tc-card, .va-panel) {
+  transform: translateZ(0);
+  transition: transform .22s var(--fv-ease), box-shadow .22s ease, border-color .18s ease;
+}
+
+.fleet-vehicles-module .fleet-vehicles-page-shell :is(.tc-card, .va-panel):hover {
+  transform: translateY(-2px);
+  border-color: var(--tc-border-hover);
+  box-shadow: var(--tc-shadow);
+}
+
+.fleet-vehicles-module .tc-btn {
+  transition: transform .12s ease, box-shadow .18s ease,
+              background-color .16s ease, border-color .16s ease, color .16s ease;
+}
+
+.fleet-vehicles-module .tc-btn:hover:not(:disabled) {
+  transform: translateY(-1px);
+  box-shadow: 0 4px 10px rgba(15, 23, 42, .10);
+}
+
+.fleet-vehicles-module .tc-btn:active:not(:disabled) {
+  transform: translateY(0) scale(.98);
+  box-shadow: none;
+  transition-duration: .06s;
+}
+
+.fleet-vehicles-module .tc-btn.is-loading {
+  pointer-events: none;
+  cursor: wait;
+  opacity: .82;
+}
+
+.fleet-vehicles-module .tc-btn.is-loading .bi-arrow-repeat {
+  display: inline-block;
+  animation: fv-spin .75s linear infinite;
+}
+
+.fleet-vehicles-module :is(.tc-form-control, .tc-form-select) {
+  transition: border-color .16s ease, box-shadow .16s ease, background-color .16s ease;
+}
+
+.fleet-vehicles-module :is(.tc-form-control, .tc-form-select):hover:not(:disabled) {
+  border-color: var(--tc-border-hover);
+}
+
+.fleet-vehicles-module :is(.tc-table, .va-table) tbody tr {
+  transition: background-color .16s ease, transform .16s ease, box-shadow .16s ease;
+}
+
+.fleet-vehicles-module :is(.tc-table, .va-table) tbody tr:not([hidden]):hover {
+  transform: translateY(-1px);
+  box-shadow: 0 3px 9px rgba(15, 23, 42, .06);
+}
+
+.fleet-vehicles-module :is(.tc-table, .va-table) tbody tr.is-pressed {
+  transform: translateY(0) scale(.998);
+  box-shadow: none;
+}
+
+.fleet-vehicles-module :is(.status-badge, .badge, .va-status, .va-license-badge) {
+  transition: transform .16s ease, filter .16s ease;
+}
+
+.fleet-vehicles-module :is(.tc-table, .va-table) tbody tr:hover :is(.status-badge, .badge, .va-status, .va-license-badge) {
+  transform: translateY(-1px);
+  filter: saturate(1.05);
+}
+
+.fleet-vehicles-module .tc-modal-backdrop {
+  transition: opacity .2s ease, visibility .2s ease;
+}
+
+.fleet-vehicles-module .tc-modal-backdrop .tc-modal {
+  transition: transform .28s var(--fv-ease), opacity .2s ease;
+}
+
+.fleet-vehicles-module .tc-modal-backdrop:not(.show) .tc-modal {
+  transform: translateY(10px) scale(.985);
+  opacity: 0;
+}
+
+.fleet-vehicles-module .tc-modal-backdrop.show .tc-modal {
+  transform: translateY(0) scale(1);
+  opacity: 1;
+}
+
+.fleet-vehicle-directory-page .tc-card > .bg-light .tc-btn.active {
+  box-shadow: 0 2px 7px rgba(15, 23, 42, .08);
+}
+
+.fleet-vehicle-directory-page .vehicle-upload-zone {
+  transition: border-color .18s ease, background-color .18s ease, transform .18s var(--fv-ease);
+}
+
+.fleet-vehicle-directory-page .vehicle-upload-zone:hover,
+.fleet-vehicle-directory-page .vehicle-upload-zone:focus-visible {
+  transform: translateY(-1px);
+  border-color: var(--tc-primary);
+}
+
+.fleet-vehicle-directory-page .vehicle-step,
+.fleet-maintenance-page .tc-modal .row > [class*="col-"] {
+  transition: opacity .22s ease, transform .22s var(--fv-ease);
+}
+
+.fleet-vehicle-assignment-page .va-driver-menu {
+  transform-origin: top center;
+  animation: fv-menu-in .18s var(--fv-ease);
+}
+
+.fleet-vehicle-assignment-page .va-vehicle-row:has(input:checked) {
+  box-shadow: inset 0 0 0 1px var(--tc-border-hover);
+}
+
+.fleet-vehicle-assignment-page .va-selection {
+  transition: opacity .18s ease, transform .18s var(--fv-ease);
+}
+
+.fleet-vehicle-assignment-page .va-selection.is-updating {
+  opacity: .65;
+  transform: translateY(2px);
+}
+
+.fleet-vehicles-motion-enabled .fleet-vehicles-module .fleet-vehicles-page-shell > * {
+  opacity: 0;
+  transform: translateY(10px);
+}
+
+.fleet-vehicles-motion-enabled .fleet-vehicles-module.fleet-vehicles-motion-ready .fleet-vehicles-page-shell > * {
+  opacity: 1;
+  transform: translateY(0);
+  transition: opacity .42s ease, transform .52s var(--fv-ease);
+}
+
+.fleet-vehicles-motion-enabled .fleet-vehicles-module.fleet-vehicles-motion-ready .fleet-vehicles-page-shell > *:nth-child(2) { transition-delay: 60ms; }
+.fleet-vehicles-motion-enabled .fleet-vehicles-module.fleet-vehicles-motion-ready .fleet-vehicles-page-shell > *:nth-child(3) { transition-delay: 110ms; }
+
+@keyframes fv-spin { to { transform: rotate(360deg); } }
+@keyframes fv-menu-in {
+  from { opacity: 0; transform: translateY(-5px) scale(.99); }
+  to { opacity: 1; transform: translateY(0) scale(1); }
+}
+
+@media (max-width: 767.98px) {
+  .fleet-vehicles-module .fleet-vehicles-page-shell > .d-flex:first-child {
+    align-items: flex-start !important;
+  }
+
+  .fleet-vehicles-module .fleet-vehicles-page-shell > .d-flex:first-child > .d-flex,
+  .fleet-maintenance-page .fleet-vehicles-page-shell > .d-flex:first-child {
+    flex-wrap: wrap;
+  }
+
+  .fleet-vehicles-module .tc-table-container,
+  .fleet-vehicle-assignment-page .va-table-wrap {
+    scroll-behavior: smooth;
+    -webkit-overflow-scrolling: touch;
+  }
+
+  .fleet-vehicles-module .tc-modal {
+    width: calc(100vw - 20px);
+    max-height: calc(100dvh - 20px);
+    margin: 10px;
+  }
+}
+
+@media (max-width: 575.98px) {
+  .fleet-vehicle-directory-page .fleet-vehicles-page-shell > .d-flex:first-child,
+  .fleet-maintenance-page .fleet-vehicles-page-shell > .d-flex:first-child {
+    flex-direction: column;
+  }
+
+  .fleet-vehicle-directory-page .fleet-vehicles-page-shell > .d-flex:first-child > .d-flex,
+  .fleet-maintenance-page .fleet-vehicles-page-shell > .d-flex:first-child > .d-flex {
+    width: 100%;
+  }
+
+  .fleet-vehicle-directory-page .fleet-vehicles-page-shell > .d-flex:first-child .tc-btn,
+  .fleet-maintenance-page .fleet-vehicles-page-shell > .d-flex:first-child .tc-btn {
+    flex: 1 1 auto;
+  }
+}
+
+@media (hover: none) {
+  .fleet-vehicles-module .fleet-vehicles-page-shell :is(.tc-card, .va-panel):hover,
+  .fleet-vehicles-module :is(.tc-table, .va-table) tbody tr:not([hidden]):hover {
+    transform: none;
+    box-shadow: var(--tc-shadow-sm);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .fleet-vehicles-motion-enabled .fleet-vehicles-module .fleet-vehicles-page-shell > *,
+  .fleet-vehicles-module :is(.tc-card, .va-panel, .tc-btn, .tc-form-control, .tc-form-select, .tc-table tbody tr, .va-table tbody tr, .status-badge, .badge, .va-status, .va-license-badge, .tc-modal, .vehicle-upload-zone, .va-selection) {
+    opacity: 1;
+    transform: none !important;
+    animation: none !important;
+    transition-duration: .01ms !important;
+    transition-delay: 0ms !important;
+    scroll-behavior: auto !important;
+  }
+}

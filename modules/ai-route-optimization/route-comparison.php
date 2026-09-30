@@ -45,11 +45,12 @@ $mode_colors = [
 ];
 
 $active_page = 'route-comparison';
+$body_class = trim(($body_class ?? '') . ' ai-route-optimization-module route-comparison-page');
 $page_title  = 'AI Route Comparison Matrix';
 require ROOT_PATH . '/includes/header.php';
 ?>
 
-<div class="d-flex justify-content-between align-items-center mb-4">
+<div class="d-flex justify-content-between align-items-center mb-4 ai-route-page-heading">
   <div>
     <h1 class="mb-1">AI Route Comparison Matrix</h1>
     <p class="text-muted-custom mb-0">Evaluate trade-offs across Distance, Duration, Fuel Burn, Toll Fees, and Road Stress.</p>
@@ -114,4 +115,5 @@ require ROOT_PATH . '/includes/header.php';
   </div>
 </div>
 
+<script src="<?= BASE_URL ?>/js/ai-route-optimization.js?v=<?= (int)filemtime(ROOT_PATH . '/js/ai-route-optimization.js') ?>"></script>
 <?php require ROOT_PATH . '/includes/footer.php'; ?>

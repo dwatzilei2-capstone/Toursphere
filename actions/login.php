@@ -4,6 +4,7 @@
 
 
 require_once dirname(__DIR__) . '/includes/bootstrap.php';
+require_once dirname(__DIR__) . '/includes/login-2fa.php';
 
 if (is_logged_in()) {
     redirect_to(BASE_URL . '/index.php');
@@ -23,7 +24,8 @@ if ($email === '' || $password === '') {
 try {
     $pdo = db();
     $stmt = $pdo->prepare(
-        "SELECT u.*, r.code AS role_code, r.name AS role_name
+        "SELECT u.*, COALESCE(NULLIF(BTRIM(u.recovery_email), ''), u.email) AS two_factor_email,
+                r.code AS role_code, r.name AS role_name
            FROM users u
            JOIN roles r ON r.id = u.role_id
           WHERE (lower(u.email) = lower(?) OR upper(u.emp_id) = upper(?)) AND u.status = 'Active'
@@ -42,6 +44,22 @@ try {
             ->execute([password_hash($password, PASSWORD_DEFAULT), $user['id']]);
     }
 
+    if (login_2fa_required((string)$user['role_code'])) {
+        unset($_SESSION['user_id'], $_SESSION['user_name'], $_SESSION['login_2fa'], $_SESSION['login_2fa_message']);
+        $ip = $_SERVER['REMOTE_ADDR'] ?? 'unknown';
+        try {
+            $pending = login_2fa_issue($pdo, $user, $ip);
+        } catch (DomainException $ex) {
+            redirect_to(BASE_URL . '/login.php?error=' . rawurlencode($ex->getMessage()));
+        } catch (RuntimeException $ex) {
+            redirect_to(BASE_URL . '/login.php?error=' . rawurlencode($ex->getMessage()));
+        }
+        session_regenerate_id(true);
+        $_SESSION['login_2fa'] = $pending;
+        $_SESSION['login_2fa_csrf'] = bin2hex(random_bytes(32));
+        redirect_to(BASE_URL . '/verify-login.php');
+    }
+
     session_regenerate_id(true);
     $_SESSION['user_id'] = (int)$user['id'];
     $_SESSION['user_name'] = $user['name'];
@@ -50,4 +68,3 @@ try {
 } catch (Exception $ex) {
     redirect_to(BASE_URL . '/login.php?error=' . rawurlencode('Authentication service unavailable. Please try again.'));
 }
-

@@ -31,6 +31,121 @@ const App = {
     this.initRouteMap();
     this.initNotificationsTabs();
     this.setupSidebarScrollPersistence();
+    this.setupComplianceUploadReview();
+    if (window.TC_OPEN_VEHICLE_ID && window.TC_VEHICLES_DATA?.[window.TC_OPEN_VEHICLE_ID]) {
+      this.viewVehicleDetails(window.TC_OPEN_VEHICLE_ID);
+    }
+  },
+
+  setupComplianceUploadReview() {
+    const labels = {
+      provider: "Provider", policy_number: "Policy Number", effective_date: "Effective Date",
+      expiration_date: "Expiration Date", permit_number: "Permit Number", plate_number: "Plate Number",
+      chassis_number: "Chassis Number", engine_number: "Engine Number", mv_file_number: "MV File Number",
+      cpc_number: "CPC Number"
+    };
+    document.addEventListener("change", (event) => {
+      const input = event.target.closest('form[data-compliance-upload] input[name="document"]');
+      if (!input) return;
+      const form = input.closest("form");
+      form.dataset.reviewed = "false";
+      const review = form.querySelector("[data-document-review]");
+      const confirm = form.querySelector("[data-manual-review]");
+      const button = form.querySelector('button[type="submit"]');
+      if (review) review.textContent = "";
+      if (confirm) {
+        confirm.hidden = true;
+        confirm.querySelector("input").required = false;
+        confirm.querySelector("input").checked = false;
+        const manualPlate = confirm.querySelector('[name="manual_vehicle_plate"]');
+        if (manualPlate) {
+          manualPlate.required = false;
+          manualPlate.value = "";
+        }
+      }
+      form.dataset.matchStatus = "";
+      if (button) {
+        button.disabled = false;
+        button.textContent = "Analyze Document";
+      }
+    });
+
+    document.addEventListener("submit", async (event) => {
+      const form = event.target.closest("form[data-compliance-upload]");
+      if (!form || form.dataset.reviewed === "true") return;
+      event.preventDefault();
+      const input = form.querySelector('input[name="document"]');
+      const review = form.querySelector("[data-document-review]");
+      const confirm = form.querySelector("[data-manual-review]");
+      const button = form.querySelector('button[type="submit"]');
+      if (!input?.files.length) return;
+
+      let documentTypeBlocked = false;
+      button.disabled = true;
+      review.textContent = "Analyzing this document...";
+      try {
+        const response = await fetch(`${window.TC_BASE_URL}/actions/vehicle-document-analyze.php`, {
+          method: "POST", body: new FormData(form), headers: { Accept: "application/json" }
+        });
+        const result = await response.json();
+        if (!response.ok || !result.ok) throw new Error(result.error || "Document analysis failed.");
+        const extracted = Object.entries(result.document_data || {})
+          .map(([key, value]) => `${labels[key] || key}: ${value}`).join(" · ");
+        const match = result.vehicle_match;
+        const typeVerification = result.document_type_verification;
+        const typeStatus = typeVerification?.status || "NEEDS_REVIEW";
+        const matchStatus = match?.status || "NEEDS_REVIEW";
+        form.dataset.matchStatus = matchStatus;
+        form.dataset.typeStatus = typeStatus;
+
+        let overallResult;
+        if (typeStatus === "MISMATCHED") {
+          overallResult = `REJECTED — Wrong document type. ${typeVerification.reason}`;
+        } else if (typeStatus !== "MATCHED") {
+          overallResult = `NEEDS REVIEW — Document type could not be verified. ${typeVerification?.reason || "Upload a clearer searchable document."}`;
+        } else if (matchStatus === "MISMATCHED") {
+          overallResult = `REJECTED — Document belongs to a different vehicle. ${match.reason}`;
+        } else if (matchStatus !== "MATCHED") {
+          overallResult = `NEEDS REVIEW — Vehicle identity could not be verified. ${match?.reason || "Upload a clearer document or review its identifiers."}`;
+        } else {
+          overallResult = "CHECKS PASSED — Document type and vehicle identity are both verified.";
+        }
+
+        const matchDetails = match
+          ? `${match.status} — ${match.reason}${match.matched_identifiers?.length ? ` Matched: ${match.matched_identifiers.join(", ")}.` : ""}${match.conflicting_identifiers?.length ? ` Conflicts: ${match.conflicting_identifiers.join(", ")}.` : ""}`
+          : "NEEDS_REVIEW — Vehicle match could not be checked.";
+        const typeDetails = typeVerification
+          ? `${typeVerification.status} — ${typeVerification.reason}`
+          : "NEEDS_REVIEW — Document type could not be checked.";
+        review.textContent = `${overallResult} Document type: ${typeDetails} Vehicle match: ${matchDetails} Extracted fields: ${extracted || "No reliable vehicle identifier was detected."}`;
+        if (typeVerification?.status !== "MATCHED") {
+          form.dataset.reviewed = "true";
+          documentTypeBlocked = true;
+          button.textContent = typeVerification?.status === "MISMATCHED" ? "Wrong document type" : "Type not verified";
+          return;
+        }
+        if (match?.status === "MISMATCHED") {
+          form.dataset.reviewed = "true";
+          button.textContent = "Document does not match";
+          documentTypeBlocked = true;
+          return;
+        }
+        if (match?.status !== "MATCHED" && confirm) {
+          confirm.hidden = false;
+          confirm.querySelector("input").required = true;
+          const manualPlate = confirm.querySelector('[name="manual_vehicle_plate"]');
+          if (manualPlate) manualPlate.required = match?.status !== "MATCHED";
+        }
+        form.dataset.reviewed = "true";
+        button.textContent = match?.status === "MATCHED"
+          ? (form.dataset.existing === "true" ? "Confirm & Replace" : "Confirm & Upload")
+          : "Confirm Review & Retry";
+      } catch (error) {
+        review.textContent = error.message;
+      } finally {
+        button.disabled = documentTypeBlocked;
+      }
+    });
   },
 
    
@@ -435,6 +550,45 @@ const App = {
     const modalBody = document.getElementById("modal-vehicle-details-body");
     if (!modalBody) return;
 
+    const renderDocument = (label, documentInfo, type, allowUpload = false) => {
+      const documentData = documentInfo || { exists: false, summary: "—", status: "not_detected" };
+      const reviewStatus = documentData.exists
+        ? documentData.testFixture ? "TEST ONLY fixture"
+          : documentData.status === "needs_review" ? "Needs review"
+          : documentData.status === "not_detected" ? "Not detected"
+            : "Extracted successfully"
+        : "";
+      const matchStatus = documentData.exists && (type === "insurance" || type === "ltfrb_permit")
+        ? documentData.testFixture ? "TEST ONLY; not verified against a live vehicle document."
+          : `Vehicle match: ${documentData.vehicleMatchStatus || "Needs review"}`
+        : "";
+      const formId = `compliance-${this.escapeHtml(v.id)}-${type}`;
+      const isVerifiedDocument = documentData.exists && documentData.vehicleMatchStatus === "MATCHED";
+      const uploadForm = allowUpload && v.canManageDocuments && !isVerifiedDocument ? `
+        <form method="post" action="${window.TC_BASE_URL}/actions/vehicle-compliance-document.php" enctype="multipart/form-data" class="mt-2" data-compliance-upload data-existing="${documentData.exists ? "true" : "false"}" data-reviewed="false">
+          <input type="hidden" name="csrf_token" value="${this.escapeHtml(v.csrfToken)}">
+          <input type="hidden" name="vehicle_id" value="${this.escapeHtml(v.id)}">
+          <input type="hidden" name="document_type" value="${type}">
+          <div class="d-flex flex-column flex-sm-row gap-2">
+            <input id="${formId}" type="file" name="document" class="form-control form-control-sm" accept=".pdf,.jpg,.jpeg,.png,application/pdf,image/jpeg,image/png" required aria-label="${label} document">
+            <button type="submit" class="tc-btn tc-btn-secondary tc-btn-sm flex-shrink-0">Analyze Document</button>
+          </div>
+          <div class="small text-muted-custom mt-1" data-document-review role="status" aria-live="polite"></div>
+          <div class="small text-muted-custom mt-1" data-manual-review hidden>
+            <label><input type="checkbox" name="manual_review_confirm" value="1"> I reviewed this document manually.</label>
+            <label class="d-block mt-1">Plate number shown on the document
+              <input type="text" name="manual_vehicle_plate" class="form-control form-control-sm text-uppercase" maxlength="20" autocomplete="off">
+            </label>
+          </div>
+        </form>` : "";
+      return `<div class="py-2 border-bottom">
+        <div class="d-flex flex-wrap justify-content-between gap-2"><strong>${label}:</strong><span>${this.escapeHtml(documentData.summary || "—")}</span></div>
+        ${reviewStatus ? `<div class="small text-muted-custom mt-1">${reviewStatus}</div>` : ""}
+        ${matchStatus ? `<div class="small text-muted-custom mt-1">${this.escapeHtml(matchStatus)}</div>` : ""}
+        ${uploadForm}
+      </div>`;
+    };
+
     modalBody.innerHTML = `
       <div class="row g-3">
         <div class="col-md-6 border-end">
@@ -445,16 +599,16 @@ const App = {
             <tr><td class="text-muted-custom">Vehicle Type:</td><td class="fw-semibold">${v.type}</td></tr>
             <tr><td class="text-muted-custom">Passenger Capacity:</td><td>${v.capacity} Persons</td></tr>
             <tr><td class="text-muted-custom">Current Status:</td><td><span class="status-badge ${v.status === 'Available' ? 'status-available' : 'status-ontrip'}">${v.status}</span></td></tr>
+            <tr><td class="text-muted-custom">Operational Status:</td><td><strong class="${v.operational.operational ? 'text-success' : 'text-danger'}">${this.escapeHtml(v.operational.status)}</strong>${v.operational.reason ? `<div class="small text-danger mt-1">${this.escapeHtml(v.operational.reason)}</div>` : v.operational.test_data ? '<div class="small text-muted-custom mt-1">TEST ONLY data</div>' : ''}</td></tr>
             <tr><td class="text-muted-custom">Odometer:</td><td>${Number(v.odometer).toLocaleString()} km</td></tr>
-            <tr><td class="text-muted-custom">Fuel Capacity / Level:</td><td>${v.fuelCapacity} L (${v.currentFuel}% Filled)</td></tr>
           </table>
         </div>
         <div class="col-md-6">
           <h5 class="fw-bold mb-3"><i class="bi bi-file-earmark-text me-2"></i>Documents & Compliance</h5>
           <div class="p-2 bg-light rounded small mb-3">
-            <div><strong>Registration:</strong> ${v.documents.registration || '—'}</div>
-            <div class="mt-1"><strong>Insurance:</strong> ${v.documents.insurance || '—'}</div>
-            <div class="mt-1"><strong>LTFRB Permit:</strong> ${v.documents.ltfrbPermit || '—'}</div>
+            ${renderDocument("Registration", v.documents.registration, "registration")}
+            ${renderDocument("Insurance", v.documents.insurance, "insurance", true)}
+            ${renderDocument("LTFRB Permit", v.documents.ltfrbPermit, "ltfrb_permit", true)}
           </div>
           <h5 class="fw-bold mb-2"><i class="bi bi-speedometer2 me-2"></i>Performance & Cost</h5>
           <div class="p-2 bg-light rounded small">
@@ -513,10 +667,18 @@ const App = {
           <div class="col-4 p-2 bg-light rounded"><div class="fw-bold fs-6 text-primary">${payload.safetyScore}</div><div class="text-muted-custom">Safety Pts</div></div>
         </div>
 
+        <h5 class="fw-bold mb-2 small text-uppercase text-muted-custom">Customer Ratings</h5>
+        <div class="p-2 border rounded small mb-3">
+          ${payload.ratingCount > 0
+            ? `<div class="d-flex justify-content-between align-items-center"><strong class="text-warning"><i class="bi bi-star-fill me-1"></i>${Number(payload.rating).toFixed(2)}/5</strong><span class="text-muted-custom">${payload.ratingCount} rating${payload.ratingCount === 1 ? "" : "s"}</span></div>
+               ${(payload.recentReviews || []).length ? `<div class="mt-2 pt-2 border-top">${payload.recentReviews.map((review) => `<div class="mb-2"><span class="text-warning">${"★".repeat(Number(review.stars))}${"☆".repeat(5 - Number(review.stars))}</span>${review.feedback ? `<div class="text-muted-custom">${this.escapeHtml(review.feedback)}</div>` : ""}</div>`).join("")}</div>` : ""}`
+            : `<span class="text-muted-custom">No customer ratings yet.</span>`}
+        </div>
+
         <h5 class="fw-bold mb-2 small text-uppercase text-muted-custom">Assigned Vehicle</h5>
         <div class="p-2 border rounded small d-flex justify-content-between align-items-center">
-          <span>${payload.assignedVehicle}</span>
-          <span class="badge bg-success">Assigned</span>
+          <span><span class="text-muted-custom">Default:</span> ${this.escapeHtml(payload.assignedVehicle)}<br><span class="text-muted-custom">Current Trip:</span> ${this.escapeHtml(payload.currentTripVehicle)}</span>
+          <span class="badge bg-success">${payload.currentTripVehicle !== "None" ? "On Trip" : "Default"}</span>
         </div>
       </div>
     `;
@@ -539,10 +701,19 @@ const App = {
 
     const vehicles = window.TC_DISPATCH_DATA.vehicles || [];
     const drivers = window.TC_DISPATCH_DATA.drivers || [];
+    const operationalVehicles = vehicles.filter((vehicle) => {
+      const underMaintenance = vehicle.is_under_maintenance === true || vehicle.is_under_maintenance === "t";
+      const onTrip = vehicle.has_active_trip === true || vehicle.has_active_trip === "t";
+      const meetsCapacity = Number(vehicle.capacity) >= Number(r.scheduledPassengerDemand || r.passengerCount);
+      const meetsType = !r.requiredVehicleType || vehicle.type === r.requiredVehicleType;
+      return !underMaintenance && !onTrip && vehicle.is_operational === true && meetsCapacity && meetsType;
+    });
+    const availableDrivers = drivers.filter((driver) => !(driver.has_active_trip === true || driver.has_active_trip === "t") && ["Active", "Assigned"].includes(driver.status));
     const currentVehicle = r.assignedVehicle && r.assignedVehicle !== "Pending" ? r.assignedVehicle.split(" ")[0] : "";
 
-    const dispatchLocked = !["Pending", "Assigned", "Confirmed"].includes(r.status);
+    const dispatchLocked = !["Approved", "Pending", "Assigned", "Confirmed"].includes(r.status);
     const canDispatch = (typeof window.TC_CAN_DISPATCH === "undefined" || window.TC_CAN_DISPATCH === true) && !dispatchLocked;
+    const isAssigned = ["Assigned", "Confirmed"].includes(r.status);
 
     if (!canDispatch) {
       const lockedNotice = dispatchLocked
@@ -562,6 +733,8 @@ const App = {
           </div>
         </div>
         <div class="row g-3 small">
+          <div class="col-md-6"><span class="text-muted-custom">Required Vehicle Type:</span> <strong>${this.escapeHtml(r.requiredVehicleType || "Not recorded")}</strong></div>
+          <div class="col-md-6"><span class="text-muted-custom">Required Capacity:</span> <strong>${r.requiredCapacity ? Number(r.requiredCapacity) + " passengers" : "Not recorded"}</strong></div>
           <div class="col-md-6"><span class="text-muted-custom">Assigned Vehicle:</span> <strong>${r.assignedVehicle || "Pending"}</strong></div>
           <div class="col-md-6"><span class="text-muted-custom">Assigned Driver:</span> <strong>${r.assignedDriver || "Pending"}</strong></div>
           <div class="col-md-6"><span class="text-muted-custom">Departure Time:</span> <strong>${r.departureDate} ${r.departureTime}</strong></div>
@@ -589,6 +762,8 @@ const App = {
         </div>
       </div>
 
+      <div class="small text-muted-custom mb-3">Required Vehicle Type: <strong>${this.escapeHtml(r.requiredVehicleType || "Not recorded")}</strong> · Required Capacity: <strong>${r.requiredCapacity ? Number(r.requiredCapacity) + " passengers" : "Not recorded"}</strong></div>
+
       <form method="post" action="${window.TC_BASE_URL}/actions/dispatch.php">
         <input type="hidden" name="reservation_id" value="${r.id}">
         <input type="hidden" name="return" value="${window.location.pathname}">
@@ -596,22 +771,35 @@ const App = {
           <div class="col-md-6">
             <label class="tc-form-label d-flex justify-content-between align-items-center">
               <span>Assign Vehicle</span>
-              ${vehicles.some((v) => v.is_under_maintenance === true || v.is_under_maintenance === "t")
-                ? `<span class="badge bg-danger-subtle text-danger border border-danger-subtle">Maintenance vehicles locked</span>`
+              ${vehicles.some((v) => v.is_under_maintenance === true || v.is_under_maintenance === "t" || v.is_operational !== true)
+                ? `<span class="badge bg-danger-subtle text-danger border border-danger-subtle">Unavailable vehicles locked</span>`
                 : ""}
             </label>
             <select class="tc-form-select" name="vehicle_id" required>
               ${vehicles.map((v) => {
                 const underMaintenance = v.is_under_maintenance === true || v.is_under_maintenance === "t";
-                return `<option value="${v.id}" ${v.id === currentVehicle ? "selected" : ""} ${underMaintenance ? "disabled" : ""}>${v.plate_number} - ${v.brand} ${v.model} (${v.capacity} pax)${underMaintenance ? " — UNDER MAINTENANCE · NOT AVAILABLE" : ` — ${v.status}`}</option>`;
+                const onTrip = v.has_active_trip === true || v.has_active_trip === "t";
+                const notOperational = v.is_operational !== true;
+                const belowCapacity = Number(v.capacity) < Number(r.scheduledPassengerDemand || r.passengerCount);
+                const wrongType = Boolean(r.requiredVehicleType) && v.type !== r.requiredVehicleType;
+                const locked = underMaintenance || onTrip || notOperational || belowCapacity || wrongType;
+                const reason = underMaintenance ? "Under maintenance." : onTrip ? "Currently used by an active trip." : belowCapacity ? "Below required passenger capacity." : wrongType ? "Does not match the required vehicle type." : v.operational_reason || "Required compliance documents are incomplete or invalid.";
+                const unavailable = onTrip ? "ON TRIP" : underMaintenance ? "UNDER MAINTENANCE" : "UNAVAILABLE: " + this.escapeHtml(reason);
+                const operationLabel = v.is_test_data ? "OPERATIONAL (TEST DATA)" : "OPERATIONAL";
+                return `<option value="${this.escapeHtml(v.id)}" ${v.id === currentVehicle ? "selected" : ""} ${locked ? "disabled" : ""}>${this.escapeHtml(v.plate_number)} - ${this.escapeHtml(v.brand)} ${this.escapeHtml(v.model)} (${Number(v.capacity)} pax)${locked ? ` — ${unavailable}` : ` — ${this.escapeHtml(v.status)} · ${operationLabel}`}</option>`;
               }).join("")}
             </select>
-            <div class="form-text"><i class="bi bi-shield-lock me-1"></i>Vehicles under maintenance are visible for reference but cannot be selected.</div>
+            <div class="form-text"><i class="bi bi-shield-lock me-1"></i>Vehicles with incomplete or expired required documents cannot be dispatched.</div>
+            ${operationalVehicles.length ? "" : `<div class="small text-danger mt-2">No operational vehicle is available. ${vehicles.filter((vehicle) => vehicle.is_operational !== true).map((vehicle) => `${this.escapeHtml(vehicle.plate_number)}: ${this.escapeHtml(vehicle.operational_reason || "Compliance incomplete.")}`).join(" · ")}</div>`}
           </div>
           <div class="col-md-6">
             <label class="tc-form-label">Assign Driver</label>
             <select class="tc-form-select" name="driver_id" required>
-              ${drivers.map((d) => `<option value="${d.id}" ${d.name === r.assignedDriver ? "selected" : ""}>${d.name} (${d.status} - Score: ${d.safety_score})</option>`).join("")}
+              ${drivers.map((d) => {
+                const onTrip = d.has_active_trip === true || d.has_active_trip === "t";
+                const unavailable = onTrip || !["Active", "Assigned"].includes(d.status);
+                return `<option value="${this.escapeHtml(d.id)}" ${d.name === r.assignedDriver && !unavailable ? "selected" : ""} ${unavailable ? "disabled" : ""}>${this.escapeHtml(d.name)} (${onTrip ? "On Trip" : this.escapeHtml(d.status)} - Score: ${Number(d.safety_score)})</option>`;
+              }).join("")}
             </select>
           </div>
           <div class="col-md-6">
@@ -629,7 +817,8 @@ const App = {
         </div>
         <div class="d-flex justify-content-end gap-2 mt-4">
           <button type="button" class="tc-btn tc-btn-secondary" onclick="App.closeModal('modal-dispatch')">Cancel</button>
-          <button type="submit" class="tc-btn tc-btn-primary"><i class="bi bi-send-check me-1"></i> Confirm & Dispatch Trip</button>
+          <button type="submit" name="dispatch_action" value="assign" class="tc-btn tc-btn-primary" ${operationalVehicles.length && availableDrivers.length ? "" : "disabled"}><i class="bi bi-person-check me-1"></i> ${isAssigned ? "Save Assignment" : "Confirm Assignment"}</button>
+          ${isAssigned ? `<button type="submit" name="dispatch_action" value="dispatch" class="tc-btn tc-btn-primary" ${operationalVehicles.length && availableDrivers.length ? "" : "disabled"}><i class="bi bi-send-check me-1"></i> Dispatch Trip</button>` : ""}
         </div>
       </form>
     `;
@@ -766,12 +955,14 @@ const App = {
     if (event && event.stopPropagation) event.stopPropagation();
     const form = new FormData();
     form.append("action", "read");
+    form.append("csrf_token", document.getElementById("header-notif-btn")?.dataset.csrf || "");
     form.append("id", id);
 
     fetch(`${window.TC_BASE_URL}/actions/notifications.php`, { method: "POST", body: form, keepalive: true })
       .then((res) => res.json())
       .then((data) => {
-        if (data.ok) this.updateNotifBadge(data.unread);
+        if (!data.ok) return;
+        this.updateNotifBadge(data.unread);
         const row = document.querySelector(`[data-notif-row="${id}"]`);
         if (row) row.classList.remove("unread");
         const item = document.querySelector(`[data-notif-id="${id}"]`);
@@ -784,11 +975,13 @@ const App = {
   markAllNotificationsRead() {
     const form = new FormData();
     form.append("action", "read_all");
+    form.append("csrf_token", document.getElementById("header-notif-btn")?.dataset.csrf || "");
 
     fetch(`${window.TC_BASE_URL}/actions/notifications.php`, { method: "POST", body: form })
       .then((res) => res.json())
       .then((data) => {
-        if (data.ok) this.updateNotifBadge(data.unread);
+        if (!data.ok) return;
+        this.updateNotifBadge(data.unread);
         document.querySelectorAll(".notifications-item-row, .notifications-item").forEach((el) => el.classList.remove("unread"));
         document.querySelectorAll("[data-mark-read-btn]").forEach((el) => el.remove());
         this.showToast("All Cleared", "All notifications marked as read.", "success");
@@ -926,6 +1119,24 @@ const App = {
             }
           }
         };
+      }
+
+      if (document.body.classList.contains("toursphere-dashboard")) {
+        const reduceMotion = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+        chartCfg.options.animation = {
+          duration: reduceMotion ? 0 : 850,
+          easing: "easeOutQuart",
+          delay: (context) => reduceMotion ? 0 : (context.type === "data" ? context.dataIndex * 70 : 0)
+        };
+        chartCfg.options.interaction = { mode: "nearest", intersect: false };
+        if (chartCfg.options.plugins?.tooltip) {
+          Object.assign(chartCfg.options.plugins.tooltip, {
+            displayColors: false,
+            backgroundColor: "rgba(15, 23, 42, .92)",
+            padding: 10,
+            cornerRadius: 7
+          });
+        }
       }
 
       this.charts[canvasId] = new Chart(ctx, chartCfg);

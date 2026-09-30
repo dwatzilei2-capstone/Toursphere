@@ -41,15 +41,18 @@ try {
             echo json_encode(['ok' => true, 'items' => $stmt->fetchAll()]);
             exit;
         case 'variants':
-            if (!$parentId) throw new InvalidArgumentException('A vehicle model is required.');
+            $year = filter_input(INPUT_GET, 'year', FILTER_VALIDATE_INT);
+            if (!$parentId || !$year) throw new InvalidArgumentException('A vehicle model and year are required.');
             $stmt = $pdo->prepare(
                 "SELECT id, variant_name AS name, model_year, passenger_capacity,
                         fuel_tank_capacity, fuel_type
                    FROM vehicle_variants
-                  WHERE model_id = ? AND status = 'Active'
+                  WHERE model_id = ? AND model_year = ? AND status = 'Active'
                   ORDER BY variant_name, model_year DESC"
             );
-            break;
+            $stmt->execute([$parentId, $year]);
+            echo json_encode(['ok' => true, 'items' => $stmt->fetchAll()], JSON_UNESCAPED_UNICODE);
+            exit;
         default:
             throw new InvalidArgumentException('Unsupported catalog request.');
     }

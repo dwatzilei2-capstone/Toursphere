@@ -1,6 +1,7 @@
 <?php
 
 require_once dirname(__DIR__) . '/includes/bootstrap.php';
+require_once ROOT_PATH . '/includes/schedules.php';
 require_login();
 require_permission('dispatch.manage');
 
@@ -41,7 +42,7 @@ function recalculate_vehicle_availability(PDO $pdo, string $vehicleId): void
     );
     $maintenance->execute([$vehicleId]);
     if ($maintenance->fetchColumn()) {
-        $pdo->prepare("UPDATE vehicles SET status='Maintenance', assigned_driver_id=NULL, location='Maintenance / Inspection' WHERE id=?")
+        $pdo->prepare("UPDATE vehicles SET status='Maintenance', location='Maintenance / Inspection' WHERE id=?")
             ->execute([$vehicleId]);
         return;
     }
@@ -53,8 +54,8 @@ function recalculate_vehicle_availability(PDO $pdo, string $vehicleId): void
     );
     $activeTrip->execute([$vehicleId]);
     if ($driverId = $activeTrip->fetchColumn()) {
-        $pdo->prepare("UPDATE vehicles SET status='On Trip', assigned_driver_id=?, location='On Trip' WHERE id=?")
-            ->execute([$driverId, $vehicleId]);
+        $pdo->prepare("UPDATE vehicles SET status='On Trip', location='On Trip' WHERE id=?")
+            ->execute([$vehicleId]);
         return;
     }
 
@@ -65,13 +66,15 @@ function recalculate_vehicle_availability(PDO $pdo, string $vehicleId): void
     );
     $assignment->execute([$vehicleId]);
     if ($active = $assignment->fetch()) {
-        $pdo->prepare("UPDATE vehicles SET status='Assigned', assigned_driver_id=?, location=? WHERE id=?")
-            ->execute([$active['assigned_driver_id'] ?: null, 'Scheduled: ' . $active['origin'] . ' → ' . $active['destination'], $vehicleId]);
+        $pdo->prepare("UPDATE vehicles SET status='Assigned', location=? WHERE id=?")
+            ->execute(['Scheduled: ' . $active['origin'] . ' → ' . $active['destination'], $vehicleId]);
         return;
     }
 
-    $pdo->prepare("UPDATE vehicles SET status='Available', assigned_driver_id=NULL, location='Central Depot' WHERE id=?")
-        ->execute([$vehicleId]);
+    $defaultStmt = $pdo->prepare('SELECT assigned_driver_id FROM vehicles WHERE id=?');
+    $defaultStmt->execute([$vehicleId]);
+    $pdo->prepare("UPDATE vehicles SET status=?, location='Central Depot' WHERE id=?")
+        ->execute([$defaultStmt->fetchColumn() ? 'Assigned' : 'Available', $vehicleId]);
 }
 
 function recalculate_driver_availability(PDO $pdo, string $driverId): void
@@ -85,10 +88,7 @@ function recalculate_driver_availability(PDO $pdo, string $driverId): void
         return;
     }
 
-    $assignment = $pdo->prepare(
-        "SELECT 1 FROM reservations
-          WHERE assigned_driver_id=? AND status IN ('Assigned','Confirmed','Dispatched') LIMIT 1"
-    );
+    $assignment = $pdo->prepare('SELECT 1 FROM vehicles WHERE assigned_driver_id=? LIMIT 1');
     $assignment->execute([$driverId]);
     $status = $assignment->fetchColumn() ? 'Assigned' : 'Active';
     $pdo->prepare('UPDATE drivers SET status=? WHERE id=?')->execute([$status, $driverId]);
@@ -142,6 +142,10 @@ try {
         $cancellationType, $reason, $notes !== '' ? $notes : null, $current_user['id'],
         $vehicleId, $driverId, $reservationId, $previousStatus,
     ]);
+    if (!empty($reservation['customer_id'])) {
+        $pdo->prepare("INSERT INTO reservation_events(reservation_id,actor_id,status,reason) VALUES (?,?,'Cancelled',?)")
+            ->execute([$reservationId, $current_user['id'], $reason . ($notes !== '' ? ' - ' . $notes : '')]);
+    }
 
     if ($trip) {
         $pdo->prepare(
@@ -157,12 +161,11 @@ try {
 
     if ($vehicleId) recalculate_vehicle_availability($pdo, $vehicleId);
     if ($driverId) recalculate_driver_availability($pdo, $driverId);
+    if ($reservation['departure_schedule_instance_id']) schedule_refresh_required_vehicle($pdo, (int)$reservation['departure_schedule_instance_id']);
+    if ($reservation['return_schedule_instance_id'] && $reservation['return_schedule_instance_id'] !== $reservation['departure_schedule_instance_id']) schedule_refresh_required_vehicle($pdo, (int)$reservation['return_schedule_instance_id']);
 
     $actor = $current_user['name'] ?? 'Dispatcher';
-    $pdo->prepare(
-        "INSERT INTO notifications (title,body,time_label,type,category,target,is_read)
-         VALUES ('Vehicle Reservation Cancelled',?,'Just now','warning','Dispatch','reservations',0)"
-    )->execute(["{$reservationId}: {$previousStatus} → Cancelled by {$actor}. Reason: {$reason}."]);
+
 
     $pdo->commit();
     $label = $action === 'recall_dispatch' ? 'Dispatch recalled and reservation cancelled.' : 'Reservation cancelled.';

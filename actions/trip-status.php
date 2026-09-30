@@ -4,6 +4,8 @@
 
 
 require_once dirname(__DIR__) . '/includes/bootstrap.php';
+require_once ROOT_PATH . '/includes/vehicle_compliance.php';
+require_once ROOT_PATH . '/includes/driver_vehicle_assignment.php';
 require_login();
 
 if ($_SERVER['REQUEST_METHOD'] !== 'POST') {
@@ -57,17 +59,42 @@ try {
 
     $pdo->beginTransaction();
 
-    $pdo->prepare('UPDATE reservations SET status = ? WHERE id = ?')->execute([$new_status, $reservation_id]);
+    if (!empty($r['departure_schedule_instance_id'])) {
+        $pdo->prepare('UPDATE reservations SET status=? WHERE departure_schedule_instance_id=? AND assigned_vehicle_id=? AND assigned_driver_id=? AND status NOT IN (\'Cancelled\',\'Rejected\')')
+            ->execute([$new_status, $r['departure_schedule_instance_id'], $r['assigned_vehicle_id'], $r['assigned_driver_id']]);
+        $pdo->prepare("UPDATE scheduled_departures SET status=?,updated_at=CURRENT_TIMESTAMP WHERE id=?")
+            ->execute([$new_status === 'Completed' ? 'Completed' : 'Dispatched', $r['departure_schedule_instance_id']]);
+    } else {
+        $pdo->prepare('UPDATE reservations SET status = ? WHERE id = ?')->execute([$new_status, $reservation_id]);
+    }
 
      
     $tripStmt = $pdo->prepare('SELECT * FROM trips WHERE reservation_id = ?');
     $tripStmt->execute([$reservation_id]);
     $trip = $tripStmt->fetch();
+    if ($new_status === 'In Transit' && $trip && $trip['driver_id'] && $trip['vehicle_id']) {
+        $resourceLock = $pdo->prepare("SELECT pg_advisory_xact_lock(hashtext(?)), pg_advisory_xact_lock(hashtext(?))");
+        $resourceLock->execute(['dispatch-driver:' . $trip['driver_id'], 'dispatch-vehicle:' . $trip['vehicle_id']]);
+        if (driver_has_active_trip($pdo, $trip['driver_id'], $trip['id'])) throw new RuntimeException('This driver is already operating another active trip.');
+        if (vehicle_has_active_trip($pdo, $trip['vehicle_id'], $trip['id'])) throw new RuntimeException('This vehicle is already being used by another active trip.');
+    }
     if ($new_status === 'Returning to Depot' && (!$trip || $trip['status'] !== 'In Transit')) {
         throw new RuntimeException('Return navigation can start only after an active passenger trip.');
     }
     if ($new_status === 'Completed' && $is_assigned_driver && (!$trip || $trip['status'] !== 'Returning to Depot')) {
         throw new RuntimeException('Navigate back to the depot before completing the trip.');
+    }
+    if ($new_status === 'In Transit' && (!$trip || empty($trip['vehicle_id']))) {
+        throw new RuntimeException('An assigned vehicle is required before a trip can start.');
+    }
+    if ($new_status === 'In Transit' && $trip['status'] !== 'In Transit') {
+        $vehicleLock = $pdo->prepare('SELECT id FROM vehicles WHERE id = ? FOR UPDATE');
+        $vehicleLock->execute([$trip['vehicle_id']]);
+        if (!$vehicleLock->fetchColumn()) throw new RuntimeException('The trip vehicle could not be found.');
+        $compliance = vehicle_operational_compliance($pdo, (string)$trip['vehicle_id']);
+        if (!$compliance['operational']) {
+            throw new RuntimeException('Vehicle cannot start an actual trip because required compliance documents are incomplete or invalid. ' . $compliance['reason']);
+        }
     }
     if ($trip) {
         if ($new_status === 'In Transit') {
@@ -146,6 +173,10 @@ try {
 
      
     if ($new_status === 'Completed') {
+        if (!empty($r['customer_id'])) {
+            $pdo->prepare("INSERT INTO reservation_events(reservation_id,actor_id,status) VALUES (?,?,'Completed')")
+                ->execute([$reservation_id, $current_user['id']]);
+        }
         if ($r['assigned_vehicle_id']) {
             $pendingIssueStmt = $pdo->prepare(
                 "SELECT 1 FROM maintenance_orders
@@ -154,8 +185,11 @@ try {
             );
             $pendingIssueStmt->execute([$r['assigned_vehicle_id']]);
             $hasPendingDriverIssue = (bool)$pendingIssueStmt->fetchColumn();
-            $releaseStatus = ($vehicle_condition === 'Good' && !$hasPendingDriverIssue) ? 'Available' : 'Maintenance';
-            $location = $releaseStatus === 'Available' ? 'Central Depot' : 'Inspection Bay';
+            $defaultDriverStmt = $pdo->prepare('SELECT assigned_driver_id FROM vehicles WHERE id=?');
+            $defaultDriverStmt->execute([$r['assigned_vehicle_id']]);
+            $hasDefaultDriver = (bool)$defaultDriverStmt->fetchColumn();
+            $releaseStatus = ($vehicle_condition === 'Good' && !$hasPendingDriverIssue) ? ($hasDefaultDriver ? 'Assigned' : 'Available') : 'Maintenance';
+            $location = in_array($releaseStatus, ['Available','Assigned'], true) ? 'Central Depot' : 'Inspection Bay';
             $pdo->prepare(
                 "UPDATE vehicles SET status = ?, location = ?,
                     total_trips = total_trips + 1,
@@ -180,18 +214,12 @@ try {
             }
         }
         if ($r['assigned_driver_id']) {
-            $pdo->prepare("UPDATE drivers SET status = 'Active', completed_trips = completed_trips + 1, trip_count = trip_count + 1 WHERE id = ?")
-                ->execute([$r['assigned_driver_id']]);
+            $pdo->prepare("UPDATE drivers SET status = CASE WHEN EXISTS(SELECT 1 FROM vehicles WHERE assigned_driver_id=?) THEN 'Assigned' ELSE 'Active' END, completed_trips = completed_trips + 1, trip_count = trip_count + 1 WHERE id = ?")
+                ->execute([$r['assigned_driver_id'], $r['assigned_driver_id']]);
         }
 
         $completedTripId = $trip ? $trip['id'] : $reservation_id;
-        $pdo->prepare(
-            "INSERT INTO notifications (title,body,time_label,type,category,target,is_read)
-             VALUES ('Trip Completed',?,'Just now','success','Trip',?,0)"
-        )->execute([
-            "Trip {$completedTripId} has been completed.",
-            'trip-details:' . $completedTripId,
-        ]);
+
     }
 
     $pdo->commit();

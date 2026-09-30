@@ -36,6 +36,12 @@ function load_current_user(): void
 {
     global $current_user, $current_permissions, $unread_count, $header_notifications;
 
+    if (!empty($_SESSION['login_2fa'])) {
+        unset($_SESSION['user_id'], $_SESSION['user_name']);
+        $current_user = null;
+        return;
+    }
+
     if (empty($_SESSION['user_id'])) {
         $current_user = null;
         return;
@@ -69,11 +75,12 @@ function load_current_user(): void
         $current_permissions = $stmt->fetchAll(PDO::FETCH_COLUMN);
 
          
-        $notifCount = $pdo->prepare('SELECT COUNT(*) FROM notifications WHERE is_read = 0 AND (user_id IS NULL OR user_id = ?)');
+        $customerOnly = $user['role_code'] === 'customer';
+        $notifCount = $pdo->prepare($customerOnly ? 'SELECT COUNT(*) FROM notifications WHERE is_read = 0 AND user_id = ?' : 'SELECT COUNT(*) FROM notifications WHERE is_read = 0 AND user_id = ?');
         $notifCount->execute([$user['id']]);
         $unread_count = (int)$notifCount->fetchColumn();
         $notifStmt = $pdo->prepare(
-            'SELECT * FROM notifications WHERE user_id IS NULL OR user_id = ? ORDER BY is_read ASC, id DESC LIMIT 6'
+            $customerOnly ? 'SELECT * FROM notifications WHERE user_id = ? ORDER BY is_read ASC, id DESC LIMIT 6' : 'SELECT * FROM notifications WHERE user_id = ? ORDER BY is_read ASC, id DESC LIMIT 6'
         );
         $notifStmt->execute([$user['id']]);
         $header_notifications = $notifStmt->fetchAll();
@@ -138,6 +145,9 @@ function home_path(): string
     global $current_user;
     if ($current_user && $current_user['role_code'] === 'driver') {
         return 'modules/driver-portal/driver-dashboard.php';
+    }
+    if ($current_user && $current_user['role_code'] === 'customer') {
+        return 'modules/customer-portal/reservations.php';
     }
     return 'dashboard.php';
 }

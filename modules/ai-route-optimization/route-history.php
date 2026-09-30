@@ -19,11 +19,12 @@ if (($current_user['role_code'] ?? '') === 'driver') {
 }
 
 $active_page = 'route-history';
+$body_class = trim(($body_class ?? '') . ' ai-route-optimization-module route-history-page');
 $page_title  = 'AI Route Generation History & Logs';
 require ROOT_PATH . '/includes/header.php';
 ?>
 
-<div class="d-flex justify-content-between align-items-center mb-4">
+<div class="d-flex justify-content-between align-items-center mb-4 ai-route-page-heading">
   <div>
     <h1 class="mb-1">AI Route Generation History & Logs</h1>
     <p class="text-muted-custom mb-0">Audit logs of all previously generated route polylines and real-world variance accuracy.</p>
@@ -68,4 +69,5 @@ require ROOT_PATH . '/includes/header.php';
   </div>
 </div>
 
+<script src="<?= BASE_URL ?>/js/ai-route-optimization.js?v=<?= (int)filemtime(ROOT_PATH . '/js/ai-route-optimization.js') ?>"></script>
 <?php require ROOT_PATH . '/includes/footer.php'; ?>

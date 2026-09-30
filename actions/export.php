@@ -53,14 +53,14 @@ switch ($report) {
 
     case 'fleet':
     default:
-        fputcsv($out, ['Vehicle ID', 'Plate', 'Type', 'Brand', 'Model', 'Year', 'Capacity', 'Status', 'Assigned Driver', 'Odometer', 'Fuel Level %', 'Next Maintenance', 'Location']);
+        fputcsv($out, ['Vehicle ID', 'Plate', 'Type', 'Brand', 'Model', 'Year', 'Capacity', 'Status', 'Assigned Driver', 'Odometer', 'Next Maintenance', 'Location']);
         foreach ($pdo->query(
             "SELECT v.*, d.name AS driver_name FROM vehicles v LEFT JOIN drivers d ON d.id = v.assigned_driver_id ORDER BY v.id"
         )->fetchAll() as $v) {
             fputcsv($out, [
                 $v['id'], $v['plate_number'], $v['type'], $v['brand'], $v['model'], $v['year'],
                 $v['capacity'], $v['status'], $v['driver_name'], $v['odometer'],
-                $v['current_fuel'], $v['next_maintenance'], $v['location'],
+                $v['next_maintenance'], $v['location'],
             ]);
         }
         break;

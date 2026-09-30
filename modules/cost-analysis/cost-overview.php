@@ -1,166 +1,28 @@
 <?php
- 
-require_once dirname(__DIR__, 2) . '/includes/bootstrap.php';
-require_login();
-require_permission('costs.view');
-
-$pdo = db();
-
-$month_start = date('Y-m-01');
-$month_end = date('Y-m-01', strtotime('+1 month'));
-$month_label = date('F Y');
-$monthly_budget = (float)$pdo->query("SELECT setting_value FROM system_settings WHERE setting_key = 'cost.monthly_budget'")->fetchColumn();
-
-$categorySql = "SELECT 'Fuel Consumption' name, COALESCE(SUM(total_cost),0) amount FROM fuel_transactions WHERE transaction_date >= ? AND transaction_date < ?
- UNION ALL SELECT 'Vehicle Maintenance & Parts', COALESCE(SUM(estimated_cost),0) FROM maintenance_orders WHERE status='Completed' AND scheduled_date >= ? AND scheduled_date < ?
- UNION ALL SELECT 'Driver Allowances & Per Diem', COALESCE(SUM(driver_allowance),0) FROM trips WHERE status='Completed' AND actual_arrival >= ? AND actual_arrival < ?
- UNION ALL SELECT 'Toll Fees & Parking', COALESCE(SUM(toll_fee),0) FROM trips WHERE status='Completed' AND actual_arrival >= ? AND actual_arrival < ?";
-$categoryStmt = $pdo->prepare($categorySql);
-$categoryStmt->execute([$month_start,$month_end,$month_start,$month_end,$month_start,$month_end,$month_start,$month_end]);
-$rawCategories = $categoryStmt->fetchAll();
-$monthly_total = array_sum(array_map('floatval', array_column($rawCategories, 'amount')));
-$categoryColors = ['#2F80ED','#F2994A','#27AE60','#56CCF2'];
-$categories = [];
-foreach ($rawCategories as $i => $row) {
-    $amount = (float)$row['amount'];
-    if ($amount <= 0) continue;
-    $categories[] = ['name'=>$row['name'], 'amount'=>$amount,
-        'pct'=>$monthly_total > 0 ? ($amount/$monthly_total)*100 : 0,
-        'color'=>$categoryColors[$i] ?? '#9CA3AF'];
-}
-$variance_pct = $monthly_budget > 0 ? (($monthly_budget - $monthly_total) / $monthly_budget) * 100 : 0;
-
-$vehicleCategoryStmt = $pdo->prepare(
-    "WITH fuel AS (SELECT vehicle_id,SUM(total_cost) cost FROM fuel_transactions WHERE transaction_date>=? AND transaction_date<? GROUP BY vehicle_id),
-     maint AS (SELECT vehicle_id,SUM(estimated_cost) cost FROM maintenance_orders WHERE status='Completed' AND scheduled_date>=? AND scheduled_date<? GROUP BY vehicle_id),
-     trip_cost AS (SELECT vehicle_id,SUM(COALESCE(driver_allowance,0)+COALESCE(toll_fee,0)) cost,SUM(COALESCE(distance_km,0)) km FROM trips WHERE status='Completed' AND actual_arrival>=? AND actual_arrival<? GROUP BY vehicle_id)
-     SELECT v.type category_name,COUNT(*) FILTER (WHERE v.status<>'Maintenance') active_units,
-            SUM(COALESCE(fuel.cost,0)+COALESCE(maint.cost,0)+COALESCE(trip_cost.cost,0)) monthly_expense,
-            SUM(COALESCE(trip_cost.km,0)) total_km
-       FROM vehicles v LEFT JOIN fuel ON fuel.vehicle_id=v.id LEFT JOIN maint ON maint.vehicle_id=v.id LEFT JOIN trip_cost ON trip_cost.vehicle_id=v.id
-      GROUP BY v.type ORDER BY v.type"
-);
-$vehicleCategoryStmt->execute([$month_start,$month_end,$month_start,$month_end,$month_start,$month_end]);
-$by_vehicle = $vehicleCategoryStmt->fetchAll();
-
- 
-$recommendations = [];
-if ($monthly_total <= 0) {
-    $recommendations[] = ['title'=>'No Current-Month Cost Data', 'body'=>'Record fuel refills, completed maintenance, tolls, and Driver allowances to generate optimization recommendations.'];
-} else {
-    usort($categories, fn($a,$b) => $b['amount'] <=> $a['amount']);
-    $largest = $categories[0];
-    $recommendations[] = ['title'=>'Largest Cost Driver', 'body'=>$largest['name'].' accounts for '.number_format($largest['pct'],1).'% ('.money0($largest['amount']).') of '.$month_label.' operating cost.'];
-    $recommendations[] = ['title'=>'Budget Position', 'body'=>$monthly_budget > 0
-        ? 'Current costs are '.number_format(abs($variance_pct),1).'% '.($variance_pct >= 0 ? 'under' : 'over').' the configured monthly budget.'
-        : 'Set a monthly operating budget to enable variance monitoring.'];
-    $completedThisMonthStmt = $pdo->prepare("SELECT COUNT(*) FROM trips WHERE status='Completed' AND actual_arrival>=? AND actual_arrival<?");
-    $completedThisMonthStmt->execute([$month_start,$month_end]);
-    $completedThisMonth = (int)$completedThisMonthStmt->fetchColumn();
-    $recommendations[] = ['title'=>'Cost per Completed Trip', 'body'=>$completedThisMonth > 0
-        ? money0($monthly_total/$completedThisMonth).' average recorded operating cost across '.$completedThisMonth.' completed trip(s).'
-        : 'No completed trips this month; current costs cannot yet be normalized per trip.'];
-}
-
- 
-$vehicle_expenses = array_map('floatval', array_column($by_vehicle, 'monthly_expense'));
-$max_expense = $vehicle_expenses ? max($vehicle_expenses) : 1.0;
-
-$chart_data = [
-    'chart-cost-breakdown' => [
-        'type'   => 'pie',
-        'labels' => array_column($categories, 'name'),
-        'data'   => array_map('floatval', array_column($categories, 'pct')),
-        'colors' => array_column($categories, 'color'),
-        'legend' => true,
-    ],
-];
-
-$active_page = 'cost-overview';
-$page_title  = 'Transport Cost Analysis & Optimization (TCAO)';
-$include_chart = true;
-require ROOT_PATH . '/includes/header.php';
+require_once dirname(__DIR__,2).'/includes/bootstrap.php'; require_once ROOT_PATH.'/includes/cost_analysis.php'; require_login(); require_permission('costs.view');
+$pdo=db(); $range=cost_date_range($_GET,date('Y-01-01'),date('Y-m-d')); $summary=cost_summary($pdo,$range['start'],$range['end']); $previous=cost_summary($pdo,$range['previous_start'],$range['previous_end']); $breakdown=cost_breakdown($pdo,$range['start'],$range['end']); $series=cost_monthly_series($pdo,$range['start'],$range['end']);
+$q=$pdo->prepare("WITH f AS(SELECT trip_id,SUM(total_cost) n FROM fuel_transactions WHERE trip_id IS NOT NULL GROUP BY trip_id),m AS(SELECT source_trip_id trip_id,SUM(COALESCE(estimated_cost,0)) n FROM maintenance_orders WHERE status='Completed' AND source_trip_id IS NOT NULL GROUP BY source_trip_id) SELECT t.id,t.actual_arrival,t.origin,t.destination,v.plate_number,TRIM(v.brand||' '||v.model) vehicle,COALESCE(f.n,0) fuel,COALESCE(m.n,0)+COALESCE(t.toll_fee,0)+COALESCE(t.driver_allowance,0) other,COALESCE(f.n,0)+COALESCE(m.n,0)+COALESCE(t.toll_fee,0)+COALESCE(t.driver_allowance,0) cost,COALESCE(r.total_booking_fare,0) revenue FROM trips t LEFT JOIN vehicles v ON v.id=t.vehicle_id LEFT JOIN f ON f.trip_id=t.id LEFT JOIN m ON m.trip_id=t.id LEFT JOIN reservations r ON r.id=t.reservation_id AND r.status='Completed' AND r.fare_status='Confirmed' WHERE t.status='Completed' AND t.actual_arrival>=?::date AND t.actual_arrival<?::date ORDER BY t.actual_arrival DESC LIMIT 10");$q->execute([$range['start'],$range['end']]);$recent=$q->fetchAll();
+$cards=[['Total Transportation Cost',$summary['cost'],cost_comparison($summary['cost'],$previous['cost']),'Recorded operating expenses'],['Total Revenue',$summary['revenue'],cost_comparison($summary['revenue'],$previous['revenue']),'Confirmed fares on completed trips'],['Trip Margin',$summary['margin'],cost_comparison($summary['margin'],$previous['margin']),'Revenue less recorded cost'],['Average Cost per Trip',$summary['average'],$previous['trip_count']?cost_comparison($summary['average'],$previous['average']):null,$summary['trip_count'].' completed trip(s)']];
+$chart_data=['breakdown'=>['type'=>'doughnut','labels'=>array_column($breakdown,'category'),'data'=>array_map('floatval',array_column($breakdown,'amount')),'colors'=>['#2F80ED','#F2994A','#27AE60','#64748B']]];
+$rc=['labels'=>array_column($series,'label'),'datasets'=>[['label'=>'Revenue','data'=>array_map('floatval',array_column($series,'revenue')),'borderColor'=>'#27AE60','backgroundColor'=>'rgba(39,174,96,.1)'],['label'=>'Transportation cost','data'=>array_map('floatval',array_column($series,'cost')),'borderColor'=>'#2F80ED','backgroundColor'=>'rgba(47,128,237,.1)']]];
+$active_page='cost-overview';$body_class=trim(($body_class??'').' cost-analysis-module cost-overview-page');$page_title='Transport Cost Analysis & Optimization';$include_chart=true;require ROOT_PATH.'/includes/header.php';?>
+<div class="d-flex flex-wrap justify-content-between align-items-end mb-4 gap-3 cost-page-heading"><div><h1 class="mb-1">Transport Cost Analysis & Optimization</h1><p class="text-muted-custom mb-0">Recorded transportation costs and recognized revenue.</p></div><form method="get" class="d-flex flex-wrap align-items-end gap-2 cost-filter-form"><div><label class="tc-form-label small">From date</label><input class="tc-form-control" type="date" name="from" value="<?=e($range['from'])?>" required></div><div><label class="tc-form-label small">To date</label><input class="tc-form-control" type="date" name="to" value="<?=e($range['to'])?>" required></div><button class="tc-btn tc-btn-primary">Apply</button></form></div>
+<div class="row g-3 mb-4"><?php foreach($cards as [$title,$amount,$change,$note]):?><div class="col-12 col-sm-6 col-xl-3"><div class="tc-card p-3 h-100"><div class="small text-muted-custom text-uppercase fw-semibold"><?=e($title)?></div><div class="fs-4 fw-bold mt-2"><?=money($amount)?></div><div class="small text-muted-custom mt-2"><?=e(cost_comparison_label($change))?></div><div class="small text-muted-custom mt-1"><?=e($note)?></div></div></div><?php endforeach;?></div>
+<div class="row g-3 mb-4"><div class="col-lg-5"><div class="tc-card p-3 h-100"><h2 class="fs-6 fw-bold mb-3">Cost Breakdown</h2><?php if($breakdown):?><div style="height:240px"><canvas id="breakdown"></canvas></div><?php foreach($breakdown as $r):?><div class="d-flex justify-content-between small py-1"><span><?=e($r['category'])?></span><strong><?=money($r['amount'])?></strong></div><?php endforeach;?><div class="d-flex justify-content-between border-top pt-2 mt-1"><strong>Total</strong><strong><?=money($summary['cost'])?></strong></div><?php else:?><div class="text-center text-muted-custom py-5">No transportation cost records for this period.</div><?php endif;?></div></div><div class="col-lg-7"><div class="tc-card cost-revenue-card h-100">
+  <div class="cost-revenue-heading">
+    <div><h2>Revenue vs Transportation Cost</h2><p>Monthly performance &middot; <?=e(date('M j, Y',strtotime($range['from'])))?> &ndash; <?=e(date('M j, Y',strtotime($range['to'])))?></p></div>
+    <span class="cost-chart-period">Monthly</span>
+  </div>
+  <div class="cost-chart-totals">
+    <div><span class="cost-chart-label"><i class="cost-chart-dot revenue"></i>Revenue</span><strong><?=money($summary['revenue'])?></strong></div>
+    <div><span class="cost-chart-label"><i class="cost-chart-dot expense"></i>Transportation cost</span><strong><?=money($summary['cost'])?></strong></div>
+  </div>
+  <?php if(count($series)===1):?><p class="cost-chart-note">Select more than one month to compare the trend.</p><?php endif;?>
+  <div class="cost-revenue-plot"><canvas id="revenue-cost" role="img" aria-label="Monthly revenue and transportation costs for the selected period"></canvas></div>
+  <div class="cost-chart-footnote">Revenue: confirmed fares from completed trips. Costs: recorded operating expenses.</div>
+</div></div></div>
+<div class="tc-card"><div class="tc-card-header"><h2 class="fs-6 fw-bold mb-0">Recent Trip Costs</h2></div><div class="tc-table-container border-0"><table class="tc-table"><thead><tr><th>Date</th><th>Trip</th><th>Route</th><th>Vehicle</th><th>Fuel</th><th>Other recorded cost</th><th>Total</th><th>Revenue</th><th>Margin</th></tr></thead><tbody><?php if(!$recent):?><tr><td colspan="9" class="text-center text-muted-custom py-4">No completed trips available for this period.</td></tr><?php else:foreach($recent as $r):$margin=(float)$r['revenue']-(float)$r['cost'];?><tr><td><?=e(date('M j, Y',strtotime($r['actual_arrival'])))?></td><td><a href="<?=BASE_URL?>/trip-details.php?id=<?=urlencode($r['id'])?>"><?=e($r['id'])?></a></td><td><?=e($r['origin'].' → '.$r['destination'])?></td><td><?=e(trim($r['plate_number'].' '.$r['vehicle']))?></td><td><?=money($r['fuel'])?></td><td><?=money($r['other'])?></td><td class="fw-semibold"><?=money($r['cost'])?></td><td><?=money($r['revenue'])?></td><td class="<?=$margin<0?'text-danger':'text-success'?>"><?=money($margin)?></td></tr><?php endforeach;endif;?></tbody></table></div></div>
+<?php
+$page_scripts='<script>window.TC_REVENUE_COST_DATA='.json_encode($rc,JSON_UNESCAPED_UNICODE).';</script><script src="'.BASE_URL.'/js/cost-analysis.js?v='.(int)filemtime(ROOT_PATH.'/js/cost-analysis.js').'"></script>';
+require ROOT_PATH.'/includes/footer.php';
 ?>
-
-<div class="d-flex flex-wrap justify-content-between align-items-center mb-4 gap-2">
-  <div>
-    <h1 class="mb-1">Transport Cost Analysis & Optimization (TCAO)</h1>
-    <p class="text-muted-custom mb-0">Expense breakdown by fuel, maintenance, driver per diems, tolls, and optimization opportunities.</p>
-  </div>
-  <div class="d-flex gap-2">
-    <a class="tc-btn tc-btn-secondary tc-btn-sm" href="<?= BASE_URL ?>/modules/cost-analysis/cost-by-vehicle.php">Cost by Vehicle</a>
-    <a class="tc-btn tc-btn-primary tc-btn-sm" href="<?= BASE_URL ?>/modules/cost-analysis/cost-trends.php">Cost Trends</a>
-  </div>
-</div>
-
-<div class="row g-3 mb-4">
-  <div class="col-lg-6">
-    <div class="tc-card p-3 h-100">
-      <h4 class="fw-bold mb-3 fs-6"><i class="bi bi-pie-chart me-2 text-primary-custom"></i><?= e($month_label) ?> Expense Categories (<?= money0($monthly_total) ?> Total)</h4>
-      <?php if ($categories): ?>
-        <div style="height: 230px;">
-          <canvas id="chart-cost-breakdown"></canvas>
-        </div>
-      <?php else: ?>
-        <div class="d-flex align-items-center justify-content-center text-center text-muted-custom" style="height:230px;">
-          Record fuel, maintenance, toll, or Driver expenses to populate the cost breakdown.
-        </div>
-      <?php endif; ?>
-    </div>
-  </div>
-
-  <div class="col-lg-6">
-    <div class="tc-card p-3 h-100">
-      <h4 class="fw-bold mb-3 fs-6"><i class="bi bi-lightbulb me-2 text-warning"></i>Data-Driven Cost Optimization Recommendations</h4>
-      <?php if (!$recommendations): ?>
-        <div class="text-center text-muted-custom py-5">No cost recommendations are available yet.</div>
-      <?php else: foreach ($recommendations as $i => $rec): ?>
-        <div class="p-2 border rounded mb-2 bg-light">
-          <div class="fw-bold small <?= $i === 0 ? 'text-primary-custom' : ($i === 1 ? 'text-success' : 'text-info') ?>"><?= e($rec['title']) ?></div>
-          <div class="small text-muted-custom"><?= e($rec['body']) ?></div>
-        </div>
-      <?php endforeach; endif; ?>
-    </div>
-  </div>
-</div>
-
-<div class="tc-card">
-  <div class="tc-card-header">
-    <h4 class="mb-0 fw-bold fs-6">Operating Cost Breakdown by Vehicle Category</h4>
-  </div>
-  <div class="tc-table-container border-0">
-    <table class="tc-table">
-      <thead>
-        <tr>
-          <th>Vehicle Category</th>
-          <th>Active Units</th>
-          <th>Monthly Expense</th>
-          <th>Average Cost / KM</th>
-          <th>Expense Share</th>
-        </tr>
-      </thead>
-      <tbody>
-        <?php if (empty($by_vehicle)): ?>
-          <tr><td colspan="5" class="text-center text-muted-custom py-4">No cost category data available.</td></tr>
-        <?php else: foreach ($by_vehicle as $c): $share = round(((float)$c['monthly_expense'] / ($monthly_total ?: 1)) * 100); ?>
-          <tr>
-            <td class="fw-semibold"><?= e($c['category_name']) ?></td>
-            <td><span class="badge bg-light text-dark border"><?= (int)$c['active_units'] ?> Active</span></td>
-            <td class="fw-bold text-primary-custom"><?= money0($c['monthly_expense']) ?></td>
-            <td><span class="badge bg-info-subtle text-info border"><?= money((float)$c['monthly_expense'] / max(1, (float)$c['total_km'])) ?>/km</span></td>
-            <td>
-              <div class="d-flex align-items-center gap-2">
-                <div class="progress flex-grow-1" style="height: 6px;">
-                  <div class="progress-bar bg-primary" role="progressbar" style="width: <?= round(($c['monthly_expense'] / $max_expense) * 100) ?>%;"></div>
-                </div>
-                <span class="small text-muted-custom" style="min-width: 38px;"><?= $share ?>%</span>
-              </div>
-            </td>
-          </tr>
-        <?php endforeach; endif; ?>
-      </tbody>
-    </table>
-  </div>
-</div>
-
-<?php require ROOT_PATH . '/includes/footer.php'; ?>

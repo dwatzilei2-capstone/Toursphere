@@ -56,7 +56,11 @@ function status_badge_class(string $status): string
             return 'status-ontrip';
         case 'assigned':
         case 'confirmed':
+        case 'approved':
             return 'status-assigned';
+        case 'rejected':
+        case 'cancelled':
+            return 'status-maintenance';
         case 'dispatched':
             return 'status-dispatched';
         case 'maintenance':
@@ -110,4 +114,52 @@ function next_sequential_id(PDO $pdo, string $table, string $id_column, string $
     $stmt->execute([$sequenceKey, (string)($currentMax + 1), $currentMax]);
     $num = (int)$stmt->fetchColumn();
     return $prefix . str_pad((string)$num, $pad, '0', STR_PAD_LEFT);
+}
+
+function next_available_sequential_id(PDO $pdo, string $table, string $id_column, string $prefix, int $pad = 3): string
+{
+    if (!preg_match('/^[a-z_][a-z0-9_]*$/i', $table) || !preg_match('/^[a-z_][a-z0-9_]*$/i', $id_column)) {
+        throw new InvalidArgumentException('Invalid sequential ID source.');
+    }
+    if (!$pdo->inTransaction()) {
+        throw new RuntimeException('Available sequential IDs must be generated inside a transaction.');
+    }
+
+    // Prevent concurrent registrations from selecting the same available number.
+    $pdo->exec("LOCK TABLE {$table} IN SHARE ROW EXCLUSIVE MODE");
+    $stmt = $pdo->prepare("SELECT {$id_column} FROM {$table} WHERE {$id_column} LIKE ?");
+    $stmt->execute([$prefix . '%']);
+
+    $used = [];
+    $pattern = '/^' . preg_quote($prefix, '/') . '([0-9]+)$/';
+    foreach ($stmt->fetchAll(PDO::FETCH_COLUMN) as $existingId) {
+        if (preg_match($pattern, (string)$existingId, $match)) {
+            $used[(int)$match[1]] = true;
+        }
+    }
+
+    $number = 1;
+    while (isset($used[$number])) $number++;
+    return $prefix . str_pad((string)$number, $pad, '0', STR_PAD_LEFT);
+}
+
+function preview_next_available_sequential_id(PDO $pdo, string $table, string $id_column, string $prefix, int $pad = 3): string
+{
+    if (!preg_match('/^[a-z_][a-z0-9_]*$/i', $table) || !preg_match('/^[a-z_][a-z0-9_]*$/i', $id_column)) {
+        throw new InvalidArgumentException('Invalid sequential ID source.');
+    }
+
+    $stmt = $pdo->prepare("SELECT {$id_column} FROM {$table} WHERE {$id_column} LIKE ?");
+    $stmt->execute([$prefix . '%']);
+    $used = [];
+    $pattern = '/^' . preg_quote($prefix, '/') . '([0-9]+)$/';
+    foreach ($stmt->fetchAll(PDO::FETCH_COLUMN) as $existingId) {
+        if (preg_match($pattern, (string)$existingId, $match)) {
+            $used[(int)$match[1]] = true;
+        }
+    }
+
+    $number = 1;
+    while (isset($used[$number])) $number++;
+    return $prefix . str_pad((string)$number, $pad, '0', STR_PAD_LEFT);
 }

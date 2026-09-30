@@ -17,10 +17,12 @@ $orders = $pdo->query(
 $vehicles = $pdo->query('SELECT id, plate_number, brand, model FROM vehicles ORDER BY id')->fetchAll();
 
 $active_page = 'maintenance';
+$body_class = trim(($body_class ?? '') . ' fleet-vehicles-module fleet-maintenance-page');
 $page_title  = 'Maintenance Information & Work Orders';
 require ROOT_PATH . '/includes/header.php';
 ?>
 
+<div class="fleet-vehicles-page-shell">
 <div class="d-flex justify-content-between align-items-center mb-4">
   <div>
     <h1 class="mb-1">Maintenance Information & Work Orders</h1>
@@ -59,7 +61,7 @@ require ROOT_PATH . '/includes/header.php';
               <tr><td colspan="<?= can('vehicles.manage') ? 8 : 7 ?>" class="text-center text-muted-custom py-4">No maintenance work orders on file.</td></tr>
             <?php else: foreach ($orders as $o): ?>
               <tr>
-                <td><strong><?= e($o['id']) ?></strong></td>
+                <td id="record-<?= e($o['id']) ?>"><strong><?= e($o['id']) ?></strong></td>
                 <td><?= e($o['vehicle_id']) ?> (<?= e($o['plate_number']) ?>) • <?= e($o['brand']) ?> <?= e($o['model']) ?></td>
                 <td><?= e($o['service_type']) ?></td>
                 <td>
@@ -97,6 +99,7 @@ require ROOT_PATH . '/includes/header.php';
       </div>
     </div>
   </div>
+</div>
 </div>
 
 <?php if (can('vehicles.manage')): ?>
@@ -164,4 +167,5 @@ require ROOT_PATH . '/includes/header.php';
 </div>
 <?php endif; ?>
 
+<script src="<?= BASE_URL ?>/js/fleet-vehicles.js?v=<?= (int)filemtime(ROOT_PATH . '/js/fleet-vehicles.js') ?>"></script>
 <?php require ROOT_PATH . '/includes/footer.php'; ?>

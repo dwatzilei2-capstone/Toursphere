@@ -4,6 +4,7 @@
 
 
 require_once __DIR__ . '/includes/bootstrap.php';
+require_once __DIR__ . '/includes/login-2fa.php';
 
 // Returning to Login cancels any unfinished recovery attempt so a later
 // Forgot Password click always starts from the recovery-method screen.
@@ -11,9 +12,18 @@ if (isset($_GET['clear_recovery'])) {
     unset($_SESSION['recovery'], $_SESSION['recovery_message'], $_SESSION['recovery_csrf']);
 }
 
+if (isset($_GET['cancel_2fa']) && !empty($_SESSION['login_2fa'])) {
+    try { login_2fa_cancel(db(), $_SESSION['login_2fa']); } catch (Throwable $ex) { /* Session cleanup still proceeds. */ }
+    unset($_SESSION['login_2fa'], $_SESSION['login_2fa_csrf'], $_SESSION['login_2fa_message']);
+}
+
  
 if (is_logged_in()) {
     redirect_to(BASE_URL . '/index.php');
+}
+
+if (!empty($_SESSION['login_2fa'])) {
+    redirect_to(BASE_URL . '/verify-login.php');
 }
 
 $login_error = $_GET['error'] ?? null;

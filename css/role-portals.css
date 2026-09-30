@@ -1,0 +1,113 @@
+/* Shared presentation for personal portals and supporting account pages. */
+.role-portal-polish #content-container > :first-child {
+  animation: portal-enter 320ms cubic-bezier(.2,.7,.2,1) backwards;
+}
+.role-portal-polish .portal-enter {
+  animation: portal-enter 360ms cubic-bezier(.2,.7,.2,1) backwards;
+  animation-delay: var(--portal-delay, 0ms);
+}
+.role-portal-polish .tc-card,
+.role-portal-polish .stat-card {
+  transition: border-color 180ms ease, box-shadow 180ms ease;
+}
+.role-portal-polish .tc-btn,
+.role-portal-polish #content-container .btn,
+.role-portal-polish .btn-close,
+.role-portal-polish .page-link {
+  transition: background-color 160ms ease, border-color 160ms ease,
+    color 160ms ease, box-shadow 160ms ease, transform 140ms ease;
+}
+.role-portal-polish .tc-btn:active:not(:disabled):not(.disabled),
+.role-portal-polish #content-container .btn:active:not(:disabled) {
+  transform: scale(.98);
+}
+.role-portal-polish .tc-form-control,
+.role-portal-polish .tc-form-select,
+.role-portal-polish #content-container .form-control,
+.role-portal-polish #content-container .form-select,
+.role-portal-polish #content-container label:has(input[type="radio"]) {
+  transition: border-color 160ms ease, background-color 160ms ease, box-shadow 160ms ease;
+}
+.role-portal-polish .tc-table tbody td,
+.role-portal-polish .status-badge,
+.role-portal-polish .badge {
+  transition: background-color 160ms ease, color 160ms ease, border-color 160ms ease;
+}
+.role-portal-polish .tc-modal-backdrop.show {
+  animation: portal-fade 160ms ease-out;
+}
+.role-portal-polish .tc-modal-backdrop.show .tc-modal {
+  animation: portal-enter 220ms cubic-bezier(.2,.7,.2,1);
+}
+.role-portal-polish details[open] > form,
+.role-portal-polish #customer-password-form:not([hidden]),
+.role-portal-polish .portal-feedback {
+  animation: portal-fade 220ms ease-out;
+}
+.role-portal-polish .progress-bar {
+  transition: width 300ms ease;
+}
+.role-portal-polish #content-container label:has(input[type="radio"]:checked) {
+  box-shadow: 0 2px 8px rgba(15,23,42,.07);
+}
+@media (hover: hover) and (pointer: fine) {
+  .role-portal-polish .tc-card:hover,
+  .role-portal-polish .stat-card:hover {
+    box-shadow: 0 8px 22px rgba(15,23,42,.08);
+  }
+  .role-portal-polish .tc-btn:hover:not(:disabled):not(.disabled) {
+    transform: translateY(-1px);
+  }
+  .role-portal-polish .tc-table tbody tr:not(:has(td[colspan])):hover td {
+    background-color: var(--tc-bg-main);
+  }
+}
+@keyframes portal-enter {
+  from { opacity: 0; transform: translateY(6px); }
+  to { opacity: 1; transform: none; }
+}
+@keyframes portal-fade {
+  from { opacity: .65; }
+  to { opacity: 1; }
+}
+@media (max-width: 767.98px) {
+  .role-portal-polish #content-container > .d-flex:has(h1) {
+    flex-wrap: wrap;
+    gap: .85rem;
+    align-items: flex-start !important;
+  }
+  .role-portal-polish #content-container > .d-flex:has(h1) > .d-flex {
+    width: 100%;
+    flex-wrap: wrap;
+  }
+  .role-portal-polish .tc-card-header {
+    flex-wrap: wrap;
+    gap: .65rem;
+  }
+  .role-portal-polish .tc-table-container {
+    max-width: 100%;
+    overflow-x: auto;
+    -webkit-overflow-scrolling: touch;
+  }
+  .role-portal-polish .tc-table { min-width: 680px; }
+  .role-portal-polish .tc-modal-backdrop { padding: .5rem; }
+  .role-portal-polish .tc-modal { max-height: calc(100dvh - 1rem); }
+  .role-portal-polish .tc-modal .tc-card-body { overflow-y: auto; }
+  .role-portal-polish .tc-card,
+  .role-portal-polish .stat-card { overflow-wrap: anywhere; }
+  .role-portal-polish .tc-form-control,
+  .role-portal-polish .tc-form-select { min-width: 0; max-width: 100%; }
+  .role-portal-polish #content-container form.d-flex > .tc-form-control {
+    min-width: 0 !important;
+    flex-basis: 100%;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .role-portal-polish *,
+  .role-portal-polish *::before,
+  .role-portal-polish *::after {
+    animation: none !important;
+    transition: none !important;
+    scroll-behavior: auto !important;
+  }
+}

@@ -52,10 +52,12 @@ asort($slots);
 $slots = array_keys($slots);
 
 $active_page = 'trip-schedule';
+$body_class = trim(($body_class ?? '') . ' reservation-dispatch-module trip-schedule-page');
 $page_title  = 'Trip Schedule & Dispatch Calendar';
 require ROOT_PATH . '/includes/header.php';
 ?>
 
+<div class="reservation-dispatch-page-shell">
 <div class="d-flex justify-content-between align-items-center mb-4">
   <div>
     <h1 class="mb-1">Trip Schedule & Dispatch Calendar</h1>
@@ -110,5 +112,7 @@ require ROOT_PATH . '/includes/header.php';
     </table>
   </div>
 </div>
+</div>
 
+<script src="<?= BASE_URL ?>/js/reservation-dispatch.js?v=<?= (int)filemtime(ROOT_PATH . '/js/reservation-dispatch.js') ?>"></script>
 <?php require ROOT_PATH . '/includes/footer.php'; ?>

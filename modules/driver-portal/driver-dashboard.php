@@ -11,14 +11,21 @@ $driver->execute([$current_user['id']]);
 $driver = $driver->fetch();
 
 $vehicle = null;
+$currentTripVehicle = null;
 $myTrips = [];
 $driver_on_time_rate = 0.0;
 $driver_measurable_trips = 0;
 $driver_completed_trips = 0;
+$driver_rating = null;
+$driver_rating_count = 0;
+$driver_recent_reviews = [];
 if ($driver) {
     $vehicle = $pdo->prepare('SELECT * FROM vehicles WHERE assigned_driver_id = ?');
     $vehicle->execute([$driver['id']]);
     $vehicle = $vehicle->fetch() ?: null;
+    $currentVehicleStmt = $pdo->prepare("SELECT v.*,t.id trip_id FROM trips t JOIN vehicles v ON v.id=t.vehicle_id WHERE t.driver_id=? AND t.status IN ('In Transit','Returning to Depot') ORDER BY t.actual_departure DESC NULLS LAST LIMIT 1");
+    $currentVehicleStmt->execute([$driver['id']]);
+    $currentTripVehicle = $currentVehicleStmt->fetch() ?: null;
 
     $tripsStmt = $pdo->prepare(
         'SELECT r.*, v.plate_number, t.id AS trip_id, t.route_history_id FROM reservations r
@@ -41,6 +48,15 @@ if ($driver) {
     $driver_completed_trips = (int)($performance['completed'] ?? 0);
     $driver_measurable_trips = (int)($performance['measurable'] ?? 0);
     $driver_on_time_rate = $driver_measurable_trips > 0 ? ((int)$performance['on_time'] / $driver_measurable_trips) * 100 : 0;
+
+    $ratingStmt = $pdo->prepare("SELECT ROUND(AVG(stars)::numeric,2) average_rating, COUNT(*) rating_count FROM driver_ratings WHERE driver_id=?");
+    $ratingStmt->execute([$driver['id']]);
+    $ratingSummary = $ratingStmt->fetch();
+    $driver_rating = $ratingSummary['average_rating'] !== null ? (float)$ratingSummary['average_rating'] : null;
+    $driver_rating_count = (int)($ratingSummary['rating_count'] ?? 0);
+    $reviewsStmt = $pdo->prepare("SELECT stars, feedback, created_at FROM driver_ratings WHERE driver_id=? AND feedback IS NOT NULL AND BTRIM(feedback)<>'' ORDER BY created_at DESC LIMIT 5");
+    $reviewsStmt->execute([$driver['id']]);
+    $driver_recent_reviews = $reviewsStmt->fetchAll();
 }
 $upcoming = array_values(array_filter($myTrips, fn($t) => !in_array($t['status'], ['Completed','Cancelled'], true)));
 $nextTrip = $upcoming[0] ?? null;
@@ -125,6 +141,30 @@ require ROOT_PATH . '/includes/header.php';
   </div>
 </div>
 
+<div class="tc-card mb-4">
+  <div class="tc-card-header">
+    <h3 class="mb-0 fs-6 fw-bold"><i class="bi bi-star-fill me-2 text-warning"></i>My Customer Rating</h3>
+    <span class="small text-muted-custom"><?= $driver_rating_count ?> rating<?= $driver_rating_count === 1 ? '' : 's' ?></span>
+  </div>
+  <div class="tc-card-body">
+    <?php if ($driver_rating_count > 0): ?>
+      <div class="d-flex flex-wrap align-items-center gap-3 mb-3">
+        <div class="fs-3 fw-bold text-warning"><?= number_format($driver_rating, 2) ?>/5</div>
+        <div class="text-warning fs-5" aria-label="<?= number_format($driver_rating, 2) ?> out of 5 stars"><?php for ($i=1; $i<=5; $i++): ?><i class="bi <?= $i <= round($driver_rating) ? 'bi-star-fill' : 'bi-star' ?>"></i><?php endfor; ?></div>
+      </div>
+      <?php if ($driver_recent_reviews): ?>
+        <div class="row g-2">
+          <?php foreach ($driver_recent_reviews as $review): ?>
+            <div class="col-md-6"><div class="p-3 bg-light rounded h-100 small"><div class="text-warning mb-1"><?= str_repeat('★', (int)$review['stars']) ?><?= str_repeat('☆', 5-(int)$review['stars']) ?></div><div><?= e($review['feedback']) ?></div><div class="text-muted-custom mt-1"><?= e(date('M j, Y', strtotime($review['created_at']))) ?></div></div></div>
+          <?php endforeach; ?>
+        </div>
+      <?php else: ?><p class="small text-muted-custom mb-0">No written feedback yet.</p><?php endif; ?>
+    <?php else: ?>
+      <p class="text-muted-custom small mb-0">No customer rating has been submitted yet.</p>
+    <?php endif; ?>
+  </div>
+</div>
+
 <div class="row g-3 mb-4">
   <div class="col-lg-5">
     <div class="tc-card h-100">
@@ -142,15 +182,21 @@ require ROOT_PATH . '/includes/header.php';
               <span class="badge bg-light text-dark border mt-1"><?= e($vehicle['plate_number']) ?></span>
             </div>
           </div>
+          <?php if ($currentTripVehicle && $currentTripVehicle['id'] !== $vehicle['id']): ?>
+            <div class="alert alert-info py-2 px-3 mt-3 mb-0 small"><strong>Current Trip Vehicle:</strong> <?= e($currentTripVehicle['brand'] . ' ' . $currentTripVehicle['model']) ?> (<?= e($currentTripVehicle['plate_number']) ?>) · <?= e($currentTripVehicle['trip_id']) ?><br><span class="text-muted-custom">Your default vehicle remains <?= e($vehicle['plate_number']) ?>.</span></div>
+          <?php endif; ?>
           <div class="row g-2 small">
             <div class="col-6"><span class="text-muted-custom">Type:</span> <strong><?= e($vehicle['type']) ?></strong></div>
             <div class="col-6"><span class="text-muted-custom">Capacity:</span> <strong><?= (int)$vehicle['capacity'] ?> pax</strong></div>
-            <div class="col-6"><span class="text-muted-custom">Fuel Level:</span> <strong><?= (int)$vehicle['current_fuel'] ?>%</strong></div>
             <div class="col-6"><span class="text-muted-custom">Odometer:</span> <strong><?= number_format((int)$vehicle['odometer']) ?> km</strong></div>
             <div class="col-12"><span class="text-muted-custom">Status:</span> <span class="status-badge status-available"><?= e($vehicle['status']) ?></span></div>
           </div>
+        <?php elseif ($currentTripVehicle): ?>
+          <div class="fw-bold"><?= e($currentTripVehicle['brand'] . ' ' . $currentTripVehicle['model']) ?></div>
+          <div class="small mt-1"><strong>Current Trip Vehicle:</strong> <?= e($currentTripVehicle['plate_number']) ?> · <?= e($currentTripVehicle['trip_id']) ?></div>
+          <div class="text-muted-custom small mt-2">No default vehicle is assigned to you.</div>
         <?php else: ?>
-          <p class="text-muted-custom small mb-0">No vehicle currently assigned to you.</p>
+          <p class="text-muted-custom small mb-0">No default vehicle currently assigned to you.</p>
         <?php endif; ?>
       </div>
     </div>

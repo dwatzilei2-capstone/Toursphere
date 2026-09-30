@@ -1,0 +1,276 @@
+/* Shared polish for Reservation & Dispatch pages only. */
+.reservation-dispatch-module {
+  --rd-ease: cubic-bezier(.22, 1, .36, 1);
+}
+
+.reservation-dispatch-module .reservation-dispatch-page-shell :is(.tc-card, .kanban-col) {
+  transform: translateZ(0);
+  transition: transform .22s var(--rd-ease), box-shadow .22s ease, border-color .18s ease;
+}
+
+.reservation-dispatch-module .reservation-dispatch-page-shell .tc-card:hover {
+  transform: translateY(-2px);
+  border-color: var(--tc-border-hover);
+  box-shadow: var(--tc-shadow);
+}
+
+.reservation-dispatch-module .tc-btn,
+.reservation-dispatch-module .btn {
+  transition: transform .12s ease, box-shadow .18s ease,
+              background-color .16s ease, border-color .16s ease, color .16s ease;
+}
+
+.reservation-dispatch-module :is(.tc-btn, .btn):hover:not(:disabled) {
+  transform: translateY(-1px);
+  box-shadow: 0 4px 10px rgba(15, 23, 42, .10);
+}
+
+.reservation-dispatch-module :is(.tc-btn, .btn):active:not(:disabled) {
+  transform: translateY(0) scale(.98);
+  box-shadow: none;
+  transition-duration: .06s;
+}
+
+.reservation-dispatch-module .tc-btn.is-loading {
+  pointer-events: none;
+  cursor: wait;
+  opacity: .82;
+}
+
+.reservation-dispatch-module .tc-btn.is-loading .bi-arrow-repeat {
+  display: inline-block;
+  animation: rd-spin .75s linear infinite;
+}
+
+.reservation-dispatch-module :is(.tc-form-control, .tc-form-select, .form-control, .form-select) {
+  transition: border-color .16s ease, box-shadow .16s ease, background-color .16s ease;
+}
+
+.reservation-dispatch-module :is(.tc-form-control, .tc-form-select, .form-control, .form-select):hover:not(:disabled) {
+  border-color: var(--tc-border-hover);
+}
+
+.reservation-dispatch-module .tc-table tbody tr {
+  transition: background-color .16s ease, transform .16s ease, box-shadow .16s ease;
+}
+
+.reservation-dispatch-module .tc-table tbody tr:hover {
+  transform: translateY(-1px);
+  box-shadow: 0 3px 9px rgba(15, 23, 42, .06);
+}
+
+.reservation-dispatch-module .tc-table tbody tr.is-pressed {
+  transform: translateY(0) scale(.998);
+  box-shadow: none;
+}
+
+.reservation-dispatch-module :is(.status-badge, .badge) {
+  transition: transform .16s ease, filter .16s ease;
+}
+
+.reservation-dispatch-module :is(.tc-table tbody tr, .kanban-card):hover :is(.status-badge, .badge) {
+  transform: translateY(-1px);
+  filter: saturate(1.05);
+}
+
+.reservation-dispatch-module .tc-modal-backdrop {
+  transition: opacity .2s ease, visibility .2s ease;
+}
+
+.reservation-dispatch-module .tc-modal-backdrop .tc-modal {
+  transition: transform .28s var(--rd-ease), opacity .2s ease;
+}
+
+.reservation-dispatch-module .tc-modal-backdrop:not(.show) .tc-modal {
+  transform: translateY(10px) scale(.985);
+  opacity: 0;
+}
+
+.reservation-dispatch-module .tc-modal-backdrop.show .tc-modal {
+  transform: translateY(0) scale(1);
+  opacity: 1;
+}
+
+.reservations-page .rd-loading-content {
+  min-height: 110px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  text-align: center;
+  color: var(--tc-text-muted);
+  animation: rd-loading-pulse 1.1s ease-in-out infinite alternate;
+}
+
+.reservations-page #reservation-details-body > * {
+  animation: rd-content-in .24s var(--rd-ease);
+}
+
+.dispatch-board-page .dispatch-kanban-board {
+  scroll-behavior: smooth;
+}
+
+.dispatch-board-page .kanban-col {
+  transition: box-shadow .2s ease, border-color .18s ease;
+}
+
+.dispatch-board-page .kanban-col:hover {
+  border-color: var(--tc-border-hover);
+  box-shadow: 0 6px 16px rgba(15, 23, 42, .06);
+}
+
+.dispatch-board-page .kanban-card {
+  transition: transform .2s var(--rd-ease), box-shadow .2s ease, border-color .18s ease, opacity .18s ease;
+}
+
+.dispatch-board-page .kanban-card:not([aria-disabled="true"]):hover {
+  transform: translateY(-3px);
+  border-color: var(--tc-border-hover);
+  box-shadow: var(--tc-shadow-md);
+}
+
+.dispatch-board-page .kanban-card:not([aria-disabled="true"]):active {
+  transform: translateY(-1px) scale(.995);
+  transition-duration: .07s;
+}
+
+.dispatch-board-page .kanban-card[aria-disabled="true"] {
+  cursor: default !important;
+}
+
+.trip-schedule-page .table-responsive {
+  scroll-behavior: smooth;
+  -webkit-overflow-scrolling: touch;
+}
+
+.trip-schedule-page .table tbody :is(td, th) {
+  transition: background-color .16s ease;
+}
+
+.trip-schedule-page .table tbody tr:hover > :is(td, th) {
+  background-color: rgba(148, 163, 184, .08);
+}
+
+.trip-schedule-page .table td > .bg-primary-subtle {
+  transition: transform .18s var(--rd-ease), box-shadow .18s ease, filter .18s ease;
+}
+
+.trip-schedule-page .table td > .bg-primary-subtle:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 5px 12px rgba(15, 23, 42, .09);
+  filter: saturate(1.04);
+}
+
+.reservation-dispatch-motion-enabled .reservation-dispatch-module .reservation-dispatch-page-shell > * {
+  opacity: 0;
+  transform: translateY(10px);
+}
+
+.reservation-dispatch-motion-enabled .reservation-dispatch-module.reservation-dispatch-motion-ready .reservation-dispatch-page-shell > * {
+  opacity: 1;
+  transform: translateY(0);
+  transition: opacity .42s ease, transform .52s var(--rd-ease);
+}
+
+.reservation-dispatch-motion-enabled .reservation-dispatch-module.reservation-dispatch-motion-ready .reservation-dispatch-page-shell > *:nth-child(2) { transition-delay: 65ms; }
+.reservation-dispatch-motion-enabled .reservation-dispatch-module.reservation-dispatch-motion-ready .reservation-dispatch-page-shell > *:nth-child(3) { transition-delay: 115ms; }
+
+.reservation-dispatch-motion-enabled .dispatch-board-page.reservation-dispatch-motion-ready .kanban-col {
+  animation: rd-column-in .42s var(--rd-ease) both;
+}
+
+.reservation-dispatch-motion-enabled .dispatch-board-page.reservation-dispatch-motion-ready .kanban-col:nth-child(2) { animation-delay: 45ms; }
+.reservation-dispatch-motion-enabled .dispatch-board-page.reservation-dispatch-motion-ready .kanban-col:nth-child(3) { animation-delay: 90ms; }
+.reservation-dispatch-motion-enabled .dispatch-board-page.reservation-dispatch-motion-ready .kanban-col:nth-child(4) { animation-delay: 135ms; }
+.reservation-dispatch-motion-enabled .dispatch-board-page.reservation-dispatch-motion-ready .kanban-col:nth-child(5) { animation-delay: 180ms; }
+.reservation-dispatch-motion-enabled .dispatch-board-page.reservation-dispatch-motion-ready .kanban-col:nth-child(6) { animation-delay: 225ms; }
+
+@keyframes rd-spin { to { transform: rotate(360deg); } }
+@keyframes rd-loading-pulse { from { opacity: .58; } to { opacity: 1; } }
+@keyframes rd-content-in { from { opacity: .55; transform: translateY(4px); } to { opacity: 1; transform: translateY(0); } }
+@keyframes rd-column-in { from { opacity: 0; transform: translateY(8px); } to { opacity: 1; transform: translateY(0); } }
+
+@media (max-width: 991.98px) {
+  .dispatch-board-page .dispatch-kanban-board {
+    grid-template-columns: repeat(6, minmax(270px, 1fr));
+    overflow-x: auto;
+    overscroll-behavior-inline: contain;
+    padding-bottom: .5rem;
+    scroll-snap-type: x proximity;
+  }
+
+  .dispatch-board-page .kanban-col {
+    scroll-snap-align: start;
+  }
+}
+
+@media (max-width: 767.98px) {
+  .reservation-dispatch-module .reservation-dispatch-page-shell > .d-flex:first-child {
+    align-items: flex-start !important;
+    flex-wrap: wrap;
+  }
+
+  .reservation-dispatch-module .tc-table-container,
+  .reservation-dispatch-module .table-responsive {
+    -webkit-overflow-scrolling: touch;
+  }
+
+  .reservation-dispatch-module .tc-modal {
+    width: calc(100vw - 20px);
+    max-height: calc(100dvh - 20px);
+    margin: 10px;
+  }
+
+  .trip-schedule-page .tc-card > .d-flex:first-child {
+    align-items: flex-start !important;
+    gap: .75rem;
+    flex-direction: column;
+  }
+}
+
+@media (max-width: 575.98px) {
+  .reservation-dispatch-module .reservation-dispatch-page-shell > .d-flex:first-child {
+    flex-direction: column;
+  }
+
+  .reservations-page .reservation-dispatch-page-shell > .d-flex:first-child > .d-flex,
+  .dispatch-board-page .reservation-dispatch-page-shell > .d-flex:first-child > .d-flex {
+    width: 100%;
+    flex-wrap: wrap;
+  }
+
+  .reservations-page .reservation-dispatch-page-shell > .d-flex:first-child .tc-btn,
+  .dispatch-board-page .reservation-dispatch-page-shell > .d-flex:first-child .tc-btn {
+    flex: 1 1 auto;
+  }
+
+  .trip-schedule-page .btn-group {
+    width: 100%;
+  }
+
+  .trip-schedule-page .btn-group .btn {
+    flex: 1 1 0;
+  }
+}
+
+@media (hover: none) {
+  .reservation-dispatch-module .reservation-dispatch-page-shell .tc-card:hover,
+  .reservation-dispatch-module .tc-table tbody tr:hover,
+  .dispatch-board-page .kanban-card:not([aria-disabled="true"]):hover,
+  .trip-schedule-page .table td > .bg-primary-subtle:hover {
+    transform: none;
+    box-shadow: var(--tc-shadow-sm);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .reservation-dispatch-motion-enabled .reservation-dispatch-module .reservation-dispatch-page-shell > *,
+  .reservation-dispatch-module :is(.tc-card, .kanban-col, .kanban-card, .tc-btn, .btn, .tc-form-control, .tc-form-select, .form-control, .form-select, .tc-table tbody tr, .status-badge, .badge, .tc-modal, .rd-loading-content),
+  .trip-schedule-page .table td > .bg-primary-subtle {
+    opacity: 1;
+    transform: none !important;
+    animation: none !important;
+    transition-duration: .01ms !important;
+    transition-delay: 0ms !important;
+    scroll-behavior: auto !important;
+  }
+}

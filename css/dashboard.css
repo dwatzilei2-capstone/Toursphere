@@ -1,0 +1,127 @@
+/* Dashboard-only interaction polish. Structure, color tokens and content remain unchanged. */
+.toursphere-dashboard .dashboard-page-shell {
+  --dashboard-ease: cubic-bezier(.22, 1, .36, 1);
+}
+
+.toursphere-dashboard .dashboard-page-shell .stat-card,
+.toursphere-dashboard .dashboard-page-shell .tc-card {
+  position: relative;
+  transform: translateZ(0);
+  transition: transform .22s var(--dashboard-ease),
+              box-shadow .22s ease,
+              border-color .18s ease;
+  will-change: transform;
+}
+
+.toursphere-dashboard .dashboard-page-shell .dashboard-card-link:hover .stat-card,
+.toursphere-dashboard .dashboard-page-shell .dashboard-card-link:focus-visible .stat-card {
+  transform: translateY(-3px);
+  border-color: var(--tc-border-hover);
+  box-shadow: var(--tc-shadow-md);
+}
+
+.toursphere-dashboard .dashboard-page-shell .dashboard-card-link:active .stat-card {
+  transform: translateY(-1px) scale(.995);
+  transition-duration: .08s;
+}
+
+.toursphere-dashboard .dashboard-page-shell .stat-icon-wrapper {
+  transition: transform .24s var(--dashboard-ease), box-shadow .2s ease;
+}
+
+.toursphere-dashboard .dashboard-page-shell .dashboard-card-link:hover .stat-icon-wrapper,
+.toursphere-dashboard .dashboard-page-shell .dashboard-card-link:focus-visible .stat-icon-wrapper {
+  transform: translateY(-1px) scale(1.06);
+  box-shadow: 0 5px 12px rgba(15, 23, 42, .09);
+}
+
+.toursphere-dashboard .dashboard-page-shell .tc-card:hover {
+  transform: translateY(-2px);
+  box-shadow: var(--tc-shadow);
+}
+
+.toursphere-dashboard .dashboard-page-shell .tc-card-header a {
+  transition: color .16s ease, opacity .16s ease;
+}
+
+.toursphere-dashboard .dashboard-page-shell .tc-card-header a:hover {
+  opacity: .78;
+}
+
+.toursphere-dashboard .dashboard-page-shell .tc-btn {
+  transition: transform .12s ease, box-shadow .18s ease,
+              background-color .16s ease, border-color .16s ease, color .16s ease;
+}
+
+.toursphere-dashboard .dashboard-page-shell .tc-btn:hover {
+  transform: translateY(-1px);
+  box-shadow: 0 4px 10px rgba(15, 23, 42, .10);
+}
+
+.toursphere-dashboard .dashboard-page-shell .tc-btn:active {
+  transform: translateY(0) scale(.98);
+  box-shadow: none;
+  transition-duration: .06s;
+}
+
+.toursphere-dashboard .dashboard-page-shell .tc-table tbody tr {
+  transition: background-color .16s ease, box-shadow .16s ease, transform .16s ease;
+}
+
+.toursphere-dashboard .dashboard-page-shell .tc-table tbody tr:hover {
+  transform: translateX(2px);
+}
+
+.toursphere-dashboard .dashboard-page-shell .tc-table tbody tr.is-pressed {
+  transform: translateX(1px) scale(.998);
+}
+
+.toursphere-dashboard .dashboard-page-shell .status-badge,
+.toursphere-dashboard .dashboard-page-shell .badge {
+  transition: transform .16s ease, filter .16s ease;
+}
+
+.toursphere-dashboard .dashboard-page-shell .tc-table tbody tr:hover :is(.status-badge, .badge) {
+  transform: translateY(-1px);
+  filter: saturate(1.06);
+}
+
+.dashboard-motion-enabled .toursphere-dashboard .dashboard-page-shell > * {
+  opacity: 0;
+  transform: translateY(10px);
+}
+
+.dashboard-motion-enabled .toursphere-dashboard.dashboard-motion-ready .dashboard-page-shell > * {
+  opacity: 1;
+  transform: translateY(0);
+  transition: opacity .45s ease, transform .55s var(--dashboard-ease);
+}
+
+.dashboard-motion-enabled .toursphere-dashboard.dashboard-motion-ready .dashboard-page-shell > *:nth-child(2) { transition-delay: 55ms; }
+.dashboard-motion-enabled .toursphere-dashboard.dashboard-motion-ready .dashboard-page-shell > *:nth-child(3) { transition-delay: 105ms; }
+.dashboard-motion-enabled .toursphere-dashboard.dashboard-motion-ready .dashboard-page-shell > *:nth-child(4) { transition-delay: 155ms; }
+
+html[data-bs-theme="dark"] .toursphere-dashboard .dashboard-page-shell .stat-icon-wrapper {
+  box-shadow: none;
+}
+
+@media (hover: none) {
+  .toursphere-dashboard .dashboard-page-shell :is(.tc-card, .dashboard-card-link:hover .stat-card) {
+    transform: none;
+  }
+
+  .toursphere-dashboard .dashboard-page-shell .tc-table tbody tr:hover {
+    transform: none;
+    box-shadow: none;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .dashboard-motion-enabled .toursphere-dashboard .dashboard-page-shell > *,
+  .toursphere-dashboard .dashboard-page-shell :is(.stat-card, .tc-card, .stat-icon-wrapper, .tc-btn, .tc-table tbody tr, .status-badge, .badge) {
+    opacity: 1;
+    transform: none !important;
+    transition-duration: .01ms !important;
+    transition-delay: 0ms !important;
+  }
+}

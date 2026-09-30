@@ -5,6 +5,7 @@
 
 $active_page = $active_page ?? '';
 $is_driver = ($current_user['role_code'] ?? '') === 'driver';
+$is_customer = ($current_user['role_code'] ?? '') === 'customer';
 
 if (!function_exists('nav_active')) {
     function nav_active($key): string
@@ -18,7 +19,7 @@ if (!function_exists('nav_active')) {
 
  
 <aside id="sidebar">
-  <a href="<?= BASE_URL ?>/dashboard.php" class="sidebar-brand">
+  <a href="<?= BASE_URL . '/' . home_path() ?>" class="sidebar-brand">
     <img src="<?= e(company_logo()) ?>" alt="<?= e(company_name()) ?> logo" class="brand-logo-img">
     <div class="brand-details">
       <div class="brand-title"><?= e(company_name()) ?></div>
@@ -27,7 +28,12 @@ if (!function_exists('nav_active')) {
   </a>
 
   <div class="sidebar-nav-container">
-    <?php if ($is_driver): ?>
+    <?php if ($is_customer): ?>
+      <div class="sidebar-section-title">My Booking</div>
+      <ul class="p-0 m-0">
+        <li class="nav-item-custom"><a class="nav-link-custom <?= nav_active('customer-reservations') ?>" href="<?= BASE_URL ?>/modules/customer-portal/reservations.php"><i class="bi bi-calendar2-check"></i><span class="nav-label">My Reservations</span></a></li>
+      </ul>
+    <?php elseif ($is_driver): ?>
        
       <div class="sidebar-section-title">Driver Portal</div>
       <ul class="p-0 m-0">
@@ -117,7 +123,7 @@ if (!function_exists('nav_active')) {
         <li class="nav-item-custom">
           <a class="nav-link-custom nav-has-sub <?= $is_m1_active ? 'active expanded open' : '' ?>" href="javascript:void(0);">
             <i class="bi bi-truck"></i>
-            <span class="nav-label">1. Fleet & Vehicles</span>
+            <span class="nav-label">Fleet & Vehicles</span>
             <i class="bi bi-chevron-down ms-auto nav-chevron small"></i>
           </a>
           <ul class="nav-submenu <?= $is_m1_active ? 'open' : '' ?>">
@@ -136,7 +142,7 @@ if (!function_exists('nav_active')) {
         <li class="nav-item-custom">
           <a class="nav-link-custom nav-has-sub <?= $is_m2_active ? 'active expanded open' : '' ?>" href="javascript:void(0);">
             <i class="bi bi-calendar2-check"></i>
-            <span class="nav-label">2. Reservation & Dispatch</span>
+            <span class="nav-label">Reservation & Dispatch</span>
             <i class="bi bi-chevron-down ms-auto nav-chevron small"></i>
           </a>
           <ul class="nav-submenu <?= $is_m2_active ? 'open' : '' ?>">
@@ -153,7 +159,7 @@ if (!function_exists('nav_active')) {
         <li class="nav-item-custom">
           <a class="nav-link-custom nav-has-sub <?= $is_m3_active ? 'active expanded open' : '' ?>" href="javascript:void(0);">
             <i class="bi bi-person-badge"></i>
-            <span class="nav-label">3. Driver & Trip Monitoring</span>
+            <span class="nav-label">Driver & Trip Monitoring</span>
             <i class="bi bi-chevron-down ms-auto nav-chevron small"></i>
           </a>
           <ul class="nav-submenu <?= $is_m3_active ? 'open' : '' ?>">
@@ -169,7 +175,7 @@ if (!function_exists('nav_active')) {
         <li class="nav-item-custom">
           <a class="nav-link-custom nav-has-sub <?= $is_m4_active ? 'active expanded open' : '' ?>" href="javascript:void(0);">
             <i class="bi bi-fuel-pump"></i>
-            <span class="nav-label">4. Fuel Management</span>
+            <span class="nav-label">Fuel Management</span>
             <i class="bi bi-chevron-down ms-auto nav-chevron small"></i>
           </a>
           <ul class="nav-submenu <?= $is_m4_active ? 'open' : '' ?>">
@@ -185,7 +191,7 @@ if (!function_exists('nav_active')) {
         <li class="nav-item-custom">
           <a class="nav-link-custom nav-has-sub <?= $is_m5_active ? 'active expanded open' : '' ?>" href="javascript:void(0);">
             <i class="bi bi-calculator"></i>
-            <span class="nav-label">5. Cost Analysis (TCAO)</span>
+            <span class="nav-label">Cost Analysis (TCAO)</span>
             <i class="bi bi-chevron-down ms-auto nav-chevron small"></i>
           </a>
           <ul class="nav-submenu <?= $is_m5_active ? 'open' : '' ?>">
@@ -204,7 +210,7 @@ if (!function_exists('nav_active')) {
         <li class="nav-item-custom">
           <a class="nav-link-custom nav-has-sub <?= $is_m6_active ? 'active expanded open' : '' ?>" href="javascript:void(0);">
             <i class="bi bi-cpu text-primary-custom"></i>
-            <span class="nav-label fw-semibold">6. AI Route Optimization</span>
+            <span class="nav-label fw-semibold">AI Route Optimization</span>
             <span class="sidebar-badge bg-primary-subtle text-primary border me-2 ms-auto">AI</span>
             <i class="bi bi-chevron-down nav-chevron small"></i>
           </a>

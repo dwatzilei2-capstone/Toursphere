@@ -17,6 +17,7 @@ $pdo = db();
  
  
 $is_driver_user = (($current_user['role_code'] ?? '') === 'driver');
+$is_route_revenue_admin = has_role('fleet_admin');
 $route_context = null;
 $requested_trip_id = trim($_GET['trip_id'] ?? '');
 $requested_reservation_id = trim($_GET['reservation_id'] ?? '');
@@ -261,10 +262,18 @@ $tourist_destinations = [
     ]
 ];
 
-$requested_mode = ($is_driver_user && $saved_route_mode !== null)
+$route_mode_is_locked = $route_context !== null && $saved_route_mode !== null;
+$requested_mode = ($route_mode_is_locked)
     ? $saved_route_mode
     : ($_GET['mode'] ?? 'balanced');
 $initial_mode   = in_array($requested_mode, ['balanced', 'fastest', 'fuelEfficient', 'shortest'], true) ? $requested_mode : 'balanced';
+$route_mode_labels = [
+    'balanced' => 'Balanced (ROUTETHINK Recommended)',
+    'fuelEfficient' => 'Fuel Efficient (Eco)',
+    'fastest' => 'Fastest Duration',
+    'shortest' => 'Shortest Distance',
+];
+$selected_route_mode_label = $route_mode_labels[$initial_mode] ?? $initial_mode;
  
  
  
@@ -275,13 +284,13 @@ $is_key_placeholder = ($google_maps_key === 'YOUR_GOOGLE_MAPS_API_KEY' || empty(
 
 $active_page = 'ai-route-planner';
 $page_title  = 'AI-Driven Route Planning & Optimization';
-$body_class  = 'ai-route-planner-page';
+$body_class  = trim(($body_class ?? '') . ' ai-route-planner-page ai-route-optimization-module');
 $include_leaflet = false;
 $include_map_route = true;
 require ROOT_PATH . '/includes/header.php';
 ?>
 
-<div class="d-flex flex-wrap justify-content-between align-items-center mb-3 gap-2">
+<div class="d-flex flex-wrap justify-content-between align-items-center mb-3 gap-2 ai-route-page-heading">
   <div>
     <div class="d-flex align-items-center gap-2">
       <h1 class="mb-0">AI-Driven Route Planning & Optimization</h1>
@@ -449,9 +458,12 @@ require ROOT_PATH . '/includes/header.php';
 
          
         <div id="route-strategy-locked" class="route-strategy-locked mb-2" role="status">
-          <i class="bi bi-stars"></i>
-          <span>Route strategies will be available after your plan is generated.</span>
+          <i class="bi <?= $route_mode_is_locked ? 'bi-lock-fill' : 'bi-stars' ?>"></i>
+          <span><?= $route_mode_is_locked
+              ? 'Driver-selected route: ' . e($selected_route_mode_label) . '. This strategy is fixed for the trip.'
+              : 'Route strategies will be available after your plan is generated.' ?></span>
         </div>
+        <?php if (!$route_mode_is_locked): ?>
         <div id="route-strategy-options" class="route-strategy-options" aria-hidden="true">
           <label class="tc-form-label mb-2">Choose a Generated Route Strategy</label>
           <div class="d-flex flex-column gap-2 mb-2">
@@ -488,6 +500,7 @@ require ROOT_PATH . '/includes/header.php';
           </div>
           </div>
         </div>
+        <?php endif; ?>
       </div>
     </div>
 
@@ -602,9 +615,7 @@ require ROOT_PATH . '/includes/header.php';
             <button type="button" class="btn btn-light border btn-sm fw-medium" id="nav-recenter-btn" title="Re-center Map on Driver GPS" onclick="aiRouteEngine.recenterNavigation()">
               <i class="bi bi-crosshair me-1 text-primary"></i> Recenter
             </button>
-            <button type="button" class="btn btn-danger btn-sm fw-semibold shadow-sm" onclick="aiRouteEngine.stopNavigation()">
-              <i class="bi bi-stop-circle-fill me-1"></i> End Navigation
-            </button>
+
           </div>
         </div>
       </div>
@@ -625,26 +636,38 @@ require ROOT_PATH . '/includes/header.php';
         <div id="ai-res-title" class="fw-bold small text-primary-custom mb-3">Select a preset or click Generate to calculate the optimal route.</div>
 
          
-        <div class="row g-2 mb-3 text-center">
-          <div class="col-6 p-2 bg-light rounded border">
+        <div class="row g-2 mb-3 text-center h-100">
+          <div class="col-6 p-2 bg-light rounded border d-flex flex-column justify-content-center">
             <div class="text-muted-custom" style="font-size: 11px;">Total Distance</div>
             <div id="ai-res-distance" class="fw-bold fs-6">—</div>
           </div>
-          <div class="col-6 p-2 bg-light rounded border">
+          <div class="col-6 p-2 bg-light rounded border d-flex flex-column justify-content-center">
             <div id="ai-res-duration-label" class="text-muted-custom" style="font-size: 11px;">Google Traffic ETA</div>
             <div id="ai-res-duration" class="fw-bold fs-6 text-primary">—</div>
           </div>
-          <div class="col-6 p-2 bg-light rounded border">
+          <div class="col-6 p-2 bg-light rounded border d-flex flex-column justify-content-center">
             <div id="ai-res-fuel-label" class="text-muted-custom" style="font-size: 11px;">Formula Fuel Estimate</div>
             <div id="ai-res-fuel" class="fw-bold fs-6 text-success">—</div>
           </div>
-          <div class="col-6 p-2 bg-light rounded border">
-            <div class="text-muted-custom" style="font-size: 11px;">Estimated Trip Cost</div>
+          <div class="col-6 p-2 bg-light rounded border d-flex flex-column justify-content-center">
+            <div id="ai-res-cost-label" class="text-muted-custom" style="font-size: 11px;">
+              <?= $is_driver_user ? 'Estimated Trip Revenue' : ($is_route_revenue_admin ? 'Total Route Revenue' : 'Estimated Trip Cost') ?>
+            </div>
             <div id="ai-res-cost" class="fw-bold fs-6 text-primary-custom">—</div>
+            <div id="ai-res-cost-context" class="text-muted-custom mt-1 small" style="font-size: 10px; line-height: 1.2;" aria-live="polite">
+              <?= $is_driver_user ? 'Checking assigned-trip reservations…' : ($is_route_revenue_admin ? 'Select a route and date.' : '') ?>
+            </div>
           </div>
         </div>
 
-         
+        <?php if ($is_route_revenue_admin): ?>
+        <div class="row g-2 mb-2">
+          <div class="col-12">
+            <label for="route-revenue-date" class="visually-hidden">Route revenue date</label>
+            <input type="date" id="route-revenue-date" class="form-control form-control-sm px-2 py-1" value="<?= e($route_context['departure_date'] ?? date('Y-m-d')) ?>" aria-label="Route revenue date" style="font-size: 12px;">
+          </div>
+        </div>
+        <?php endif; ?>
         <div class="p-2 border rounded bg-light mb-3">
           <div class="d-flex justify-content-between align-items-center mb-1">
             <span id="ai-res-score-label" class="small fw-semibold">Relative Route Score:</span>
@@ -688,6 +711,11 @@ require ROOT_PATH . '/includes/header.php';
 </div>
 
 <script>
+  window.TC_ROUTE_REVENUE = <?= json_encode([
+    'role' => $is_driver_user ? 'driver' : ($is_route_revenue_admin ? 'admin' : null),
+    'endpoint' => BASE_URL . '/actions/route-revenue.php',
+    'tripId' => $route_context['trip_id'] ?? null,
+  ], JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES) ?>;
   window.TC_INITIAL_MODE = <?= json_encode($initial_mode) ?>;
   window.TC_INITIAL_PRESET = <?= json_encode($initial_preset) ?>;
   window.TC_TOURIST_DESTINATIONS = <?= json_encode($tourist_destinations, JSON_UNESCAPED_UNICODE) ?>;
@@ -699,6 +727,9 @@ require ROOT_PATH . '/includes/header.php';
     'passengerCount' => (int)($route_context['passenger_count'] ?? 0),
     'waypoints' => $context_waypoints,
     'hasActiveTrip' => $driver_has_active_trip,
+    'routeModeLocked' => $route_mode_is_locked,
+    'selectedMode' => $initial_mode,
+    'selectedModeLabel' => $selected_route_mode_label,
     'routePhase' => $is_return_mode ? 'return' : 'outbound',
     'resumeNavigation' => $is_driver_user
         && in_array($route_context['trip_status'] ?? '', ['In Transit', 'Returning to Depot'], true)
@@ -719,4 +750,5 @@ require ROOT_PATH . '/includes/header.php';
 <script src="https://maps.googleapis.com/maps/api/js?key=<?= urlencode($google_maps_key) ?>&libraries=places,geometry,marker&loading=async&callback=initGoogleMapsCallback" async defer></script>
 <?php endif; ?>
 
+<script src="<?= BASE_URL ?>/js/ai-route-optimization.js?v=<?= (int)filemtime(ROOT_PATH . '/js/ai-route-optimization.js') ?>"></script>
 <?php require ROOT_PATH . '/includes/footer.php'; ?>

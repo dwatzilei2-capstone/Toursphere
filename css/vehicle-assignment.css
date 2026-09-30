@@ -60,7 +60,7 @@
 .vehicle-assignment .va-driver-details div { display: flex; justify-content: space-between; gap: 12px; margin: 8px 0; }
 .vehicle-assignment .va-driver-details dt { color: var(--va-muted); font-weight: 400; }
 .vehicle-assignment .va-driver-details dd { margin: 0; font-weight: 600; }
-.vehicle-assignment .va-notice { padding: 12px; border-left: 2px solid #b8812c; background: #fff8e9; color: #78541c; font-size: 12px; line-height: 1.6; margin-bottom: 20px; }
+.vehicle-assignment .va-notice { padding: 12px; border: 1px solid #ead3a5; border-radius: var(--tc-radius-sm); background: #fff8e9; color: #78541c; font-size: 12px; line-height: 1.6; margin-bottom: 20px; }
 .vehicle-assignment .va-checklist { border-top: 1px solid var(--tc-border); padding-top: 20px; margin-top: 22px; }
 .vehicle-assignment .va-checklist h3 { font-size: 12px; font-weight: 650; margin: 0 0 9px; }
 .vehicle-assignment .va-checklist p { color: var(--va-muted); font-size: 12px; line-height: 1.7; margin: 0 0 12px; }

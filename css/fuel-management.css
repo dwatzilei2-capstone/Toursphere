@@ -1,0 +1,189 @@
+.fuel-management-module .fuel-management-page-shell {
+  opacity: 0;
+  transform: translateY(8px);
+  transition: opacity 360ms ease, transform 360ms cubic-bezier(.2, .7, .2, 1);
+}
+
+.fuel-management-module.fuel-management-motion-ready .fuel-management-page-shell {
+  opacity: 1;
+  transform: none;
+}
+
+.fuel-management-module.fuel-management-motion-ready .stat-card,
+.fuel-management-module.fuel-management-motion-ready .tc-card {
+  animation: fuel-section-in 380ms cubic-bezier(.2, .7, .2, 1) both;
+}
+
+.fuel-management-module.fuel-management-motion-ready .row > div:nth-child(2) .stat-card { animation-delay: 45ms; }
+.fuel-management-module.fuel-management-motion-ready .row > div:nth-child(3) .stat-card { animation-delay: 90ms; }
+.fuel-management-module.fuel-management-motion-ready .row > div:nth-child(4) .stat-card { animation-delay: 135ms; }
+
+.fuel-management-module .stat-card,
+.fuel-management-module .tc-card {
+  transition: transform 180ms ease, box-shadow 180ms ease, border-color 180ms ease;
+}
+
+.fuel-management-module .stat-card {
+  position: relative;
+  overflow: hidden;
+}
+
+.fuel-management-module .stat-value,
+.fuel-management-module .stat-trend,
+.fuel-management-module .tc-card-header h4 {
+  transition: color 180ms ease, transform 180ms ease;
+}
+
+.fuel-management-module .tc-btn,
+.fuel-management-module .btn-group .btn,
+.fuel-management-module .btn-close {
+  transition: transform 140ms ease, box-shadow 180ms ease, background-color 180ms ease,
+    border-color 180ms ease, color 180ms ease, opacity 180ms ease;
+}
+
+.fuel-management-module .tc-btn:active,
+.fuel-management-module .btn-group .btn:active,
+.fuel-management-module .btn-close:active {
+  transform: scale(.97);
+}
+
+.fuel-management-module .tc-table tbody tr {
+  transition: background-color 160ms ease, box-shadow 160ms ease;
+}
+
+.fuel-management-module .tc-table tbody tr.fuel-row-pressed {
+  background-color: rgba(15, 23, 42, .04);
+}
+
+.fuel-management-module .tc-table tbody td,
+.fuel-management-module .badge {
+  transition: color 160ms ease, background-color 160ms ease, border-color 160ms ease;
+}
+
+.fuel-management-module .tc-form-control,
+.fuel-management-module .tc-form-select,
+.fuel-management-module .form-check-input {
+  transition: border-color 170ms ease, box-shadow 170ms ease, background-color 170ms ease;
+}
+
+.fuel-management-module .tc-modal-backdrop.show {
+  animation: fuel-backdrop-in 180ms ease-out both;
+}
+
+.fuel-management-module .tc-modal-backdrop.show .tc-modal {
+  animation: fuel-modal-in 240ms cubic-bezier(.2, .75, .25, 1) both;
+}
+
+.fuel-management-module .fuel-chart-wrap {
+  opacity: 0;
+  transform: translateY(5px);
+  transition: opacity 300ms ease 120ms, transform 300ms ease 120ms;
+}
+
+.fuel-management-module.fuel-management-motion-ready .fuel-chart-wrap {
+  opacity: 1;
+  transform: none;
+}
+
+@media (hover: hover) and (pointer: fine) {
+  .fuel-management-module .stat-card:hover,
+  .fuel-management-module .tc-card:hover {
+    transform: translateY(-2px);
+    box-shadow: 0 10px 24px rgba(15, 23, 42, .08);
+  }
+
+  .fuel-management-module .stat-card:hover .stat-value {
+    transform: translateY(-1px);
+  }
+
+  .fuel-management-module .tc-btn:hover,
+  .fuel-management-module .btn-group .btn:hover {
+    transform: translateY(-1px);
+  }
+
+  .fuel-management-module .tc-table tbody tr:not(:has(td[colspan])):hover {
+    background-color: rgba(15, 23, 42, .025);
+    box-shadow: inset 0 1px rgba(15, 23, 42, .035), inset 0 -1px rgba(15, 23, 42, .035);
+  }
+
+  .fuel-management-module .tc-table tbody tr:hover .badge {
+    border-color: var(--tc-border-hover) !important;
+  }
+}
+
+@keyframes fuel-backdrop-in {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+
+@keyframes fuel-modal-in {
+  from { opacity: 0; transform: translateY(8px) scale(.99); }
+  to { opacity: 1; transform: none; }
+}
+
+@keyframes fuel-section-in {
+  from { opacity: 0; transform: translateY(7px); }
+  to { opacity: 1; transform: none; }
+}
+
+@media (max-width: 767.98px) {
+  .fuel-management-module .fuel-page-heading {
+    align-items: stretch !important;
+    flex-direction: column;
+    gap: .85rem;
+  }
+
+  .fuel-management-module .fuel-page-heading > .d-flex {
+    width: 100%;
+    flex-wrap: wrap;
+  }
+
+  .fuel-management-module .fuel-page-heading .tc-btn {
+    flex: 1 1 auto;
+    justify-content: center;
+  }
+
+  .fuel-management-module .tc-card-header {
+    align-items: flex-start;
+    gap: .75rem;
+    flex-wrap: wrap;
+  }
+
+  .fuel-management-module .tc-table-container {
+    overflow-x: auto;
+    -webkit-overflow-scrolling: touch;
+  }
+
+  .fuel-management-module .tc-table {
+    min-width: 880px;
+  }
+
+  .fuel-management-module .tc-modal {
+    max-height: calc(100dvh - 1rem);
+  }
+
+  .fuel-management-module .tc-modal-backdrop {
+    padding: .5rem;
+  }
+
+  .fuel-management-module .tc-modal .col-6 {
+    width: 100%;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .fuel-management-module *,
+  .fuel-management-module *::before,
+  .fuel-management-module *::after {
+    scroll-behavior: auto !important;
+    animation-duration: .01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: .01ms !important;
+  }
+
+  .fuel-management-module .fuel-management-page-shell,
+  .fuel-management-module .fuel-chart-wrap {
+    opacity: 1;
+    transform: none;
+  }
+}

@@ -1,0 +1,174 @@
+/* Shared polish for Driver & Trip Monitoring pages only. */
+.driver-trip-monitoring-module {
+  --dt-ease: cubic-bezier(.22, 1, .36, 1);
+}
+
+.driver-trip-monitoring-module .driver-trip-page-shell .tc-card {
+  transform: translateZ(0);
+  transition: transform .22s var(--dt-ease), box-shadow .22s ease, border-color .18s ease;
+}
+
+.driver-trip-monitoring-module .driver-trip-page-shell .tc-card:hover {
+  transform: translateY(-2px);
+  border-color: var(--tc-border-hover);
+  box-shadow: var(--tc-shadow);
+}
+
+.driver-trip-monitoring-module .tc-btn {
+  transition: transform .12s ease, box-shadow .18s ease,
+              background-color .16s ease, border-color .16s ease, color .16s ease;
+}
+
+.driver-trip-monitoring-module .tc-btn:hover:not(:disabled) {
+  transform: translateY(-1px);
+  box-shadow: 0 4px 10px rgba(15, 23, 42, .10);
+}
+
+.driver-trip-monitoring-module .tc-btn:active:not(:disabled) {
+  transform: translateY(0) scale(.98);
+  box-shadow: none;
+  transition-duration: .06s;
+}
+
+.driver-trip-monitoring-module :is(.status-badge, .badge) {
+  transition: transform .16s ease, filter .16s ease;
+}
+
+.driver-performance-page .tc-card:hover :is(.status-badge, .badge) {
+  transform: translateY(-1px);
+  filter: saturate(1.05);
+}
+
+.driver-performance-page .driver-profile-photo-slot {
+  transition: transform .22s var(--dt-ease), box-shadow .2s ease, border-color .18s ease;
+}
+
+.driver-performance-page .tc-card:hover .driver-profile-photo-slot {
+  transform: scale(1.045);
+  border-color: var(--tc-border-hover);
+  box-shadow: 0 5px 12px rgba(15, 23, 42, .10);
+}
+
+.driver-performance-page #drivers-grid-container > [class*="col-"] {
+  transition: opacity .3s ease, transform .36s var(--dt-ease);
+}
+
+.driver-performance-page #drivers-grid-container .tc-card.is-pressed {
+  transform: translateY(0) scale(.996);
+  box-shadow: var(--tc-shadow-sm);
+}
+
+.driver-performance-page .tc-drawer {
+  transition: transform .3s var(--dt-ease), box-shadow .24s ease;
+}
+
+.driver-performance-page .tc-drawer.show {
+  box-shadow: -12px 0 32px rgba(15, 23, 42, .16);
+}
+
+.driver-performance-page #drawer-driver-content > * {
+  animation: dt-content-in .26s var(--dt-ease);
+}
+
+.trip-performance-page .tc-card canvas {
+  transition: filter .2s ease, opacity .2s ease;
+}
+
+.trip-performance-page .tc-card:hover canvas {
+  filter: saturate(1.035);
+}
+
+.trip-performance-page .tc-card .border.rounded.d-flex {
+  transition: transform .17s var(--dt-ease), background-color .17s ease, border-color .17s ease;
+}
+
+.trip-performance-page .tc-card .border.rounded.d-flex:hover {
+  transform: translateY(-1px);
+  border-color: var(--tc-border-hover) !important;
+  background-color: rgba(148, 163, 184, .06);
+}
+
+.driver-trip-motion-enabled .driver-trip-monitoring-module .driver-trip-page-shell > * {
+  opacity: 0;
+  transform: translateY(10px);
+}
+
+.driver-trip-motion-enabled .driver-trip-monitoring-module.driver-trip-motion-ready .driver-trip-page-shell > * {
+  opacity: 1;
+  transform: translateY(0);
+  transition: opacity .42s ease, transform .52s var(--dt-ease);
+}
+
+.driver-trip-motion-enabled .driver-trip-monitoring-module.driver-trip-motion-ready .driver-trip-page-shell > *:nth-child(2) { transition-delay: 65ms; }
+.driver-trip-motion-enabled .driver-trip-monitoring-module.driver-trip-motion-ready .driver-trip-page-shell > *:nth-child(3) { transition-delay: 115ms; }
+
+.driver-trip-motion-enabled .driver-performance-page.driver-trip-motion-ready #drivers-grid-container > [class*="col-"] {
+  animation: dt-card-in .4s var(--dt-ease) both;
+}
+
+.driver-trip-motion-enabled .driver-performance-page.driver-trip-motion-ready #drivers-grid-container > [class*="col-"]:nth-child(2) { animation-delay: 45ms; }
+.driver-trip-motion-enabled .driver-performance-page.driver-trip-motion-ready #drivers-grid-container > [class*="col-"]:nth-child(3) { animation-delay: 90ms; }
+.driver-trip-motion-enabled .driver-performance-page.driver-trip-motion-ready #drivers-grid-container > [class*="col-"]:nth-child(4) { animation-delay: 135ms; }
+.driver-trip-motion-enabled .driver-performance-page.driver-trip-motion-ready #drivers-grid-container > [class*="col-"]:nth-child(5) { animation-delay: 180ms; }
+.driver-trip-motion-enabled .driver-performance-page.driver-trip-motion-ready #drivers-grid-container > [class*="col-"]:nth-child(6) { animation-delay: 225ms; }
+
+@keyframes dt-card-in { from { opacity: 0; transform: translateY(8px); } to { opacity: 1; transform: translateY(0); } }
+@keyframes dt-content-in { from { opacity: .55; transform: translateY(4px); } to { opacity: 1; transform: translateY(0); } }
+
+@media (max-width: 767.98px) {
+  .driver-trip-monitoring-module .driver-trip-page-shell > .d-flex:first-child {
+    align-items: flex-start !important;
+    flex-wrap: wrap;
+  }
+
+  .driver-performance-page .tc-drawer {
+    width: min(100vw, 480px);
+  }
+
+  .trip-performance-page .driver-trip-page-shell > .row .tc-card {
+    height: auto;
+  }
+}
+
+@media (max-width: 575.98px) {
+  .driver-trip-monitoring-module .driver-trip-page-shell > .d-flex:first-child {
+    flex-direction: column;
+  }
+
+  .driver-trip-monitoring-module .driver-trip-page-shell > .d-flex:first-child > :is(.d-flex, .tc-btn) {
+    width: 100%;
+  }
+
+  .driver-trip-monitoring-module .driver-trip-page-shell > .d-flex:first-child .tc-btn {
+    justify-content: center;
+  }
+
+  .driver-performance-page .tc-card .bg-light .d-flex {
+    gap: .75rem;
+  }
+
+  .driver-performance-page .tc-card .bg-light .d-flex > :last-child {
+    text-align: right;
+    overflow-wrap: anywhere;
+  }
+}
+
+@media (hover: none) {
+  .driver-trip-monitoring-module .driver-trip-page-shell .tc-card:hover,
+  .trip-performance-page .tc-card .border.rounded.d-flex:hover {
+    transform: none;
+    box-shadow: var(--tc-shadow-sm);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .driver-trip-motion-enabled .driver-trip-monitoring-module .driver-trip-page-shell > *,
+  .driver-trip-monitoring-module :is(.tc-card, .tc-btn, .status-badge, .badge, .driver-profile-photo-slot, .tc-drawer, #drawer-driver-content > *, #drivers-grid-container > [class*="col-"]),
+  .trip-performance-page .tc-card :is(canvas, .border.rounded.d-flex) {
+    opacity: 1;
+    transform: none !important;
+    animation: none !important;
+    transition-duration: .01ms !important;
+    transition-delay: 0ms !important;
+  }
+}

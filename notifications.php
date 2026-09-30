@@ -6,7 +6,7 @@ require_permission('notifications.view');
 
 $pdo = db();
 
-$notificationsStmt = $pdo->prepare('SELECT * FROM notifications WHERE user_id IS NULL OR user_id = ? ORDER BY id DESC');
+$notificationsStmt = $pdo->prepare('SELECT * FROM notifications WHERE user_id = ? ORDER BY id DESC');
 $notificationsStmt->execute([$current_user['id']]);
 $notifications = $notificationsStmt->fetchAll();
 $categories = ['All'];
@@ -58,7 +58,7 @@ require ROOT_PATH . '/includes/header.php';
         </div>
         <p class="text-muted-custom mb-2 small"><?= e($n['body']) ?></p>
         <div class="d-flex gap-3 align-items-center">
-          <span class="text-muted-custom small"><?= e($n['time_label']) ?></span>
+          <span class="text-muted-custom small"><?= e(notification_time($n)) ?></span>
           <?php if (!$n['is_read']): ?>
             <button class="btn btn-link p-0 text-primary small text-decoration-none" data-mark-read-btn="<?= (int)$n['id'] ?>" onclick="event.stopPropagation(); App.markNotificationRead(<?= (int)$n['id'] ?>)">Mark as read</button>
           <?php endif; ?>

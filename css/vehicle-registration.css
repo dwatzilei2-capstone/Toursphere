@@ -5,6 +5,8 @@
 .vehicle-upload-zone input { position: absolute; width: 1px; height: 1px; opacity: 0; pointer-events: none; }
 .vehicle-document-preview { border: 1px solid var(--tc-border); border-radius: 6px; overflow: hidden; background: #fff; }
 .vehicle-document-preview img, .vehicle-document-preview iframe { display: block; width: 100%; height: 260px; object-fit: contain; border: 0; }
+.vehicle-document-preview iframe { pointer-events: auto; }
+.vehicle-document-locked { padding: 12px 14px; border: 1px solid var(--tc-border); border-radius: 6px; background: var(--tc-bg); }
 .vehicle-step { border-top: 1px solid var(--tc-border); padding-top: 16px; margin-top: 16px; }
 .vehicle-step-label { font-size: 12px; font-weight: 700; color: var(--tc-text-muted); text-transform: uppercase; letter-spacing: .04em; margin-bottom: 12px; }
 .vehicle-source-note { font-size: 11px; color: var(--tc-text-muted); margin-top: 5px; }

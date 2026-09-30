@@ -1,6 +1,7 @@
 <?php
  
 require_once dirname(__DIR__, 2) . '/includes/bootstrap.php';
+require_once ROOT_PATH . '/includes/vehicle_document.php';
 require_login();
 require_permission('driver.portal');
 
@@ -11,21 +12,48 @@ $driver->execute([$current_user['id']]);
 $driver = $driver->fetch();
 
 $vehicle = null;
+$defaultVehicle = null;
+$usingTemporaryTripVehicle = false;
 $activeTrip = null;
 $issueReports = [];
+$complianceDocuments = ['registration' => '—', 'insurance' => '—', 'ltfrb_permit' => '—'];
 if ($driver) {
     $vehicle = $pdo->prepare('SELECT * FROM vehicles WHERE assigned_driver_id = ?');
     $vehicle->execute([$driver['id']]);
     $vehicle = $vehicle->fetch() ?: null;
+    $defaultVehicle = $vehicle;
+    $currentTripVehicleStmt = $pdo->prepare("SELECT v.*,t.id active_trip_id FROM trips t JOIN vehicles v ON v.id=t.vehicle_id WHERE t.driver_id=? AND t.status IN ('In Transit','Returning to Depot') ORDER BY t.actual_departure DESC NULLS LAST LIMIT 1");
+    $currentTripVehicleStmt->execute([$driver['id']]);
+    if ($currentTripVehicle = $currentTripVehicleStmt->fetch()) {
+        $vehicle = $currentTripVehicle;
+        $activeTrip = $currentTripVehicle['active_trip_id'];
+        $usingTemporaryTripVehicle = !$defaultVehicle || $defaultVehicle['id'] !== $vehicle['id'];
+    }
     if ($vehicle) {
+      $documentStmt = $pdo->prepare(
+        'SELECT document_type, extracted_data FROM vehicle_documents
+          WHERE vehicle_id = ? ORDER BY uploaded_at DESC, id DESC'
+      );
+      $documentStmt->execute([$vehicle['id']]);
+      $seenComplianceDocuments = [];
+      foreach ($documentStmt->fetchAll() as $document) {
+        $type = strtolower((string)$document['document_type']);
+        if (in_array($type, ['or/cr', 'registration document'], true)) $type = 'registration';
+        if (!array_key_exists($type, $complianceDocuments) || isset($seenComplianceDocuments[$type])) continue;
+        $seenComplianceDocuments[$type] = true;
+        $data = json_decode((string)$document['extracted_data'], true) ?: [];
+        $complianceDocuments[$type] = vehicle_document_compliance_summary($type, $data);
+      }
         $tripStmt = $pdo->prepare(
             "SELECT t.id FROM trips t JOIN reservations r ON r.id=t.reservation_id
               WHERE t.vehicle_id=? AND r.assigned_driver_id=?
                 AND t.status IN ('Scheduled','Assigned','Dispatched','In Transit')
               ORDER BY CASE WHEN t.status='In Transit' THEN 0 ELSE 1 END, t.created_at DESC LIMIT 1"
         );
-        $tripStmt->execute([$vehicle['id'], $driver['id']]);
-        $activeTrip = $tripStmt->fetchColumn() ?: null;
+        if (!$activeTrip) {
+            $tripStmt->execute([$vehicle['id'], $driver['id']]);
+            $activeTrip = $tripStmt->fetchColumn() ?: null;
+        }
         $reportStmt = $pdo->prepare(
             "SELECT id, service_type, priority, status, created_at FROM maintenance_orders
               WHERE vehicle_id=? AND notes LIKE 'Driver issue report:%' ORDER BY created_at DESC LIMIT 5"
@@ -54,6 +82,7 @@ require ROOT_PATH . '/includes/header.php';
     No vehicle is currently assigned to you. Please contact your dispatcher.
   </div>
 <?php else: ?>
+<?php if ($usingTemporaryTripVehicle): ?><div class="alert alert-info"><strong>Current Trip Vehicle:</strong> <?= e($vehicle['brand'] . ' ' . $vehicle['model']) ?> (<?= e($vehicle['plate_number']) ?>). <strong>Default Vehicle:</strong> <?= $defaultVehicle ? e($defaultVehicle['brand'] . ' ' . $defaultVehicle['model'] . ' (' . $defaultVehicle['plate_number'] . ')') : 'None' ?>. Your default assignment has not been changed.</div><?php endif; ?>
 <div class="row g-3">
   <div class="col-lg-6">
     <div class="tc-card h-100">
@@ -75,7 +104,6 @@ require ROOT_PATH . '/includes/header.php';
           <tr><td class="text-muted-custom">Passenger Capacity:</td><td class="fw-semibold"><?= (int)$vehicle['capacity'] ?> Persons</td></tr>
           <tr><td class="text-muted-custom">Current Status:</td><td><span class="status-badge status-available"><?= e($vehicle['status']) ?></span></td></tr>
           <tr><td class="text-muted-custom">Odometer:</td><td class="fw-semibold"><?= number_format((int)$vehicle['odometer']) ?> km</td></tr>
-          <tr><td class="text-muted-custom">Fuel Tank / Level:</td><td class="fw-semibold"><?= (int)$vehicle['fuel_capacity'] ?> L (<?= (int)$vehicle['current_fuel'] ?>% filled)</td></tr>
           <tr><td class="text-muted-custom">Next Maintenance:</td><td class="fw-semibold"><?= e($vehicle['next_maintenance']) ?></td></tr>
           <tr><td class="text-muted-custom">Current Location:</td><td class="fw-semibold"><?= e($vehicle['location']) ?></td></tr>
         </table>
@@ -89,9 +117,9 @@ require ROOT_PATH . '/includes/header.php';
       </div>
       <div class="tc-card-body" id="driver-vehicle-docs">
         <div class="p-2 bg-light rounded small mb-3">
-          <div><i class="bi bi-file-earmark-text me-2 text-primary-custom"></i><strong>Registration:</strong> <?= e($vehicle['reg_document']) ?></div>
-          <div class="mt-2"><i class="bi bi-shield-check me-2 text-success"></i><strong>Insurance:</strong> <?= e($vehicle['insurance_document']) ?></div>
-          <div class="mt-2"><i class="bi bi-patch-check me-2 text-warning"></i><strong>LTFRB Permit:</strong> <?= e($vehicle['ltfrb_permit']) ?></div>
+          <div><i class="bi bi-file-earmark-text me-2 text-primary-custom"></i><strong>Registration:</strong> <?= e($complianceDocuments['registration']) ?></div>
+          <div class="mt-2"><i class="bi bi-shield-check me-2 text-success"></i><strong>Insurance:</strong> <?= e($complianceDocuments['insurance']) ?></div>
+          <div class="mt-2"><i class="bi bi-patch-check me-2 text-warning"></i><strong>LTFRB Permit:</strong> <?= e($complianceDocuments['ltfrb_permit']) ?></div>
         </div>
         <div class="alert alert-light border small mb-0">
           <i class="bi bi-info-circle me-1 text-primary-custom"></i>

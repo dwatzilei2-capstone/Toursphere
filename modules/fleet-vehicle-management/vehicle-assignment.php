@@ -1,6 +1,7 @@
 <?php
  
 require_once dirname(__DIR__, 2) . '/includes/bootstrap.php';
+require_once ROOT_PATH . '/includes/vehicle_compliance.php';
 require_login();
 require_permission('vehicles.assign');
 
@@ -15,7 +16,8 @@ $vehicles = $pdo->query(
                 SELECT 1 FROM maintenance_orders active_mo
                  WHERE active_mo.vehicle_id = v.id AND active_mo.status = 'In Repair'
             )) AS is_under_maintenance,
-            d.name AS assigned_driver_name
+            d.name AS assigned_driver_name,
+            EXISTS (SELECT 1 FROM trips active_t WHERE active_t.status IN ('In Transit','Returning to Depot') AND (active_t.driver_id=v.assigned_driver_id OR active_t.vehicle_id=v.id)) AS assignment_has_active_trip
        FROM vehicles v
        LEFT JOIN drivers d ON d.id = v.assigned_driver_id
       WHERE v.status IN ('Available','Assigned','Maintenance')
@@ -25,6 +27,10 @@ $vehicles = $pdo->query(
          )
       ORDER BY v.id"
 )->fetchAll();
+foreach ($vehicles as &$vehicle) {
+  $vehicle['operational_compliance'] = vehicle_operational_compliance($pdo, $vehicle['id']);
+}
+unset($vehicle);
 
 function required_license_class(array $vehicle): string
 {
@@ -41,12 +47,13 @@ $drivers = $pdo->query(
 )->fetchAll();
 
 $active_page = 'vehicle-assignment';
+$body_class = trim(($body_class ?? '') . ' fleet-vehicles-module fleet-vehicle-assignment-page');
 $page_title  = 'Vehicle & Driver Assignment';
 require ROOT_PATH . '/includes/header.php';
 ?>
 
 <link rel="stylesheet" href="<?= BASE_URL ?>/css/vehicle-assignment.css?v=<?= (int)filemtime(ROOT_PATH . '/css/vehicle-assignment.css') ?>">
-<section class="vehicle-assignment" aria-labelledby="assignment-title">
+<section class="vehicle-assignment fleet-vehicles-page-shell" aria-labelledby="assignment-title">
   <div class="va-heading">
     <div>
       <h1 id="assignment-title">Vehicle Assignment</h1>
@@ -60,7 +67,7 @@ require ROOT_PATH . '/includes/header.php';
     <div class="va-layout">
       <section class="va-panel" aria-labelledby="va-fleet-title">
         <div class="va-panel-heading">
-          <div><h2 id="va-fleet-title">Choose a vehicle</h2><p>Maintenance vehicles remain visible but are locked from selection.</p></div>
+          <div><h2 id="va-fleet-title">Choose a vehicle</h2><p>Vehicles with maintenance issues or incomplete/expired compliance remain visible but cannot be selected.</p></div>
           <span class="va-count" id="va-result-count" aria-live="polite"><?= count($vehicles) ?> vehicles</span>
         </div>
         <div class="va-toolbar">
@@ -71,26 +78,27 @@ require ROOT_PATH . '/includes/header.php';
         <div class="va-table-wrap" role="region" aria-label="Vehicle list" tabindex="0">
           <table class="va-table">
             <caption class="visually-hidden">Select one vehicle to assign a driver. Vehicles in transit or maintenance are excluded.</caption>
-            <thead><tr><th scope="col">Select</th><th scope="col">Plate No.</th><th scope="col">Vehicle</th><th scope="col">Capacity</th><th scope="col">Required License</th><th scope="col">Current Driver</th><th scope="col">Status</th></tr></thead>
+            <thead><tr><th scope="col">Select</th><th scope="col">Plate No.</th><th scope="col">Vehicle</th><th scope="col">Capacity</th><th scope="col">Required License</th><th scope="col">Default Driver</th><th scope="col">Status</th><th scope="col">Action</th></tr></thead>
             <tbody>
             <?php if (empty($vehicles)): ?>
-              <tr><td colspan="7"><div class="va-empty"><i class="bi bi-truck" aria-hidden="true"></i><h3>No vehicles available for assignment</h3><p>Vehicles will appear here when their status is Available or Assigned.</p></div></td></tr>
-            <?php else: foreach ($vehicles as $v): $underMaintenance = filter_var($v['is_under_maintenance'], FILTER_VALIDATE_BOOLEAN); ?>
-              <tr class="va-vehicle-row <?= $underMaintenance ? 'opacity-75' : '' ?>" data-status="<?= $underMaintenance ? 'Maintenance' : e($v['status']) ?>">
-                <td><label class="va-select"><input type="radio" name="vehicle_id" value="<?= e($v['id']) ?>" required <?= (!$underMaintenance && $preselected_vehicle === $v['id']) ? 'checked' : '' ?> <?= $underMaintenance ? 'disabled' : '' ?> data-plate="<?= e($v['plate_number']) ?>" data-model="<?= e($v['brand'] . ' ' . $v['model']) ?>" data-capacity="<?= (int)$v['capacity'] ?>" data-current-driver="<?= e($v['assigned_driver_name'] ?? '') ?>"><span class="visually-hidden"><?= $underMaintenance ? 'Unavailable' : 'Select' ?><span> <?= e($v['plate_number']) ?></span></span></label></td>
+              <tr><td colspan="8"><div class="va-empty"><i class="bi bi-truck" aria-hidden="true"></i><h3>No vehicles available for assignment</h3><p>Vehicles will appear here when their status is Available or Assigned.</p></div></td></tr>
+            <?php else: foreach ($vehicles as $v): $underMaintenance = filter_var($v['is_under_maintenance'], FILTER_VALIDATE_BOOLEAN); $operational = $v['operational_compliance']['operational']; $unavailable = $underMaintenance || !$operational; ?>
+              <tr class="va-vehicle-row <?= $unavailable ? 'opacity-75' : '' ?>" data-status="<?= $underMaintenance ? 'Maintenance' : e($v['status']) ?>">
+                <td><label class="va-select"><input type="radio" name="vehicle_id" value="<?= e($v['id']) ?>" required <?= (!$unavailable && $preselected_vehicle === $v['id']) ? 'checked' : '' ?> <?= $unavailable ? 'disabled' : '' ?> data-plate="<?= e($v['plate_number']) ?>" data-model="<?= e($v['brand'] . ' ' . $v['model']) ?>" data-capacity="<?= (int)$v['capacity'] ?>" data-current-driver="<?= e($v['assigned_driver_name'] ?? '') ?>"><span class="visually-hidden"><?= $unavailable ? 'Unavailable' : 'Select' ?><span> <?= e($v['plate_number']) ?></span></span></label></td>
                 <td><strong><?= e($v['plate_number']) ?></strong></td><td><?= e($v['brand'] . ' ' . $v['model']) ?><span class="va-reference"><?= e($v['id']) ?></span></td>
                 <td><?= (int)$v['capacity'] ?><span class="va-secondary">passengers</span></td>
                 <td><span class="va-license-badge"><?= e(required_license_class($v)) ?></span></td>
                 <td><?= e($v['assigned_driver_name'] ?: 'Unassigned') ?></td>
-                <td><?php if ($underMaintenance): ?><span class="badge bg-danger-subtle text-danger border border-danger-subtle"><i class="bi bi-tools me-1"></i>Under Maintenance</span><?php else: ?><span class="va-status <?= $v['status'] === 'Available' ? 'va-available' : 'va-assigned' ?>"><?= e($v['status']) ?></span><?php endif; ?></td>
+                <td><?php if ($underMaintenance): ?><span class="badge bg-danger-subtle text-danger border border-danger-subtle"><i class="bi bi-tools me-1"></i>Under Maintenance</span><?php else: ?><span class="va-status <?= $v['status'] === 'Available' ? 'va-available' : 'va-assigned' ?>"><?= e($v['status']) ?></span><?php endif; ?><?php if (!$operational): ?><div class="small text-danger mt-1" title="<?= e($v['operational_compliance']['reason']) ?>">Not operational: <?= e($v['operational_compliance']['reason']) ?></div><?php else: ?><div class="small text-success mt-1"><?= e($v['operational_compliance']['status']) ?></div><?php endif; ?></td>
+                <td><?php if ($v['assigned_driver_name']): $unassignBlocked = filter_var($v['assignment_has_active_trip'], FILTER_VALIDATE_BOOLEAN); ?><button type="submit" class="tc-btn tc-btn-outline-danger tc-btn-sm va-unassign" name="unassign_vehicle_id" value="<?= e($v['id']) ?>" formaction="<?= BASE_URL ?>/actions/unassign-vehicle.php" formmethod="post" formnovalidate data-confirm="Are you sure you want to unassign <?= e($v['assigned_driver_name']) ?> from <?= e($v['plate_number']) ?>?" <?= $unassignBlocked ? 'disabled title="Complete or cancel the active trip first."' : '' ?>>Unassign</button><?php else: ?><span class="text-muted-custom">—</span><?php endif; ?></td>
 
               </tr>
             <?php endforeach; endif; ?>
-            <tr id="va-no-results" hidden><td colspan="7" class="va-no-results">No matching vehicles. Try another search or clear the filters.</td></tr>
+            <tr id="va-no-results" hidden><td colspan="8" class="va-no-results">No matching vehicles. Try another search or clear the filters.</td></tr>
             </tbody>
           </table>
         </div>
-        <div class="va-table-note"><i class="bi bi-info-circle" aria-hidden="true"></i> Vehicles under maintenance are shown with a red badge and cannot be selected.</div>
+        <div class="va-table-note"><i class="bi bi-info-circle" aria-hidden="true"></i> Vehicles under maintenance or without valid required documents remain visible but cannot be selected.</div>
       </section>
 
       <aside class="va-panel va-composer" aria-labelledby="va-assignment-title">
@@ -125,5 +133,21 @@ require ROOT_PATH . '/includes/header.php';
     </div>
   </form>
 </section>
+<div id="modal-unassign-confirm" class="tc-modal-backdrop" role="dialog" aria-modal="true" aria-labelledby="unassign-confirm-title" aria-describedby="unassign-confirm-message">
+  <div class="tc-modal">
+    <div class="tc-card-header d-flex align-items-center gap-2">
+      <i class="bi bi-exclamation-triangle text-danger" aria-hidden="true"></i>
+      <h2 class="mb-0 fw-bold fs-6" id="unassign-confirm-title">Confirm Unassignment</h2>
+    </div>
+    <div class="tc-card-body">
+      <p class="mb-0" id="unassign-confirm-message"></p>
+    </div>
+    <div class="p-3 border-top d-flex justify-content-end gap-2">
+      <button type="button" class="tc-btn tc-btn-secondary" id="unassign-confirm-cancel">Keep Assignment</button>
+      <button type="button" class="tc-btn tc-btn-outline-danger" id="unassign-confirm-submit"><i class="bi bi-person-dash me-1" aria-hidden="true"></i>Unassign</button>
+    </div>
+  </div>
+</div>
 <script src="<?= BASE_URL ?>/js/vehicle-assignment.js?v=<?= (int)filemtime(ROOT_PATH . '/js/vehicle-assignment.js') ?>"></script>
+<script src="<?= BASE_URL ?>/js/fleet-vehicles.js?v=<?= (int)filemtime(ROOT_PATH . '/js/fleet-vehicles.js') ?>"></script>
 <?php require ROOT_PATH . '/includes/footer.php'; ?>

@@ -2,6 +2,8 @@
  
 require_once dirname(__DIR__) . '/includes/bootstrap.php';
 require_once dirname(__DIR__) . '/includes/routethink_engine.php';
+require_once ROOT_PATH . '/includes/vehicle_compliance.php';
+require_once ROOT_PATH . '/includes/driver_vehicle_assignment.php';
 require_login();
 header('Content-Type: application/json; charset=UTF-8');
 
@@ -58,6 +60,18 @@ try {
         $activeRouteStmt = $pdo->prepare('SELECT log_id FROM route_history WHERE log_id = ? AND trip_id = ?');
         $activeRouteStmt->execute([$trip['route_history_id'], $tripId]);
         if ($activeLogId = $activeRouteStmt->fetchColumn()) {
+            // Refresh the destination on resumed sessions created before automatic arrival.
+            $resumeRoute = json_decode($_POST['route_data_json'] ?? '', true);
+            $resumeDestination = $resumeRoute['destinationLocation'] ?? null;
+            if (is_array($resumeDestination) && isset($resumeDestination['lat'], $resumeDestination['lng'])
+                && is_numeric($resumeDestination['lat']) && is_numeric($resumeDestination['lng'])
+                && abs((float)$resumeDestination['lat']) <= 90 && abs((float)$resumeDestination['lng']) <= 180) {
+                $pdo->prepare("UPDATE route_history SET route_data_json =
+                    jsonb_set(COALESCE(NULLIF(route_data_json,'')::jsonb,'{}'::jsonb),
+                        '{destinationLocation}', ?::jsonb)::text WHERE log_id=?")
+                    ->execute([json_encode($resumeDestination), $activeLogId]);
+            }
+
             $pdo->prepare('UPDATE trips SET navigation_active = 1 WHERE id = ?')->execute([$tripId]);
             $pdo->commit();
             echo json_encode([
@@ -83,6 +97,10 @@ try {
     $destination = $trip['destination'] ?? $reservation['destination'] ?? trim($_POST['destination'] ?? '');
     $vehicleId = $trip['vehicle_id'] ?? $reservation['assigned_vehicle_id'] ?? '';
     $driverId = $trip['driver_id'] ?? $reservation['assigned_driver_id'] ?? '';
+    if ($tripId !== '' && $vehicleId !== '' && $driverId !== '') {
+        $resourceLock = $pdo->prepare("SELECT pg_advisory_xact_lock(hashtext(?)), pg_advisory_xact_lock(hashtext(?))");
+        $resourceLock->execute(['dispatch-driver:' . $driverId, 'dispatch-vehicle:' . $vehicleId]);
+    }
     $waypointsJson = ($trip && !empty($trip['waypoints']))
         ? json_encode(array_values(array_filter(array_map('trim', preg_split('/[;\n]+/', $trip['waypoints']) ?: []))))
         : ($_POST['waypoints_json'] ?? '[]');
@@ -98,6 +116,10 @@ try {
         $vehStmt->execute([$vehicleId]);
         $vehicle = $vehStmt->fetch();
         if (!$vehicle) throw new RuntimeException('The assigned vehicle could not be found.');
+        $compliance = vehicle_operational_compliance($pdo, $vehicleId);
+        if (!$compliance['operational']) {
+            throw new RuntimeException('Vehicle cannot start an actual trip because required compliance documents are incomplete or invalid. ' . $compliance['reason']);
+        }
         if ($vehicle['status'] === 'Maintenance') throw new RuntimeException('The assigned vehicle is under maintenance.');
         $maintenanceStmt = $pdo->prepare(
             "SELECT 1 FROM maintenance_orders WHERE vehicle_id = ? AND status = 'In Repair' LIMIT 1"
@@ -186,6 +208,8 @@ try {
     }
 
     if ($tripId !== '') {
+        if (driver_has_active_trip($pdo, $driverId, $tripId)) throw new RuntimeException('This driver is already operating another active trip.');
+        if (vehicle_has_active_trip($pdo, $vehicleId, $tripId)) throw new RuntimeException('This vehicle is already being used by another active trip.');
         $pdo->prepare(
             "UPDATE trips SET route_history_id=?, navigation_active=1, status='In Transit', progress_pct=GREATEST(progress_pct,10),
              current_step='In Transit', actual_departure=COALESCE(actual_departure,NOW()),
@@ -194,8 +218,8 @@ try {
         if ($reservationId !== '') {
             $pdo->prepare("UPDATE reservations SET status='In Transit' WHERE id=?")->execute([$reservationId]);
         }
-        $pdo->prepare("UPDATE vehicles SET status='On Trip',assigned_driver_id=?,location=? WHERE id=?")
-            ->execute([$driverId, 'In Transit: '.$origin.' → '.$destination, $vehicleId]);
+        $pdo->prepare("UPDATE vehicles SET status='On Trip',location=? WHERE id=?")
+            ->execute(['In Transit: '.$origin.' → '.$destination, $vehicleId]);
         $pdo->prepare("UPDATE drivers SET status='On Trip' WHERE id=?")->execute([$driverId]);
 
         $check = $pdo->prepare("SELECT 1 FROM trip_timeline WHERE trip_id=? AND title='Navigation Started'");
@@ -208,13 +232,6 @@ try {
                 ->execute([$tripId, (int)$sort->fetchColumn()]);
         }
 
-        $du = $pdo->prepare('SELECT user_id FROM drivers WHERE id=?');
-        $du->execute([$driverId]);
-        if ($driverUserId = $du->fetchColumn()) {
-            $pdo->prepare("INSERT INTO notifications (title,body,time_label,type,category,target,is_read,user_id)
-              VALUES ('Navigation Started',?,'Just now','info','Trip','driver-trips',0,?)")
-                ->execute(["Trip {$tripId} is now In Transit using route {$logId}.", $driverUserId]);
-        }
     }
 
     $pdo->commit();

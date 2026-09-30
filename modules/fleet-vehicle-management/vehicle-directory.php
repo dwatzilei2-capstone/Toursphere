@@ -1,6 +1,8 @@
 <?php
  
 require_once dirname(__DIR__, 2) . '/includes/bootstrap.php';
+require_once ROOT_PATH . '/includes/vehicle_document.php';
+require_once ROOT_PATH . '/includes/vehicle_compliance.php';
 require_login();
 require_permission('vehicles.view');
 
@@ -29,15 +31,51 @@ $stmt = $pdo->prepare($sql);
 $stmt->execute($params);
 $vehicles = $stmt->fetchAll();
 
+$documents_by_vehicle = [];
+if ($vehicles) {
+  $vehicle_ids = array_column($vehicles, 'id');
+  $placeholders = implode(',', array_fill(0, count($vehicle_ids), '?'));
+  $documentsStmt = $pdo->prepare(
+    "SELECT vehicle_id, document_type, extracted_data, extraction_status
+       FROM vehicle_documents
+      WHERE vehicle_id IN ($placeholders)
+      ORDER BY uploaded_at DESC, id DESC"
+  );
+  $documentsStmt->execute($vehicle_ids);
+  foreach ($documentsStmt->fetchAll() as $document) {
+    $type = strtolower((string)$document['document_type']);
+    if (in_array($type, ['or/cr', 'registration document'], true)) $type = 'registration';
+    if (!in_array($type, ['registration', 'insurance', 'ltfrb_permit'], true)) continue;
+    if (isset($documents_by_vehicle[$document['vehicle_id']][$type])) continue;
+    $data = json_decode((string)$document['extracted_data'], true) ?: [];
+    $documents_by_vehicle[$document['vehicle_id']][$type] = [
+      'exists' => true,
+      'summary' => vehicle_document_compliance_summary($type, $data),
+      'status' => $document['extraction_status'],
+      'testFixture' => !empty($data['test_fixture']),
+      'vehicleMatchStatus' => $data['vehicle_match_status'] ?? null,
+    ];
+  }
+}
+
 $vehicle_types = [];
+$next_vehicle_id_preview = null;
 if (can('vehicles.manage')) {
     $vehicle_types = $pdo->query("SELECT id, name FROM vehicle_types WHERE status = 'Active' ORDER BY name")->fetchAll();
+    $next_vehicle_id_preview = preview_next_available_sequential_id($pdo, 'vehicles', 'id', 'VEH-');
     $_SESSION['vehicle_csrf_token'] ??= bin2hex(random_bytes(32));
 }
 
  
 $vehicle_json = [];
+$operational_by_vehicle = [];
 foreach ($vehicles as $v) {
+  $profileDocuments = $documents_by_vehicle[$v['id']] ?? [];
+  foreach (['registration', 'insurance', 'ltfrb_permit'] as $documentType) {
+    $profileDocuments[$documentType] ??= ['exists' => false, 'summary' => '—', 'status' => 'not_detected'];
+  }
+  $operational = vehicle_operational_compliance($pdo, $v['id']);
+  $operational_by_vehicle[$v['id']] = $operational;
     $vehicle_json[$v['id']] = [
         'id' => $v['id'],
         'plateNumber' => $v['plate_number'],
@@ -50,18 +88,19 @@ foreach ($vehicles as $v) {
         'assignedDriver' => $v['assigned_driver_name'] ?? null,
         'driverId' => $v['assigned_driver_id'],
         'fuelType' => $v['fuel_type'],
-        'fuelCapacity' => (int)$v['fuel_capacity'],
-        'currentFuel' => (int)$v['current_fuel'],
         'odometer' => (int)$v['odometer'],
         'maintenanceStatus' => $v['maintenance_status'],
         'nextMaintenance' => $v['next_maintenance'],
         'lastMaintenance' => $v['last_maintenance'],
         'location' => $v['location'],
         'documents' => [
-            'registration' => $v['reg_document'],
-            'insurance' => $v['insurance_document'],
-            'ltfrbPermit' => $v['ltfrb_permit'],
+          'registration' => $profileDocuments['registration'],
+          'insurance' => $profileDocuments['insurance'],
+          'ltfrbPermit' => $profileDocuments['ltfrb_permit'],
         ],
+        'operational' => $operational,
+        'canManageDocuments' => can('vehicles.manage'),
+        'csrfToken' => can('vehicles.manage') ? ($_SESSION['vehicle_csrf_token'] ?? '') : '',
         'performance' => [
             'totalTrips' => (int)$v['total_trips'],
             'totalKm' => (int)$v['total_km'],
@@ -72,12 +111,17 @@ foreach ($vehicles as $v) {
 }
 
 $active_page = 'vehicles';
+$body_class = trim(($body_class ?? '') . ' fleet-vehicles-module fleet-vehicle-directory-page');
 $page_title  = 'Vehicle Directory — Fleet & Vehicle Management';
+$openVehicleId = isset($_GET['vehicle']) && is_string($_GET['vehicle']) && isset($vehicle_json[$_GET['vehicle']])
+  ? $_GET['vehicle']
+  : null;
 require ROOT_PATH . '/includes/header.php';
 ?>
 
 <link rel="stylesheet" href="<?= BASE_URL ?>/css/vehicle-registration.css?v=<?= (int)filemtime(ROOT_PATH . '/css/vehicle-registration.css') ?>">
 
+<div class="fleet-vehicles-page-shell">
 <div class="d-flex flex-wrap justify-content-between align-items-center mb-4 gap-2">
   <div>
     <h1 class="mb-1">Fleet & Vehicle Management (FVM)</h1>
@@ -117,7 +161,7 @@ require ROOT_PATH . '/includes/header.php';
           <th>Current Status</th>
           <th>Assigned Driver</th>
           <th>Odometer</th>
-          <th>Fuel Level</th>
+          <th>Operational</th>
           <th>Health</th>
           <th class="text-end">Actions</th>
         </tr>
@@ -126,10 +170,10 @@ require ROOT_PATH . '/includes/header.php';
         <?php if (empty($vehicles)): ?>
           <tr><td colspan="10" class="text-center text-muted-custom py-4">No vehicles match the selected filter.</td></tr>
         <?php else: foreach ($vehicles as $v):
-          $fuel_pct = $v['fuel_capacity'] > 0 ? round(($v['current_fuel'] / $v['fuel_capacity']) * 100) : 0;
+          $operational = $operational_by_vehicle[$v['id']];
           $needs_repair = $v['maintenance_status'] && strpos(strtolower($v['maintenance_status']), 'repair') !== false;
         ?>
-          <tr data-vehicle-id="<?= e($v['id']) ?>"
+          <tr id="record-<?= e($v['id']) ?>" data-vehicle-id="<?= e($v['id']) ?>"
               data-vehicle="<?= e(json_encode($vehicle_json[$v['id']], JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES)) ?>">
             <td><strong class="text-primary-custom"><?= e($v['id']) ?></strong></td>
             <td>
@@ -145,12 +189,11 @@ require ROOT_PATH . '/includes/header.php';
             <td><?= e($v['assigned_driver_name'] ?? '— Unassigned —') ?></td>
             <td><?= number_format((int)$v['odometer']) ?> km</td>
             <td>
-              <div class="d-flex align-items-center gap-2" style="min-width: 100px;">
-                <div class="progress flex-grow-1" style="height: 6px;">
-                  <div class="progress-bar <?= $fuel_pct < 30 ? 'bg-danger' : ($fuel_pct < 60 ? 'bg-warning' : 'bg-success') ?>" style="width: <?= $fuel_pct ?>%;"></div>
-                </div>
-                <span class="small fw-semibold"><?= $fuel_pct ?>%</span>
-              </div>
+              <span class="badge <?= $operational['operational'] ? 'bg-success-subtle text-success' : 'bg-danger-subtle text-danger' ?> border"
+                    title="<?= e($operational['reason'] ?: ($operational['test_data'] ? 'Test fixture documents in development only.' : 'Required compliance documents are valid.')) ?>">
+                <?= e($operational['status']) ?>
+              </span>
+              <?php if (!$operational['operational']): ?><div class="small text-danger mt-1"><?= e($operational['reason']) ?></div><?php endif; ?>
             </td>
             <td>
               <span class="badge <?= $needs_repair ? 'bg-danger-subtle text-danger' : 'bg-success-subtle text-success' ?> border">
@@ -174,6 +217,7 @@ require ROOT_PATH . '/includes/header.php';
       </tbody>
     </table>
   </div>
+</div>
 </div>
 
  
@@ -206,12 +250,45 @@ require ROOT_PATH . '/includes/header.php';
         <input type="hidden" name="return" value="<?= e(BASE_URL . '/modules/fleet-vehicle-management/vehicle-directory.php') ?>">
         <input type="hidden" name="csrf_token" value="<?= e($_SESSION['vehicle_csrf_token']) ?>">
 
-        <div class="vehicle-step-label">Step 1 — Upload vehicle document</div>
+        <div class="alert alert-info py-2 mb-3" role="status">
+          <div class="small text-muted-custom">Next Vehicle Number</div>
+          <strong class="fs-5"><?= e($next_vehicle_id_preview) ?></strong>
+          <div class="small text-muted-custom">This number will be confirmed when registration is successfully saved.</div>
+        </div>
+
+        <div class="vehicle-step-label">Documents & Compliance</div>
+        <label class="tc-form-label" for="vehicle-document">Vehicle Registration Document <span class="text-danger">*</span></label>
         <div id="vehicle-document-drop" class="vehicle-upload-zone" role="button" tabindex="0" aria-controls="vehicle-document">
           <input id="vehicle-document" type="file" name="registration_document" accept="application/pdf,image/jpeg,image/png,.pdf,.jpg,.jpeg,.png" required>
           <i class="bi bi-file-earmark-arrow-up fs-3 text-primary-custom d-block mb-2"></i>
-          <strong>Drop the OR/CR or supporting document here</strong>
+          <strong>Drop the vehicle registration document here</strong>
           <div class="text-muted-custom small mt-1">or select a PDF, JPG, JPEG, or PNG file (maximum 8 MB)</div>
+        </div>
+        <div id="vehicle-upload-status" class="small text-muted-custom mt-2" role="status" aria-live="polite"></div>
+        <div id="vehicle-extraction-review" class="small mt-2" hidden></div>
+        <div class="row g-3 mt-1">
+          <div class="col-md-6">
+            <label class="tc-form-label" for="vehicle-insurance-document">Insurance <span class="fw-normal text-muted-custom">(Optional)</span></label>
+            <input id="vehicle-insurance-document" type="file" name="insurance_document" class="tc-form-control" accept="application/pdf,image/jpeg,image/png,.pdf,.jpg,.jpeg,.png">
+            <div class="vehicle-source-note" id="vehicle-insurance-status">Upload if available; you can add it later.</div>
+            <div id="vehicle-insurance-review-label" class="vehicle-source-note" hidden>
+              <label><input id="vehicle-insurance-review" name="insurance_manual_review_confirm" value="1" type="checkbox"> I reviewed this document manually.</label>
+              <label class="d-block mt-1">Plate number shown on Insurance
+                <input name="insurance_manual_vehicle_plate" type="text" class="tc-form-control text-uppercase" maxlength="20" autocomplete="off">
+              </label>
+            </div>
+          </div>
+          <div class="col-md-6">
+            <label class="tc-form-label" for="vehicle-ltfrb-document">LTFRB Permit <span class="fw-normal text-muted-custom">(Optional)</span></label>
+            <input id="vehicle-ltfrb-document" type="file" name="ltfrb_permit_document" class="tc-form-control" accept="application/pdf,image/jpeg,image/png,.pdf,.jpg,.jpeg,.png">
+            <div class="vehicle-source-note" id="vehicle-ltfrb-status">Upload if available; you can add it later.</div>
+            <div id="vehicle-ltfrb-review-label" class="vehicle-source-note" hidden>
+              <label><input id="vehicle-ltfrb-review" name="ltfrb_manual_review_confirm" value="1" type="checkbox"> I reviewed this document manually.</label>
+              <label class="d-block mt-1">Plate number shown on LTFRB Permit
+                <input name="ltfrb_manual_vehicle_plate" type="text" class="tc-form-control text-uppercase" maxlength="20" autocomplete="off">
+              </label>
+            </div>
+          </div>
         </div>
         <div id="vehicle-document-preview" class="vehicle-document-preview mt-3" hidden>
           <div id="vehicle-document-name" class="small fw-semibold p-2 border-bottom"></div>
@@ -222,9 +299,10 @@ require ROOT_PATH . '/includes/header.php';
         <div id="vehicle-registration-workflow" hidden>
           <div class="vehicle-step">
             <div class="vehicle-step-label">Step 2 — Plate number from document</div>
-            <label class="tc-form-label" for="vehicle-plate-number">Plate Number</label>
-            <input id="vehicle-plate-number" type="text" name="plate_number" class="tc-form-control text-uppercase" placeholder="e.g. ABC-1234" maxlength="20" required>
-            <div class="vehicle-source-note">Manually encoded from the uploaded document. This is document-based review, not LTO verification.</div>
+            <label class="tc-form-label" for="vehicle-plate-number">Plate Number Extracted from Uploaded Document</label>
+            <input id="vehicle-plate-number" type="text" name="plate_number" class="tc-form-control text-uppercase" maxlength="20" readonly required>
+            <div class="vehicle-source-note" id="vehicle-plate-review">Locked to the value extracted from the uploaded document. OCR is not LTO verification.</div>
+            <label id="vehicle-registration-review-label" class="vehicle-source-note" hidden><input id="vehicle-registration-review" name="registration_manual_review_confirm" value="1" type="checkbox"> I reviewed the registration document manually.</label>
           </div>
 
           <div class="vehicle-step">
@@ -238,20 +316,26 @@ require ROOT_PATH . '/includes/header.php';
                     <option value="<?= (int)$vehicle_type['id'] ?>"><?= e($vehicle_type['name']) ?></option>
                   <?php endforeach; ?>
                 </select>
-                <div class="vehicle-source-note">Selected by Admin from active tour fleet categories.</div>
+                <div class="vehicle-source-note">Auto-filled from the document/catalog match when available; editable by Admin.</div>
               </div>
               <div class="col-md-6">
-                <label class="tc-form-label" for="vehicle-brand">Brand</label>
+                <label class="tc-form-label" for="vehicle-brand">Brand / Make</label>
                 <select id="vehicle-brand" class="tc-form-select" name="brand_id" required disabled><option value="">Select brand</option></select>
               </div>
               <div class="col-md-6">
-                <label class="tc-form-label" for="vehicle-model">Model</label>
+                <label class="tc-form-label" for="vehicle-model">Series / Model</label>
                 <select id="vehicle-model" class="tc-form-select" name="model_id" required disabled><option value="">Select model</option></select>
               </div>
               <div class="col-md-6">
-                <label class="tc-form-label" for="vehicle-variant">Variant</label>
-                <select id="vehicle-variant" class="tc-form-select" name="variant_id" required disabled><option value="">Select variant</option></select>
+                <label class="tc-form-label" for="vehicle-year">Year Model</label>
+                <input id="vehicle-year" type="number" name="year" class="tc-form-control" min="1980" max="<?= (int)date('Y') + 1 ?>" required>
               </div>
+              <div id="vehicle-variant-field" class="col-md-6" hidden>
+                <label class="tc-form-label" for="vehicle-variant">Variant <span class="fw-normal text-muted-custom">(Optional)</span></label>
+                <select id="vehicle-variant" class="tc-form-select" name="variant_id" disabled><option value="">Not specified</option></select>
+                <div class="vehicle-source-note">Shown only when known configurations exist for the selected model and year.</div>
+              </div>
+              <div class="col-12 vehicle-source-note">Brand/Make, Series/Model, and Year Model are auto-filled when clearly extracted and matched. These fields remain editable for Admin review.</div>
             </div>
           </div>
 
@@ -259,16 +343,8 @@ require ROOT_PATH . '/includes/header.php';
             <div class="vehicle-step-label">Steps 6–7 — Review auto-filled specifications</div>
             <div class="row g-3">
               <div class="col-md-6">
-                <label class="tc-form-label">Model Year</label>
-                <input type="number" name="year" class="tc-form-control" min="1980" max="<?= (int)date('Y') + 1 ?>" required>
-              </div>
-              <div class="col-md-6">
                 <label class="tc-form-label">Passenger Capacity</label>
                 <input type="number" name="capacity" class="tc-form-control" min="1" max="100" required>
-              </div>
-              <div class="col-md-6">
-                <label class="tc-form-label">Fuel Tank Capacity (L)</label>
-                <input type="number" name="fuel_capacity" class="tc-form-control" min="1" max="1000" required>
               </div>
               <div class="col-md-6">
                 <label class="tc-form-label">Fuel Type</label>
@@ -281,9 +357,10 @@ require ROOT_PATH . '/includes/header.php';
                 </select>
               </div>
             </div>
-            <div class="vehicle-source-note">Auto-filled from the selected model/variant specification. Review and edit for the actual unit where necessary.</div>
+            <div class="vehicle-source-note">Variant details are loaded from the catalog when available. Confirm the remaining unit specifications before registration.</div>
           </div>
 
+          <div id="vehicle-document-validation-warning" class="alert alert-warning small mt-3 mb-0" role="alert" tabindex="-1" hidden></div>
           <div id="vehicle-form-status" class="small text-muted-custom mt-3" role="status" aria-live="polite"></div>
           <div class="d-flex flex-column flex-sm-row justify-content-end gap-2 mt-3">
             <button type="button" class="tc-btn tc-btn-secondary" onclick="App.closeModal('modal-add-vehicle')">Cancel</button>
@@ -297,9 +374,10 @@ require ROOT_PATH . '/includes/header.php';
 <?php endif; ?>
 
 <script>
-  window.TC_VEHICLES_DATA = <?= json_encode($vehicle_json, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES) ?>;
+  window.TC_VEHICLES_DATA = <?= json_encode($vehicle_json, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES | JSON_HEX_TAG | JSON_HEX_APOS | JSON_HEX_AMP | JSON_HEX_QUOT) ?>;
+  window.TC_OPEN_VEHICLE_ID = <?= json_encode($openVehicleId, JSON_HEX_TAG | JSON_HEX_APOS | JSON_HEX_AMP | JSON_HEX_QUOT) ?>;
 </script>
 
-<?php $page_scripts = '<script src="' . BASE_URL . '/js/vehicle-registration.js?v=' . (int)filemtime(ROOT_PATH . '/js/vehicle-registration.js') . '"></script>'; ?>
+<?php $page_scripts = '<script src="' . BASE_URL . '/js/vehicle-registration.js?v=' . (int)filemtime(ROOT_PATH . '/js/vehicle-registration.js') . '"></script><script src="' . BASE_URL . '/js/fleet-vehicles.js?v=' . (int)filemtime(ROOT_PATH . '/js/fleet-vehicles.js') . '"></script>'; ?>
 
 <?php require ROOT_PATH . '/includes/footer.php'; ?>

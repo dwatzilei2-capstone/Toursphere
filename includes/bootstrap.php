@@ -34,4 +34,5 @@ require_once dirname(__DIR__) . '/includes/settings.php';
 date_default_timezone_set(company_timezone());
 db()->prepare("SELECT set_config('TimeZone', ?, false)")->execute([company_timezone()]);
 
+require_once __DIR__ . '/notifications.php';
 load_current_user();

@@ -5,6 +5,7 @@
 
 require_once __DIR__ . '/includes/bootstrap.php';
 require_login();
+if (has_role('customer')) redirect_to(BASE_URL . '/' . home_path());
 
  
 if (($current_user['role_code'] ?? '') === 'driver') {
@@ -15,11 +16,17 @@ $pdo = db();
 $role_code = $current_user['role_code'] ?? '';
 
  
+$fleetStatusCounts = ['Available'=>0, 'Maintenance'=>0, 'Assigned'=>0, 'On Trip'=>0];
+foreach ($pdo->query("SELECT status, COUNT(*) AS vehicle_count FROM vehicles GROUP BY status")->fetchAll() as $statusRow) {
+    if (array_key_exists($statusRow['status'], $fleetStatusCounts)) {
+        $fleetStatusCounts[$statusRow['status']] = (int)$statusRow['vehicle_count'];
+    }
+}
 $total_vehicles    = (int)$pdo->query('SELECT COUNT(*) FROM vehicles')->fetchColumn();
-$available_count   = (int)$pdo->query("SELECT COUNT(*) FROM vehicles WHERE status = 'Available'")->fetchColumn();
-$on_trip_count     = (int)$pdo->query("SELECT COUNT(*) FROM vehicles WHERE status = 'On Trip'")->fetchColumn();
-$assigned_count    = (int)$pdo->query("SELECT COUNT(*) FROM vehicles WHERE status = 'Assigned'")->fetchColumn();
-$maintenance_count = (int)$pdo->query("SELECT COUNT(*) FROM vehicles WHERE status = 'Maintenance'")->fetchColumn();
+$available_count   = $fleetStatusCounts['Available'];
+$maintenance_count = $fleetStatusCounts['Maintenance'];
+$assigned_count    = $fleetStatusCounts['Assigned'];
+$on_trip_count     = $fleetStatusCounts['On Trip'];
 $pending_orders    = (int)$pdo->query("SELECT COUNT(*) FROM maintenance_orders WHERE status <> 'Completed' AND status <> 'In Repair'")->fetchColumn();
 
  
@@ -88,14 +95,6 @@ foreach ($weeklyStmt->fetchAll() as $row) {
 
  
 $chart_data = [
-    'chart-fleet-status' => [
-        'type'   => 'doughnut',
-        'labels' => ['Available', 'On Trip', 'Assigned', 'Maintenance'],
-        'data'   => [$available_count, $on_trip_count, $assigned_count, $maintenance_count],
-        'colors' => ['#27AE60', '#2F80ED', '#56CCF2', '#EB5757'],
-        'legend' => true,
-        'cutout' => '70%',
-    ],
     'chart-weekly-trips' => [
         'type'  => 'bar',
         'label' => 'Trips Completed',
@@ -107,12 +106,13 @@ $chart_data = [
 ];
 
 $active_page = 'dashboard';
+$body_class = trim(($body_class ?? '') . ' toursphere-dashboard');
 $page_title  = 'Dashboard — Toursphere Fleet & Transportation Management';
 $include_chart = true;
 require ROOT_PATH . '/includes/header.php';
 ?>
 
- 
+<div class="dashboard-page-shell">
 <div class="d-flex flex-wrap justify-content-between align-items-center mb-4 gap-2">
   <div>
     <?php if ($role_code === 'dispatcher'): ?>
@@ -387,18 +387,17 @@ require ROOT_PATH . '/includes/header.php';
   </div>
 
   <div class="col-lg-4">
-    <div class="tc-card h-100">
-      <div class="tc-card-header">
-        <h3 class="mb-0 fs-6 fw-bold"><?php if (can('vehicles.view')): ?><a class="dashboard-panel-link" href="<?= BASE_URL ?>/modules/fleet-vehicle-management/vehicle-directory.php"><?php endif; ?><i class="bi bi-pie-chart me-2 text-primary-custom"></i><?= $role_code === 'dispatcher' ? 'Fleet Availability for Dispatch' : 'Fleet Availability' ?><?php if (can('vehicles.view')): ?></a><?php endif; ?></h3>
-      </div>
-      <div class="tc-card-body d-flex flex-column align-items-center justify-content-center">
-        <div style="height: 180px; width: 100%;">
-          <canvas id="chart-fleet-status"></canvas>
+    <div class="row g-3 h-100">
+      <div class="col-12 col-sm-6 col-lg-12">
+        <div class="tc-card h-100">
+          <div class="tc-card-header"><h3 class="mb-0 fs-6 fw-bold"><?php if (can('vehicles.view')): ?><a class="dashboard-panel-link" href="<?= BASE_URL ?>/modules/fleet-vehicle-management/vehicle-directory.php"><?php endif; ?><i class="bi bi-bar-chart me-2 text-primary-custom"></i>Vehicle Availability<?php if (can('vehicles.view')): ?></a><?php endif; ?></h3></div>
+          <div class="tc-card-body"><div style="height: 175px; width: 100%;"><canvas id="chart-vehicle-availability" aria-label="Available and maintenance vehicle counts"></canvas></div></div>
         </div>
-        <div class="d-flex justify-content-around w-100 mt-3 pt-2 border-top small text-center">
-          <div><span class="d-block fw-bold text-success"><?= (int)$available_count ?></span><span class="text-muted-custom">Available</span></div>
-          <div><span class="d-block fw-bold text-primary"><?= (int)$on_trip_count ?></span><span class="text-muted-custom">On Trip</span></div>
-          <div><span class="d-block fw-bold text-danger"><?= (int)$maintenance_count ?></span><span class="text-muted-custom">Maint.</span></div>
+      </div>
+      <div class="col-12 col-sm-6 col-lg-12">
+        <div class="tc-card h-100">
+          <div class="tc-card-header"><h3 class="mb-0 fs-6 fw-bold"><?php if (can('vehicles.view')): ?><a class="dashboard-panel-link" href="<?= BASE_URL ?>/modules/fleet-vehicle-management/vehicle-directory.php"><?php endif; ?><i class="bi bi-bar-chart-steps me-2 text-primary-custom"></i>Vehicle Operations<?php if (can('vehicles.view')): ?></a><?php endif; ?></h3></div>
+          <div class="tc-card-body"><div style="height: 150px; width: 100%;"><canvas id="chart-vehicle-operations" aria-label="Assigned and on-trip vehicle counts"></canvas></div></div>
         </div>
       </div>
     </div>
@@ -471,8 +470,23 @@ require ROOT_PATH . '/includes/header.php';
     <?php endif; ?>
   </div>
 </div>
+</div>
 
 <script src="<?= BASE_URL ?>/js/dashboard-cards.js?v=<?= (int)filemtime(ROOT_PATH . '/js/dashboard-cards.js') ?>"></script>
+<?php
+$fleetChartPayload = [
+    'availability' => [$available_count, $maintenance_count],
+    'operations' => [$assigned_count, $on_trip_count],
+];
+$page_scripts = '<script>(function(){
+  if(typeof Chart === "undefined") return;
+  const values = '.json_encode($fleetChartPayload, JSON_UNESCAPED_UNICODE).';
+  const countLabels = {id:"fleetCountLabels",afterDatasetsDraw(chart){const ctx=chart.ctx;ctx.save();ctx.font="600 13px Poppins, sans-serif";ctx.fillStyle=getComputedStyle(document.documentElement).getPropertyValue("--tc-text-main").trim()||"#1F2937";ctx.textBaseline="middle";chart.getDatasetMeta(0).data.forEach((element,index)=>{const value=chart.data.datasets[0].data[index];const p=element.tooltipPosition();if(chart.options.indexAxis==="y"){ctx.textAlign="left";ctx.fillText(String(value),p.x+8,p.y);}else{ctx.textAlign="center";ctx.textBaseline="bottom";ctx.fillText(String(value),p.x,p.y-7);}});ctx.restore();}};
+  function options(horizontal){const reduceMotion=window.matchMedia("(prefers-reduced-motion: reduce)").matches;return {indexAxis:horizontal?"y":"x",responsive:true,maintainAspectRatio:false,animation:{duration:reduceMotion?0:850,easing:"easeOutQuart",delay:ctx=>reduceMotion?0:(ctx.type==="data"?ctx.dataIndex*90:0)},interaction:{mode:"nearest",intersect:false},layout:{padding:horizontal?{right:28}:{top:22}},plugins:{legend:{display:false},tooltip:{displayColors:false,backgroundColor:"rgba(15,23,42,.92)",padding:10,cornerRadius:7,callbacks:{label:c=>c.label+": "+c.raw}}},scales:horizontal?{x:{beginAtZero:true,ticks:{precision:0},grid:{color:"#EEF2F7"}},y:{grid:{display:false}}}:{y:{beginAtZero:true,ticks:{precision:0},grid:{color:"#EEF2F7"}},x:{grid:{display:false}}}};}
+  new Chart(document.getElementById("chart-vehicle-availability"),{type:"bar",data:{labels:["Available","Maintenance"],datasets:[{data:values.availability,backgroundColor:["#27AE60","#EB5757"],borderRadius:5,maxBarThickness:54}]},options:options(false),plugins:[countLabels]});
+  new Chart(document.getElementById("chart-vehicle-operations"),{type:"bar",data:{labels:["Assigned","On Trip"],datasets:[{data:values.operations,backgroundColor:["#56CCF2","#2F80ED"],borderRadius:5,maxBarThickness:34}]},options:options(true),plugins:[countLabels]});
+})();</script>';
+?>
 <?php require ROOT_PATH . '/includes/footer.php'; ?>
 
 

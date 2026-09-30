@@ -6,6 +6,11 @@ require_login();
 $pdo = db();
 
 $trip_id = $_GET['id'] ?? 'TRP-8801';
+if (has_role('customer')) {
+    $owner = $pdo->prepare('SELECT 1 FROM trips t JOIN reservations r ON r.id=t.reservation_id WHERE t.id=? AND r.customer_id=?');
+    $owner->execute([$trip_id, $current_user['id']]);
+    if (!$owner->fetchColumn()) { http_response_code(404); exit('Trip not found.'); }
+}
 $stmt = $pdo->prepare(
     "SELECT t.*, v.plate_number, v.model AS vehicle_model, v.brand AS vehicle_brand, v.type AS vehicle_type,
             d.name AS driver_name, r.client_name
@@ -26,6 +31,7 @@ if ($trip) {
 }
 
 $active_page = 'dashboard';
+$include_role_portal_polish = true;
 $page_title  = 'Trip Details';
 require ROOT_PATH . '/includes/header.php';
 ?>

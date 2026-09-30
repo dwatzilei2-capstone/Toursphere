@@ -6,38 +6,14 @@
 $page_title = $page_title ?? 'Toursphere — Fleet & Transportation Management';
 $include_leaflet = $include_leaflet ?? false;
 $is_driver = ($current_user['role_code'] ?? '') === 'driver';
-
-if (!function_exists('notification_target_url')) {
-     
-    function notification_target_url(?string $target): string
-    {
-        if (is_string($target) && str_starts_with($target, 'trip-details:')) {
-            $tripId = trim(substr($target, strlen('trip-details:')));
-            if ($tripId !== '') {
-                return BASE_URL . '/trip-details.php?id=' . rawurlencode($tripId);
-            }
-        }
-
-        $map = [
-            'dashboard'        => '/dashboard.php',
-            'dispatch-board'   => '/modules/vehicle-reservation-dispatch/dispatch-board.php',
-            'reservations'     => '/modules/vehicle-reservation-dispatch/reservations.php',
-            'trip-schedule'    => '/modules/vehicle-reservation-dispatch/trip-schedule.php',
-            'ai-route-planner' => '/modules/ai-route-optimization/ai-route-planner.php',
-            'route-history'    => '/modules/ai-route-optimization/route-history.php',
-            'maintenance'      => '/modules/fleet-vehicle-management/maintenance.php',
-            'fuel-transactions'=> '/modules/fuel-management/fuel-transactions.php',
-            'drivers'          => '/modules/driver-trip-performance/driver-performance.php',
-            'vehicles'         => '/modules/fleet-vehicle-management/vehicle-directory.php',
-            'vehicle-assignment'=> '/modules/fleet-vehicle-management/vehicle-assignment.php',
-            'driver-dashboard' => '/modules/driver-portal/driver-dashboard.php',
-            'driver-trips'     => '/modules/driver-portal/driver-trips.php',
-            'driver-route'     => '/modules/driver-portal/driver-route.php',
-            'trip-details'     => '/trip-details.php',
-            'notifications'    => '/notifications.php',
-        ];
-        return BASE_URL . ($map[$target] ?? '/notifications.php');
-    }
+$is_customer = ($current_user['role_code'] ?? '') === 'customer';
+$include_role_portal_polish = !empty($include_role_portal_polish) || in_array(($active_page ?? ''), [
+    'driver-dashboard', 'driver-trips', 'driver-vehicle', 'driver-route',
+    'customer-reservations', 'customer-profile', 'customer-settings',
+    'trip-details', 'reports', 'notifications', 'settings',
+], true);
+if ($include_role_portal_polish) {
+    $body_class = trim(($body_class ?? '') . ' role-portal-polish');
 }
 
 if (!function_exists('notification_icon_class')) {
@@ -60,12 +36,12 @@ if (!function_exists('notification_badge_class')) {
 }
 $header_pdo = db();
 if (!isset($unread_count)) {
-    $headerCountStmt = $header_pdo->prepare('SELECT COUNT(*) FROM notifications WHERE is_read = 0 AND (user_id IS NULL OR user_id = ?)');
+    $headerCountStmt = $header_pdo->prepare('SELECT COUNT(*) FROM notifications WHERE is_read = 0 AND user_id = ?');
     $headerCountStmt->execute([$current_user['id']]);
     $unread_count = (int)$headerCountStmt->fetchColumn();
 }
 if (!isset($header_notifications)) {
-    $headerNotifStmt = $header_pdo->prepare('SELECT * FROM notifications WHERE user_id IS NULL OR user_id = ? ORDER BY created_at DESC LIMIT 5');
+    $headerNotifStmt = $header_pdo->prepare('SELECT * FROM notifications WHERE user_id = ? ORDER BY created_at DESC LIMIT 5');
     $headerNotifStmt->execute([$current_user['id']]);
     $header_notifications = $headerNotifStmt->fetchAll();
 }
@@ -89,8 +65,16 @@ if (!isset($header_notifications)) {
   <?php endif; ?>
    
   <link rel="stylesheet" href="<?= BASE_URL ?>/css/style.css?v=<?= (int)@filemtime(ROOT_PATH . '/css/style.css') ?>">
+  <?php if (($active_page ?? '') === 'dashboard'): ?><link rel="stylesheet" href="<?= BASE_URL ?>/css/dashboard.css?v=<?= (int)@filemtime(ROOT_PATH . '/css/dashboard.css') ?>"><?php endif; ?>
+  <?php if (in_array(($active_page ?? ''), ['vehicles', 'vehicle-assignment', 'maintenance'], true)): ?><link rel="stylesheet" href="<?= BASE_URL ?>/css/fleet-vehicles.css?v=<?= (int)@filemtime(ROOT_PATH . '/css/fleet-vehicles.css') ?>"><?php endif; ?>
+  <?php if (in_array(($active_page ?? ''), ['reservations', 'dispatch-board', 'trip-schedule'], true)): ?><link rel="stylesheet" href="<?= BASE_URL ?>/css/reservation-dispatch.css?v=<?= (int)@filemtime(ROOT_PATH . '/css/reservation-dispatch.css') ?>"><?php endif; ?>
+  <?php if (in_array(($active_page ?? ''), ['drivers', 'trip-performance'], true)): ?><link rel="stylesheet" href="<?= BASE_URL ?>/css/driver-trip-monitoring.css?v=<?= (int)@filemtime(ROOT_PATH . '/css/driver-trip-monitoring.css') ?>"><?php endif; ?>
+  <?php if (in_array(($active_page ?? ''), ['fuel-dashboard', 'fuel-transactions'], true)): ?><link rel="stylesheet" href="<?= BASE_URL ?>/css/fuel-management.css?v=<?= (int)@filemtime(ROOT_PATH . '/css/fuel-management.css') ?>"><?php endif; ?>
+  <?php if (in_array(($active_page ?? ''), ['cost-overview', 'cost-by-vehicle', 'cost-trends'], true)): ?><link rel="stylesheet" href="<?= BASE_URL ?>/css/cost-analysis.css?v=<?= (int)@filemtime(ROOT_PATH . '/css/cost-analysis.css') ?>"><?php endif; ?>
+  <?php if (in_array(($active_page ?? ''), ['ai-route-planner', 'route-comparison', 'route-history'], true)): ?><link rel="stylesheet" href="<?= BASE_URL ?>/css/ai-route-optimization.css?v=<?= (int)@filemtime(ROOT_PATH . '/css/ai-route-optimization.css') ?>"><?php endif; ?>
   <?php if (($active_page ?? '') === 'settings'): ?><link rel="stylesheet" href="<?= BASE_URL ?>/css/settings.css?v=<?= (int)filemtime(ROOT_PATH . '/css/settings.css') ?>"><?php endif; ?>
   <link rel="stylesheet" href="<?= BASE_URL ?>/css/theme.css?v=<?= (int)filemtime(ROOT_PATH . '/css/theme.css') ?>">
+  <?php if ($include_role_portal_polish): ?><link rel="stylesheet" href="<?= BASE_URL ?>/css/role-portals.css?v=<?= (int)filemtime(ROOT_PATH . '/css/role-portals.css') ?>"><?php endif; ?>
   <script>window.fleetCurrencySymbol = <?= json_encode(currency_symbol(), JSON_HEX_TAG | JSON_HEX_AMP | JSON_HEX_APOS | JSON_HEX_QUOT) ?>;</script>
 </head>
 <body<?= !empty($body_class) ? ' class="' . e($body_class) . '"' : '' ?>>
@@ -110,7 +94,7 @@ if (!isset($header_notifications)) {
             <i class="bi bi-list fs-5"></i>
           </button>
 
-          <?php if (!$is_driver): ?>
+          <?php if (!$is_driver && !$is_customer): ?>
            
           <form class="input-group input-group-sm" style="width: 280px;" id="global-search-wrapper" action="<?= BASE_URL ?>/modules/fleet-vehicle-management/vehicle-directory.php" method="get">
             <span class="input-group-text bg-white border-end-0 text-muted"><i class="bi bi-search"></i></span>
@@ -127,11 +111,12 @@ if (!isset($header_notifications)) {
           <?php endif; ?>
 
            
-          <div class="dropdown">
-            <button class="btn btn-sm btn-light position-relative border" id="header-notif-btn" type="button" data-bs-toggle="dropdown" aria-expanded="false" title="Notifications">
+          <div class="dropdown notification-anchor">
+            <button class="btn btn-sm btn-light position-relative border" id="header-notif-btn" data-csrf="<?= e($_SESSION['notification_csrf'] ??= bin2hex(random_bytes(32))) ?>" data-user-id="<?= (int)$current_user['id'] ?>" data-cursor="<?= (int)$header_pdo->query('SELECT COALESCE(MAX(id),0) FROM notifications')->fetchColumn() ?>" type="button" data-bs-toggle="dropdown" aria-expanded="false" title="Notifications">
               <i class="bi bi-bell"></i>
               <span id="header-notif-badge" class="position-absolute top-0 start-100 translate-middle badge rounded-pill bg-danger" style="font-size: 10px; padding: 3px 6px; <?= $unread_count > 0 ? '' : 'display:none;' ?>"><?= (int)$unread_count ?></span>
             </button>
+            <div id="notification-preview" class="notification-preview" role="status" aria-live="polite" hidden></div>
             <div class="dropdown-menu dropdown-menu-end shadow-sm mt-2 notifications-dropdown" aria-labelledby="header-notif-btn">
               <div class="d-flex align-items-center justify-content-between px-3 py-2 notifications-dropdown-header">
                 <span class="fw-semibold small"><i class="bi bi-bell-fill me-1 text-primary"></i>Notifications</span>
@@ -150,7 +135,7 @@ if (!isset($header_notifications)) {
                       <span class="fw-semibold small <?= $n['type'] === 'warning' ? 'text-danger' : 'text-dark' ?>"><?= e($n['title']) ?></span>
                       <span class="notif-badge <?= notification_badge_class($n['category']) ?> flex-shrink-0"><?= e($n['category']) ?></span>
                     </div>
-                    <div class="text-muted-custom small mt-1"><?= e($n['body']) ?></div>
+                    <div class="text-muted-custom small mt-1"><?= e($n['body']) ?></div><time class="text-muted-custom small"><?= e(notification_time($n)) ?></time>
                   </a>
                   <?php endforeach; ?>
                 <?php endif; ?>
@@ -170,13 +155,13 @@ if (!isset($header_notifications)) {
             </button>
             <ul class="dropdown-menu dropdown-menu-end shadow-sm mt-2 p-1 account-profile-menu" aria-labelledby="account-profile-menu-btn">
               <li>
-                <a class="dropdown-item rounded-2 d-flex align-items-center gap-2" href="#" onclick="App.openAccountProfile(); return false;">
-                  <i class="bi bi-person fs-6 text-muted-custom"></i> Profile
+                <a class="dropdown-item rounded-2 d-flex align-items-center gap-2" href="<?= $is_customer ? BASE_URL . '/modules/customer-portal/profile.php?edit=1' : '#' ?>" <?= $is_customer ? '' : 'onclick="App.openAccountProfile(); return false;"' ?>>
+                  <i class="bi bi-person fs-6 text-muted-custom"></i> <?= $is_customer ? 'Edit Profile' : 'Profile' ?>
                 </a>
               </li>
               <?php if (is_logged_in()): ?>
               <li>
-                <a class="dropdown-item rounded-2 d-flex align-items-center gap-2" href="<?= BASE_URL ?>/settings.php">
+                <a class="dropdown-item rounded-2 d-flex align-items-center gap-2" href="<?= BASE_URL ?><?= $is_customer ? '/modules/customer-portal/settings.php' : '/settings.php' ?>">
                   <i class="bi bi-gear fs-6 text-muted-custom"></i> Settings
                 </a>
               </li>

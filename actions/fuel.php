@@ -1,6 +1,7 @@
 <?php
  
 require_once dirname(__DIR__) . '/includes/bootstrap.php';
+require_once ROOT_PATH . '/includes/driver_fuel_context.php';
 require_login();
 require_permission('fuel.manage');
 
@@ -16,28 +17,17 @@ try {
         $vehicle_id = trim($_POST['vehicle_id'] ?? '');
         $trip_id    = trim($_POST['trip_id'] ?? '');
         $driver_id  = !empty($_POST['driver_id']) ? trim($_POST['driver_id']) : null;
-        if (!$driver_id && ($current_user['role_code'] ?? '') === 'driver') {
-            $dStmt = $pdo->prepare('SELECT id FROM drivers WHERE user_id = ?');
-            $dStmt->execute([$current_user['id']]);
-            $driver_id = $dStmt->fetchColumn() ?: null;
-        }
         if (($current_user['role_code'] ?? '') === 'driver') {
-            if (!$driver_id) {
+            $context = driver_fuel_context($pdo, (string)$current_user['id']);
+            if (!$context) {
                 redirect_with_toast($return, 'Your account is not linked to a Driver profile.', 'danger');
             }
-            $tripStmt = $pdo->prepare(
-                "SELECT id, vehicle_id FROM trips
-                  WHERE driver_id = ? AND status IN ('Dispatched','In Transit','Completed')
-                  ORDER BY CASE WHEN status = 'In Transit' THEN 0 WHEN status = 'Dispatched' THEN 1 ELSE 2 END,
-                           COALESCE(actual_departure, scheduled_departure, created_at) DESC LIMIT 1"
-            );
-            $tripStmt->execute([$driver_id]);
-            $driverTrip = $tripStmt->fetch();
-            if (!$driverTrip || !$driverTrip['vehicle_id']) {
-                redirect_with_toast($return, 'No assigned trip and vehicle are available for this fuel entry.', 'danger');
+            if (empty($context['vehicle_id'])) {
+                redirect_with_toast($return, 'No vehicle is assigned to you. Ask Dispatch to assign a vehicle before logging fuel.', 'danger');
             }
-            $trip_id = $driverTrip['id'];
-            $vehicle_id = $driverTrip['vehicle_id'];
+            $driver_id = $context['driver_id'];
+            $trip_id = $context['trip_id'] ?? '';
+            $vehicle_id = $context['vehicle_id'];
         } elseif ($trip_id !== '') {
             $tripStmt = $pdo->prepare('SELECT vehicle_id, driver_id FROM trips WHERE id = ?');
             $tripStmt->execute([$trip_id]);

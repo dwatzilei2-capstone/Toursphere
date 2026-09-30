@@ -1,0 +1,143 @@
+.cost-analysis-module .cost-page-heading {
+  opacity: 0;
+  transform: translateY(8px);
+  transition: opacity 350ms ease, transform 350ms cubic-bezier(.2, .7, .2, 1);
+}
+
+.cost-analysis-module.cost-analysis-motion-ready .cost-page-heading {
+  opacity: 1;
+  transform: none;
+}
+
+.cost-analysis-module .tc-card {
+  transition: transform 180ms ease, box-shadow 180ms ease, border-color 180ms ease;
+}
+
+.cost-analysis-module.cost-analysis-motion-ready .tc-card {
+  animation: cost-section-in 380ms cubic-bezier(.2, .7, .2, 1) both;
+}
+
+.cost-analysis-module.cost-analysis-motion-ready .row > div:nth-child(2) .tc-card { animation-delay: 45ms; }
+.cost-analysis-module.cost-analysis-motion-ready .row > div:nth-child(3) .tc-card { animation-delay: 90ms; }
+.cost-analysis-module.cost-analysis-motion-ready .row > div:nth-child(4) .tc-card { animation-delay: 135ms; }
+
+.cost-analysis-module .tc-btn,
+.cost-analysis-module .page-link {
+  transition: transform 140ms ease, box-shadow 180ms ease, background-color 180ms ease,
+    border-color 180ms ease, color 180ms ease;
+}
+
+.cost-analysis-module .tc-btn:active,
+.cost-analysis-module .page-link:active {
+  transform: scale(.97);
+}
+
+.cost-analysis-module .tc-form-control,
+.cost-analysis-module .tc-form-select {
+  transition: border-color 170ms ease, box-shadow 170ms ease, background-color 170ms ease;
+}
+
+.cost-analysis-module .tc-table tbody tr {
+  transition: background-color 160ms ease, box-shadow 160ms ease;
+}
+
+.cost-analysis-module .tc-table tbody tr.cost-row-pressed {
+  background-color: rgba(15, 23, 42, .04);
+}
+
+.cost-analysis-module canvas {
+  opacity: 0;
+  transition: opacity 320ms ease 100ms;
+}
+
+.cost-analysis-module.cost-analysis-motion-ready canvas {
+  opacity: 1;
+}
+
+@media (hover: hover) and (pointer: fine) {
+  .cost-analysis-module .tc-card:hover {
+    transform: translateY(-2px);
+    box-shadow: 0 10px 24px rgba(15, 23, 42, .08);
+  }
+
+  .cost-analysis-module .tc-btn:hover,
+  .cost-analysis-module .page-link:hover {
+    transform: translateY(-1px);
+  }
+
+  .cost-analysis-module .tc-table tbody tr:not(:has(td[colspan])):hover {
+    background-color: rgba(15, 23, 42, .025);
+    box-shadow: inset 0 1px rgba(15, 23, 42, .035), inset 0 -1px rgba(15, 23, 42, .035);
+  }
+}
+
+@keyframes cost-section-in {
+  from { opacity: 0; transform: translateY(7px); }
+  to { opacity: 1; transform: none; }
+}
+
+@media (max-width: 767.98px) {
+  .cost-analysis-module .cost-page-heading {
+    align-items: stretch !important;
+    flex-direction: column;
+  }
+
+  .cost-analysis-module .cost-filter-form {
+    width: 100%;
+    align-items: stretch !important;
+    flex-direction: column;
+  }
+
+  .cost-analysis-module .cost-filter-form > div,
+  .cost-analysis-module .cost-filter-form .tc-form-control,
+  .cost-analysis-module .cost-filter-form .tc-btn {
+    width: 100%;
+  }
+
+  .cost-analysis-module .tc-table-container {
+    overflow-x: auto;
+    -webkit-overflow-scrolling: touch;
+  }
+
+  .cost-analysis-module .tc-table {
+    min-width: 820px;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .cost-analysis-module *,
+  .cost-analysis-module *::before,
+  .cost-analysis-module *::after {
+    animation-duration: .01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: .01ms !important;
+  }
+
+  .cost-analysis-module .cost-page-heading,
+  .cost-analysis-module canvas {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+.cost-revenue-card { padding: 24px; }
+.cost-revenue-heading { display: flex; align-items: flex-start; justify-content: space-between; gap: 12px; }
+.cost-revenue-heading h2 { margin: 0; font-size: 16px; font-weight: 700; color: #0f172a; }
+.cost-revenue-heading p { margin: 7px 0 0; font-size: 12px; color: #64748b; }
+.cost-chart-period { padding: 5px 10px; border: 1px solid #e2e8f0; border-radius: 6px; background: #f8fafc; color: #64748b; font-size: 11px; }
+.cost-chart-totals { display: flex; gap: 32px; margin: 24px 0 8px; }
+.cost-chart-totals > div { display: flex; flex-direction: column; gap: 7px; }
+.cost-chart-label { display: flex; align-items: center; gap: 7px; color: #64748b; font-size: 12px; }
+.cost-chart-dot { width: 8px; height: 8px; border-radius: 50%; display: inline-block; }
+.cost-chart-dot.revenue { background: #059669; }
+.cost-chart-dot.expense { background: #2563eb; }
+.cost-chart-totals strong { color: #0f172a; font-size: 23px; font-weight: 700; letter-spacing: -.5px; font-variant-numeric: tabular-nums; }
+.cost-revenue-plot { position: relative; height: 260px; }
+.cost-chart-footnote { margin-top: 14px; padding-top: 12px; border-top: 1px solid #f1f5f9; color: #94a3b8; font-size: 11px; line-height: 1.6; }
+.cost-chart-note { color: #64748b; font-size: 12px; margin: 8px 0; }
+@media (max-width: 575.98px) {
+  .cost-revenue-card { padding: 18px 14px; }
+  .cost-chart-totals { gap: 20px; flex-wrap: wrap; }
+  .cost-chart-totals strong { font-size: 20px; }
+  .cost-revenue-plot { height: 240px; }
+}

@@ -1,6 +1,9 @@
 <?php
  
 require_once dirname(__DIR__) . '/includes/bootstrap.php';
+require_once ROOT_PATH . '/includes/vehicle_compliance.php';
+require_once ROOT_PATH . '/includes/driver_vehicle_assignment.php';
+require_once ROOT_PATH . '/includes/schedules.php';
 require_login();
 require_permission('dispatch.manage');
 
@@ -12,16 +15,19 @@ $return = $_POST['return'] ?? (BASE_URL . '/modules/vehicle-reservation-dispatch
 $reservation_id = trim($_POST['reservation_id'] ?? '');
 $vehicle_id     = trim($_POST['vehicle_id'] ?? '');
 $driver_id      = trim($_POST['driver_id'] ?? '');
+$dispatch_action = trim($_POST['dispatch_action'] ?? 'assign');
 $departure      = trim($_POST['departure'] ?? '');
 $notes          = trim($_POST['notes'] ?? '');
 
-if ($reservation_id === '' || $vehicle_id === '' || $driver_id === '') {
-    redirect_with_toast($return, 'Please select a vehicle and a driver to dispatch.', 'danger');
+if ($reservation_id === '' || $vehicle_id === '' || $driver_id === '' || !in_array($dispatch_action, ['assign', 'dispatch'], true)) {
+    redirect_with_toast($return, 'Please select a valid action, vehicle, and driver.', 'danger');
 }
 
 try {
     $pdo = db();
     $pdo->beginTransaction();
+    $lockStmt = $pdo->prepare("SELECT pg_advisory_xact_lock(hashtext(?)), pg_advisory_xact_lock(hashtext(?))");
+    $lockStmt->execute(['dispatch-driver:' . $driver_id, 'dispatch-vehicle:' . $vehicle_id]);
 
     $resStmt = $pdo->prepare('SELECT * FROM reservations WHERE id = ? FOR UPDATE');
     $resStmt->execute([$reservation_id]);
@@ -29,9 +35,25 @@ try {
     if (!$r) {
         throw new RuntimeException('Reservation not found.');
     }
-    if (!in_array($r['status'], ['Pending', 'Assigned', 'Confirmed'], true)) {
+    $scheduleInstance = null;
+    $dispatchPassengerDemand = (int)$r['passenger_count'];
+    if (!empty($r['departure_schedule_instance_id'])) {
+        $scheduleStmt = $pdo->prepare('SELECT * FROM scheduled_departures WHERE id=? FOR UPDATE');
+        $scheduleStmt->execute([$r['departure_schedule_instance_id']]);
+        $scheduleInstance = $scheduleStmt->fetch();
+        if (!$scheduleInstance || in_array($scheduleInstance['status'], ['Closed','Completed','Cancelled'], true)) throw new RuntimeException('The scheduled departure is no longer open for dispatch.');
+        $dispatchPassengerDemand = schedule_reserved_demand($pdo, (int)$scheduleInstance['id']);
+        if ($scheduleInstance['assigned_vehicle_id'] && $scheduleInstance['assigned_vehicle_id'] !== $vehicle_id) throw new RuntimeException('This scheduled departure already has a different vehicle assigned.');
+        if ($scheduleInstance['assigned_driver_id'] && $scheduleInstance['assigned_driver_id'] !== $driver_id) throw new RuntimeException('This scheduled departure already has a different driver assigned.');
+    }
+    if (!in_array($r['status'], ['Approved', 'Pending', 'Assigned', 'Confirmed'], true)
+        || ($r['customer_id'] && $r['status'] === 'Pending')) {
         throw new RuntimeException("A {$r['status']} reservation is locked and cannot be dispatched again.");
     }
+    if ($dispatch_action === 'dispatch' && !in_array($r['status'], ['Assigned', 'Confirmed'], true)) {
+        throw new RuntimeException('Assign a vehicle and driver before dispatching this reservation.');
+    }
+    $targetStatus = $dispatch_action === 'dispatch' ? 'Dispatched' : 'Assigned';
 
     $vehicleStmt = $pdo->prepare('SELECT * FROM vehicles WHERE id = ? FOR UPDATE');
     $vehicleStmt->execute([$vehicle_id]);
@@ -40,6 +62,10 @@ try {
     $driverStmt->execute([$driver_id]);
     $driver = $driverStmt->fetch();
     if (!$vehicle || !$driver) throw new RuntimeException('Selected vehicle or Driver was not found.');
+    $compliance = vehicle_operational_compliance($pdo, $vehicle_id);
+    if (!$compliance['operational']) {
+        throw new RuntimeException('Vehicle cannot operate because required compliance documents are incomplete or invalid. ' . $compliance['reason']);
+    }
     if (in_array($vehicle['status'], ['Maintenance', 'On Trip'], true)) {
         throw new RuntimeException('The selected vehicle is not available for dispatch.');
     }
@@ -50,10 +76,15 @@ try {
     if ($maintenanceStmt->fetchColumn()) {
         throw new RuntimeException('The selected vehicle has an active maintenance repair and cannot be dispatched.');
     }
-    if ((int)$vehicle['capacity'] < (int)$r['passenger_count']) {
-        throw new RuntimeException('The selected vehicle does not have enough passenger capacity.');
+    if ((int)$vehicle['capacity'] < $dispatchPassengerDemand) {
+        throw new RuntimeException('The selected vehicle does not have enough capacity for the scheduled passenger demand.');
     }
-    if ($driver['status'] === 'On Trip') throw new RuntimeException('The selected Driver is already on a trip.');
+    if ($r['customer_id'] && $vehicle['type'] !== $r['vehicle_requested']) {
+        throw new RuntimeException('The vehicle must match the customer-requested vehicle type.');
+    }
+    if (driver_has_active_trip($pdo, $driver_id)) throw new RuntimeException($driver['name'] . ' is already On Trip and cannot be assigned.');
+    if (!in_array($driver['status'], ['Active', 'Assigned'], true)) throw new RuntimeException($driver['name'] . ' is not available for dispatch.');
+    if (vehicle_has_active_trip($pdo, $vehicle_id)) throw new RuntimeException($vehicle['plate_number'] . ' is already being used by an active trip.');
     if (!empty($driver['license_expiration']) && strtotime($driver['license_expiration']) < strtotime(date('Y-m-d'))) {
         throw new RuntimeException('The selected Driver has an expired license.');
     }
@@ -62,7 +93,7 @@ try {
         ? date('Y-m-d H:i:s', strtotime($departure))
         : date('Y-m-d H:i:s', strtotime($r['departure_date'] . ' ' . $r['departure_time']));
     $conflictStmt = $pdo->prepare(
-        "SELECT id FROM trips WHERE reservation_id <> ? AND status <> 'Completed'
+        "SELECT id FROM trips WHERE reservation_id <> ? AND status IN ('Scheduled','Assigned','Dispatched','In Transit','Returning to Depot')
           AND (vehicle_id = ? OR driver_id = ?)
           AND scheduled_departure BETWEEN (?::timestamp - (? || ' hours')::interval) AND (?::timestamp + (? || ' hours')::interval)
           LIMIT 1"
@@ -70,15 +101,47 @@ try {
     $bufferHours = max(1, min(72, (int)fleet_setting('dispatch.buffer_hours', '4')));
     $conflictStmt->execute([$reservation_id, $vehicle_id, $driver_id, $departure_dt, $bufferHours, $departure_dt, $bufferHours]);
     if ($conflictStmt->fetchColumn()) throw new RuntimeException('Vehicle or Driver has a conflicting trip schedule.');
+    if ($r['customer_id']) {
+        $requestedStart = new DateTimeImmutable($r['departure_date'] . ' ' . $r['departure_time']);
+        $requestedEnd = $r['return_date'] && $r['return_time']
+            ? new DateTimeImmutable($r['return_date'] . ' ' . $r['return_time'])
+            : $requestedStart->modify('+4 hours');
+        $overlapStmt = $pdo->prepare(
+            "SELECT 1 FROM reservations other WHERE other.id <> ? AND (other.assigned_vehicle_id = ? OR other.assigned_driver_id = ?)
+               AND (?::bigint IS NULL OR other.departure_schedule_instance_id IS DISTINCT FROM ?::bigint)
+               AND other.status IN ('Assigned','Confirmed','Dispatched','In Transit')
+               AND other.departure_date::timestamp + COALESCE(NULLIF(other.departure_time,''),'00:00')::time < ?::timestamp + (? || ' hours')::interval
+               AND COALESCE(other.return_date::timestamp + COALESCE(NULLIF(other.return_time,''),'23:59')::time,
+                   other.departure_date::timestamp + COALESCE(NULLIF(other.departure_time,''),'00:00')::time + interval '4 hours') > ?::timestamp - (? || ' hours')::interval
+             LIMIT 1"
+        );
+        $instanceId = $scheduleInstance['id'] ?? null;
+        $overlapStmt->execute([$reservation_id, $vehicle_id, $driver_id, $instanceId, $instanceId, $requestedEnd->format('Y-m-d H:i:s'), $bufferHours, $requestedStart->format('Y-m-d H:i:s'), $bufferHours]);
+        if ($overlapStmt->fetchColumn()) throw new RuntimeException('The selected vehicle or driver is unavailable for the requested schedule.');
+    }
 
      
     $pdo->prepare(
-        "UPDATE reservations SET assigned_vehicle_id = ?, assigned_driver_id = ?, status = 'Dispatched', notes = ? WHERE id = ?"
-    )->execute([$vehicle_id, $driver_id, $notes !== '' ? $notes : $r['notes'], $reservation_id]);
+        'UPDATE reservations SET assigned_vehicle_id = ?, assigned_driver_id = ?, status = ?, notes = ? WHERE id = ?'
+    )->execute([$vehicle_id, $driver_id, $targetStatus, $notes !== '' ? $notes : $r['notes'], $reservation_id]);
+    if ($scheduleInstance) {
+        $scheduleStatusUpdate = $dispatch_action === 'dispatch' ? ",status='Dispatched'" : '';
+        $pdo->prepare("UPDATE scheduled_departures SET assigned_vehicle_id=?,assigned_driver_id=?{$scheduleStatusUpdate},updated_at=CURRENT_TIMESTAMP WHERE id=?")
+            ->execute([$vehicle_id, $driver_id, $scheduleInstance['id']]);
+        $pdo->prepare("UPDATE reservations SET assigned_vehicle_id=?,assigned_driver_id=?,status=? WHERE departure_schedule_instance_id=? AND status IN ('Approved','Assigned','Confirmed')")
+            ->execute([$vehicle_id, $driver_id, $targetStatus, $scheduleInstance['id']]);
+        $eventReason = $dispatch_action === 'dispatch' ? 'Shared scheduled departure dispatched' : 'Shared scheduled departure assigned';
+        $pdo->prepare('INSERT INTO reservation_events(reservation_id,actor_id,status,reason) SELECT id,?,?,? FROM reservations WHERE departure_schedule_instance_id=? AND status=? AND id<>?')
+            ->execute([$current_user['id'], $targetStatus, $eventReason, $scheduleInstance['id'], $targetStatus, $reservation_id]);
+    }
+    if ($r['customer_id']) {
+        $pdo->prepare('INSERT INTO reservation_events(reservation_id,actor_id,status) VALUES (?,?,?)')
+            ->execute([$reservation_id, $current_user['id'], $targetStatus]);
+    }
 
      
-    $pdo->prepare("UPDATE vehicles SET status = 'Assigned', assigned_driver_id = ?, location = ? WHERE id = ?")
-        ->execute([$driver_id, 'Scheduled: ' . $r['origin'] . ' → ' . $r['destination'], $vehicle_id]);
+    $pdo->prepare("UPDATE vehicles SET status = 'Assigned', location = ? WHERE id = ?")
+        ->execute(['Scheduled: ' . $r['origin'] . ' → ' . $r['destination'], $vehicle_id]);
     $pdo->prepare("UPDATE drivers SET status = 'Assigned' WHERE id = ?")->execute([$driver_id]);
 
      
@@ -91,10 +154,11 @@ try {
         $pdo->prepare(
             "INSERT INTO trips (id, reservation_id, origin, destination, waypoints, vehicle_id, driver_id,
                                 passengers, scheduled_departure, status, progress_pct, current_step)
-             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'Dispatched', 10, 'Dispatched')"
+             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)"
         )->execute([
             $tid, $reservation_id, $r['origin'], $r['destination'], '',
-            $vehicle_id, $driver_id, $r['passenger_count'], $departure_dt,
+            $vehicle_id, $driver_id, $dispatchPassengerDemand, $departure_dt,
+            $targetStatus, $targetStatus === 'Dispatched' ? 10 : 0, $targetStatus,
         ]);
     } else {
         if (in_array($existingTrip['status'], ['In Transit', 'Returning to Depot', 'Completed'], true)) {
@@ -103,25 +167,22 @@ try {
         $pdo->prepare(
             "UPDATE trips
                 SET origin = ?, destination = ?, vehicle_id = ?, driver_id = ?, passengers = ?,
-                    scheduled_departure = ?, status = 'Dispatched', progress_pct = 10,
-                    current_step = 'Dispatched'
+                    scheduled_departure = ?, status = ?, progress_pct = ?, current_step = ?
               WHERE id = ?"
         )->execute([
             $r['origin'], $r['destination'], $vehicle_id, $driver_id,
-            $r['passenger_count'], $departure_dt, $existingTrip['id'],
+            $dispatchPassengerDemand, $departure_dt, $targetStatus,
+            $targetStatus === 'Dispatched' ? 10 : 0, $targetStatus, $existingTrip['id'],
         ]);
     }
 
-    if (!empty($driver['user_id'])) {
-        $pdo->prepare(
-            "INSERT INTO notifications (title,body,time_label,type,category,target,is_read,user_id)
-             VALUES ('New Trip Assignment',?,'Just now','info','Dispatch','driver-trips',0,?)"
-        )->execute(["Reservation {$reservation_id} has been assigned to you. Open My Trips for route and schedule details.", $driver['user_id']]);
-    }
 
     $pdo->commit();
 
-    redirect_with_toast($return, 'Reservation ' . $reservation_id . ' dispatched to the assigned vehicle & driver.', 'success');
+    $message = $targetStatus === 'Dispatched'
+        ? 'Reservation ' . $reservation_id . ' dispatched to the assigned vehicle & driver.'
+        : 'Reservation ' . $reservation_id . ' assigned and ready for dispatch.';
+    redirect_with_toast($return, $message, 'success');
 } catch (Exception $ex) {
     if (isset($pdo) && $pdo->inTransaction()) $pdo->rollBack();
     redirect_with_toast($return, 'Dispatch failed: ' . $ex->getMessage(), 'danger');

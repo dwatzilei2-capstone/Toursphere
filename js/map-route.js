@@ -69,6 +69,9 @@ class AIRouteEngine {
     this.directionsRequestCooldownMs = 10000;
     this.currentEvaluationData = null;
     this.evaluationRequestId = 0;
+    this.revenueRequestId = 0;
+    this.revenueScopeTimer = null;
+    this.revenueScopeListenersBound = false;
     this.savedRouteSignature = null;
     this.routeSaveInFlight = null;
     this.routeContextInitialized = false;
@@ -113,6 +116,7 @@ class AIRouteEngine {
 
      
     this.bindInputValidationListeners();
+    this.bindRevenueScopeListeners();
     this.applyOperationalRouteContext();
 
      
@@ -120,6 +124,8 @@ class AIRouteEngine {
      
     if (!window.TC_ROUTE_CONTEXT?.isDriver && window.TC_INITIAL_PRESET && typeof window.TC_INITIAL_PRESET === "string" && window.TC_INITIAL_PRESET.trim() !== "") {
       this.setPreset(window.TC_INITIAL_PRESET);
+    } else {
+      this.refreshRevenueCard();
     }
   }
 
@@ -131,6 +137,96 @@ class AIRouteEngine {
         el.addEventListener("change", () => el.classList.remove("is-invalid"));
       }
     });
+  }
+
+  bindRevenueScopeListeners() {
+    const revenue = window.TC_ROUTE_REVENUE;
+    if (this.revenueScopeListenersBound || revenue?.role !== "admin") return;
+    this.revenueScopeListenersBound = true;
+
+    const scheduleRefresh = () => {
+      window.clearTimeout(this.revenueScopeTimer);
+      this.revenueScopeTimer = window.setTimeout(() => this.refreshRevenueCard(), 350);
+    };
+    ["route-origin-input", "route-dest-input"].forEach((id) => {
+      const input = document.getElementById(id);
+      if (input) input.addEventListener("input", scheduleRefresh);
+    });
+    const date = document.getElementById("route-revenue-date");
+    if (date) date.addEventListener("change", scheduleRefresh);
+  }
+
+  async refreshRevenueCard() {
+    const config = window.TC_ROUTE_REVENUE;
+    if (!config || !["driver", "admin"].includes(config.role)) return;
+
+    const value = document.getElementById("ai-res-cost");
+    const context = document.getElementById("ai-res-cost-context");
+    if (!value || !context) return;
+
+    const params = new URLSearchParams();
+    let scopeLabel = "";
+    if (config.role === "driver") {
+      if (!config.tripId) {
+        value.textContent = "—";
+        context.textContent = "No assigned trip selected.";
+        return;
+      }
+      params.set("trip_id", config.tripId);
+      scopeLabel = "Assigned trip " + config.tripId;
+    } else {
+      const origin = document.getElementById("route-origin-input")?.value.trim() || "";
+      const destination = document.getElementById("route-dest-input")?.value.trim() || "";
+      const date = document.getElementById("route-revenue-date")?.value || "";
+      if (!origin || !destination || !date) {
+        value.textContent = "—";
+        context.textContent = "Select a route and date.";
+        return;
+      }
+      params.set("origin", origin);
+      params.set("destination", destination);
+      params.set("date", date);
+      scopeLabel = `${origin} → ${destination} · ${date}`;
+    }
+
+    const requestId = ++this.revenueRequestId;
+    value.textContent = "…";
+    context.textContent = scopeLabel;
+    try {
+      const response = await fetch(`${config.endpoint}?${params.toString()}`, {
+        credentials: "same-origin",
+        cache: "no-store",
+        headers: { Accept: "application/json" },
+      });
+      const data = await response.json();
+      if (requestId !== this.revenueRequestId) return;
+      if (!response.ok || !data.ok) throw new Error(data.error || "Revenue is unavailable.");
+
+      if (!data.hasRevenue) {
+        value.textContent = "—";
+        context.textContent = config.role === "driver"
+          ? `No eligible reservations for ${data.tripId}.`
+          : `No eligible reservations · ${data.origin} → ${data.destination} · ${data.date}`;
+        return;
+      }
+
+      value.textContent = new Intl.NumberFormat("en-PH", {
+        style: "currency",
+        currency: "PHP",
+        minimumFractionDigits: 2,
+      }).format(Number(data.revenue));
+      if (config.role === "driver") {
+        const passengerLabel = Number(data.passengers) === 1 ? "Assigned Passenger" : "Assigned Passengers";
+        context.textContent = `${Number(data.passengers).toLocaleString("en-PH")} ${passengerLabel} · ${data.tripId}`;
+      } else {
+        const tripLabel = Number(data.tripCount) === 1 ? "trip" : "trips";
+        context.textContent = `${Number(data.passengers).toLocaleString("en-PH")} passengers across ${Number(data.tripCount).toLocaleString("en-PH")} ${tripLabel} · ${data.origin} → ${data.destination} · ${data.date}`;
+      }
+    } catch {
+      if (requestId !== this.revenueRequestId) return;
+      value.textContent = "—";
+      context.textContent = "Revenue is temporarily unavailable.";
+    }
   }
 
   applyOperationalRouteContext() {
@@ -234,6 +330,7 @@ class AIRouteEngine {
       if (inputId === "route-origin-input" || inputId === "route-dest-input") {
         const presetSelect = document.getElementById("route-preset-select");
         if (presetSelect) presetSelect.value = "custom";
+        this.refreshRevenueCard();
       }
     });
   }
@@ -322,7 +419,7 @@ class AIRouteEngine {
    
   selectMode(mode, el) {
      
-    if (this.isNavigating || this.driverStrategyCommitted) return;
+    if (this.isNavigating || this.driverStrategyCommitted || window.TC_ROUTE_CONTEXT?.routeModeLocked) return;
     if (!this.cachedDirectionsResponse || !this.cachedDirectionsResponse.routes || this.cachedDirectionsResponse.routes.length === 0) {
       return;
     }
@@ -397,6 +494,17 @@ class AIRouteEngine {
   revealRouteStrategies() {
     const lockedMessage = document.getElementById("route-strategy-locked");
     const options = document.getElementById("route-strategy-options");
+    if (window.TC_ROUTE_CONTEXT?.routeModeLocked) {
+      if (lockedMessage) {
+        lockedMessage.classList.remove("is-hidden");
+        const message = lockedMessage.querySelector("span");
+        if (message) {
+          const selectedLabel = window.TC_ROUTE_CONTEXT.selectedModeLabel || this.getModeTitle(this.currentMode);
+          message.textContent = `Driver-selected route: ${selectedLabel}. This strategy is fixed for the trip.`;
+        }
+      }
+      return;
+    }
     if (!options || options.classList.contains("is-visible")) return;
 
     if (lockedMessage) lockedMessage.classList.add("is-hidden");
@@ -986,6 +1094,7 @@ class AIRouteEngine {
   setPreset(presetId) {
     if (!presetId || presetId === "custom" || !window.TC_ROUTE_DATA) {
       this.activePreset = null;
+      this.refreshRevenueCard();
       return;
     }
     const found = window.TC_ROUTE_DATA.find((p) => p.id === presetId);
@@ -1024,6 +1133,7 @@ class AIRouteEngine {
 
       this.renderCurrentPreset();
       this.updateResultsUI();
+      this.refreshRevenueCard();
     }
   }
 
@@ -1591,14 +1701,16 @@ class AIRouteEngine {
     }
 
     const isResume = options && options.resume === true && window.TC_ROUTE_CONTEXT?.resumeNavigation;
-    if (!isResume) {
-      const routeSaved = await this.saveSelectedRouteToHistory();
-      if (!routeSaved) return;
-    }
+    const routeSaved = await this.saveSelectedRouteToHistory();
+    if (!routeSaved) return;
 
     this.isNavigating = true;
     this.setRouteStrategyLocked(true);
     this.navigationStartedAt = Date.now();
+    this.arrivalSince = null;
+    this.arrivalLastTimestamp = 0;
+    this.arrivalPending = false;
+    this.arrivalConfirmed = false;
     this.hasLiveGpsFix = Boolean(this.hasLiveGpsFix && this.lastUserPosition);
     this.offRouteConsecutiveCount = 0;
     this.navigationFollowUser = true;
@@ -1977,13 +2089,13 @@ class AIRouteEngine {
         }
 
          
-        const destinationPoint = routePath[routePath.length - 1];
+        const destinationPoint = route.legs?.[route.legs.length - 1]?.end_location;
         const destinationDistance = destinationPoint
           ? google.maps.geometry.spherical.computeDistanceBetween(userLatLng, destinationPoint)
           : Infinity;
-        const arrivalThreshold = Math.max(35, Math.min(100, accuracy || 35));
+        this.checkDestinationArrival(pos, destinationDistance);
         let pct = Math.min(99, Math.max(0, Math.round((traveledMeters / totalRouteMeters) * 100)));
-        if (destinationDistance <= arrivalThreshold) pct = 100;
+        if (this.arrivalConfirmed) pct = 100;
         const progressBar = document.getElementById("nav-hud-progress-bar");
         const progressText = document.getElementById("nav-hud-progress-text");
         if (progressBar) progressBar.style.width = `${pct}%`;
@@ -2289,26 +2401,55 @@ class AIRouteEngine {
     );
   }
 
-  stopNavigation() {
-    const tripId = window.TC_ROUTE_CONTEXT?.tripId || "";
-    if (tripId) {
-      const form = new FormData();
-      form.append("trip_id", tripId);
-      fetch(`${window.TC_BASE_URL}/actions/route-navigation-state.php`, {
-        method: "POST",
-        body: form,
-        keepalive: true
-      }).then(async (response) => {
-        const data = await response.json();
-        if (!response.ok || !data.ok) throw new Error(data.error || "Unable to save navigation state.");
-        if (window.TC_ROUTE_CONTEXT) window.TC_ROUTE_CONTEXT.resumeNavigation = false;
-      }).catch((error) => {
-        if (window.showAppToast) {
-          window.showAppToast("Navigation State Warning", error.message || "Navigation ended locally but could not be saved.", "warning");
-        }
-      });
+  checkDestinationArrival(pos, distance) {
+    const timestamp = Number(pos.timestamp);
+    const accuracy = Number(pos.coords.accuracy);
+    // Never let poor GPS accuracy enlarge the destination boundary.
+    const usable = Number.isFinite(timestamp) && Math.abs(Date.now() - timestamp) <= 5000
+      && accuracy > 0 && accuracy <= 25 && distance + accuracy <= 50;
+    if (!usable) {
+      this.arrivalSince = null;
+      return;
     }
+    if (timestamp <= this.arrivalLastTimestamp) return;
+    if (timestamp - this.arrivalLastTimestamp > 5000) this.arrivalSince = null;
+    this.arrivalLastTimestamp = timestamp;
+    if (this.arrivalSince === null) this.arrivalSince = timestamp;
+    if (timestamp - this.arrivalSince >= 10000 && !this.arrivalPending) {
+      this.completeDestinationArrival(pos);
+    }
+  }
 
+  async completeDestinationArrival(pos) {
+    this.arrivalPending = true;
+    try {
+      const tripId = window.TC_ROUTE_CONTEXT?.tripId;
+      if (tripId) {
+        const form = new FormData();
+        form.append("trip_id", tripId);
+        form.append("latitude", pos.coords.latitude);
+        form.append("longitude", pos.coords.longitude);
+        form.append("accuracy", pos.coords.accuracy);
+        form.append("timestamp", pos.timestamp);
+        const response = await fetch(`${window.TC_BASE_URL}/actions/route-navigation-state.php`, {
+          method: "POST", body: form
+        });
+        const data = await response.json();
+        if (!response.ok || !data.ok) throw new Error(data.error || "Unable to record arrival.");
+        window.TC_ROUTE_CONTEXT.resumeNavigation = false;
+      }
+      this.arrivalConfirmed = true;
+      this.finishArrivedNavigation();
+    } catch (error) {
+      this.arrivalSince = null;
+      if (window.showAppToast) window.showAppToast("Arrival Save Failed", error.message, "warning");
+    } finally {
+      this.arrivalPending = false;
+    }
+  }
+
+  finishArrivedNavigation() {
+    if (!this.arrivalConfirmed) return;
     this.isNavigating = false;
     this.setRouteStrategyLocked(false);
     this.hasLiveGpsFix = false;
@@ -2350,8 +2491,8 @@ class AIRouteEngine {
     if (legend) legend.style.display = "block";
     const startButton = document.getElementById("btn-start-navigation");
     if (startButton && this.currentRouteData) {
-      startButton.disabled = false;
-      startButton.style.display = "block";
+      startButton.disabled = true;
+      startButton.style.display = "none";
       startButton.innerHTML = `<i class="bi bi-compass-fill me-2 fs-6"></i> START NAVIGATION`;
     }
 
@@ -2366,7 +2507,7 @@ class AIRouteEngine {
     this.fitMapBounds();
 
     if (window.showAppToast) {
-      window.showAppToast("Navigation Ended", "Returned to route planning overview.", "info");
+      window.showAppToast("Arrived", "Destination reached. Navigation has ended.", "success");
     }
   }
 
@@ -2430,7 +2571,9 @@ class AIRouteEngine {
     setText("ai-res-distance", data.distance);
     setText("ai-res-duration", data.duration);
     setText("ai-res-fuel", data.fuelEstimate);
-    setText("ai-res-cost", data.totalTripCost);
+    if (!["driver", "admin"].includes(window.TC_ROUTE_REVENUE?.role)) {
+      setText("ai-res-cost", data.totalTripCost);
+    }
     setText("ai-res-score", data.routeScore);
     const fullyTrained = Boolean(data.isFullyMlActive);
     setText("ai-res-duration-label", fullyTrained ? "Fleet AI Travel Time" : "Google Traffic ETA");
@@ -2549,6 +2692,7 @@ class AIRouteEngine {
     form.append("destination", destination || "");
     form.append("waypoints_json", JSON.stringify(this.getWaypointsList()));
     form.append("route_data_json", JSON.stringify({
+      destinationLocation: this.getSelectedGoogleRoute()?.legs?.slice(-1)[0]?.end_location?.toJSON(),
       mode: this.currentMode,
       route: this.currentRouteData || null,
       selectedCandidate: this.currentEvaluationData?.selectedCandidate || null

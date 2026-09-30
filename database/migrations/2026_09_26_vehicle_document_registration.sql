@@ -73,7 +73,7 @@ INSERT INTO vehicle_types (name) VALUES
 ON CONFLICT (name) DO NOTHING;
 
 INSERT INTO vehicle_brands (name) VALUES
-  ('Toyota'), ('Hyundai'), ('Hino'), ('Ford'), ('Nissan'), ('Kia'), ('Volvo'), ('Scania'), ('Yutong'), ('King Long')
+  ('Toyota'), ('Hyundai'), ('Isuzu'), ('Mitsubishi'), ('Hino'), ('Ford'), ('Nissan'), ('Kia'), ('Volvo'), ('Scania'), ('Yutong'), ('King Long')
 ON CONFLICT (name) DO NOTHING;
 
 INSERT INTO vehicle_models (vehicle_type_id, brand_id, model_name)
@@ -82,10 +82,14 @@ FROM (VALUES
   ('Van', 'Toyota', 'Hiace'),
   ('Van', 'Hyundai', 'Staria'),
   ('MPV', 'Kia', 'Carnival'),
+  ('MPV', 'Toyota', 'Innova'),
   ('SUV', 'Ford', 'Everest'),
   ('SUV', 'Nissan', 'Terra'),
+  ('SUV', 'Mitsubishi', 'Montero Sport'),
   ('Minibus', 'Toyota', 'Coaster'),
   ('Minibus', 'Hyundai', 'County'),
+  ('Minibus', 'Isuzu', 'N-Series Minibus'),
+  ('Bus / Coach', 'Hyundai', 'Universe'),
   ('Bus / Coach', 'Hino', 'RM2P'),
   ('Bus / Coach', 'Volvo', 'B8R'),
   ('Bus / Coach', 'Scania', 'Touring'),
