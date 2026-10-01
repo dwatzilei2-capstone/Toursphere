@@ -21,7 +21,7 @@ function toursphere_mailer(): PHPMailer\PHPMailer\PHPMailer
     $mail->SMTPSecure = $encryption;
     $mail->SMTPDebug = 0;
     $mail->Timeout = 15;
-    $mail->Timelimit = 15;
+    $mail->getSMTPInstance()->Timelimit = 15;
     $mail->CharSet = 'UTF-8';
     $mail->setFrom(getenv('SMTP_FROM_EMAIL'), $brand);
     return $mail;
