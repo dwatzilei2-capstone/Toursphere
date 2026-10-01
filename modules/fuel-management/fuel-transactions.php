@@ -86,13 +86,13 @@ require ROOT_PATH . '/includes/header.php';
 </div>
 
 <?php if (can('fuel.manage')):
-  $current_driver_vehicle_id = null;
+  $driver_fuel_trip = null;
   $current_driver_id = null;
   if (($current_user['role_code'] ?? '') === 'driver') {
       $dRow = driver_fuel_context($pdo, (string)$current_user['id']);
       if ($dRow) {
           $current_driver_id = $dRow['driver_id'];
-          $current_driver_vehicle_id = $dRow['vehicle_id'];
+          if (!empty($dRow['trip_id']) && !empty($dRow['vehicle_id']) && !empty($dRow['plate_number'])) $driver_fuel_trip = $dRow;
       }
   }
 ?>
@@ -107,27 +107,25 @@ require ROOT_PATH . '/includes/header.php';
       <form method="post" action="<?= BASE_URL ?>/actions/fuel.php">
         <input type="hidden" name="action" value="create">
         <input type="hidden" name="return" value="<?= e(BASE_URL . '/modules/fuel-management/fuel-transactions.php') ?>">
-        <?php if (($current_user['role_code'] ?? '') === 'driver' && !$current_driver_vehicle_id): ?>
-          <div class="alert alert-warning">No vehicle is assigned to you. Ask Dispatch to assign a vehicle before logging fuel.</div>
+        <?php if (($current_user['role_code'] ?? '') === 'driver' && !$driver_fuel_trip): ?>
+          <div class="alert alert-warning">No active or assigned trip with a vehicle is available. Ask Dispatch to assign a trip before logging fuel.</div>
         <?php endif; ?>
         <div class="row g-2 mb-3">
           <div class="col-6">
             <label class="tc-form-label">Vehicle</label>
+            <?php if (($current_user['role_code'] ?? '') === 'driver'): ?>
+              <div class="tc-form-control" aria-label="Assigned trip vehicle"><?= $driver_fuel_trip ? e(trim($driver_fuel_trip['brand'] . ' ' . $driver_fuel_trip['model']) . ' (' . $driver_fuel_trip['plate_number'] . ')') : 'No trip vehicle assigned' ?></div>
+            <?php else: ?>
             <select class="tc-form-select" name="vehicle_id" required>
               <option value="">— Choose vehicle —</option>
               <?php
-              if (($current_user['role_code'] ?? '') === 'driver') {
-                  $vehicleStmt = $pdo->prepare('SELECT id, plate_number, brand, model FROM vehicles WHERE id=?');
-                  $vehicleStmt->execute([$current_driver_vehicle_id]);
-                  $fuel_vehicles = $vehicleStmt->fetchAll();
-              } else {
-                  $fuel_vehicles = $pdo->query('SELECT id, plate_number, brand, model FROM vehicles ORDER BY id')->fetchAll();
-              }
+              $fuel_vehicles = $pdo->query('SELECT id, plate_number, brand, model FROM vehicles ORDER BY id')->fetchAll();
               foreach ($fuel_vehicles as $fv):
               ?>
-                <option value="<?= e($fv['id']) ?>" <?= $current_driver_vehicle_id === $fv['id'] ? 'selected' : '' ?>><?= e($fv['id']) ?> (<?= e($fv['plate_number']) ?>) - <?= e($fv['brand']) ?> <?= e($fv['model']) ?></option>
+                <option value="<?= e($fv['id']) ?>"><?= e($fv['id']) ?> (<?= e($fv['plate_number']) ?>) - <?= e($fv['brand']) ?> <?= e($fv['model']) ?></option>
               <?php endforeach; ?>
             </select>
+            <?php endif; ?>
           </div>
           <div class="col-6">
             <label class="tc-form-label">Driver</label>
@@ -177,7 +175,7 @@ require ROOT_PATH . '/includes/header.php';
         </div>
         <div class="d-flex justify-content-end gap-2">
           <button type="button" class="tc-btn tc-btn-secondary" onclick="App.closeModal('modal-log-fuel')">Cancel</button>
-          <button type="submit" class="tc-btn tc-btn-primary">Record Transaction</button>
+          <button type="submit" class="tc-btn tc-btn-primary" <?= ($current_user['role_code'] ?? '') === 'driver' && !$driver_fuel_trip ? 'disabled' : '' ?>>Record Transaction</button>
         </div>
       </form>
     </div>

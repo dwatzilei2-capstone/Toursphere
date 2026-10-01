@@ -1463,13 +1463,13 @@ class AIRouteEngine {
     };
   }
 
-  updateStrategyRouteNotes(candidatePayload) {
+  updateStrategyRouteNotes(candidatePayload, learnedSelections = null) {
     if (!candidatePayload.length) return;
     const originalMode = this.currentMode;
     const selections = {};
     ["balanced", "fuelEfficient", "fastest", "shortest"].forEach((mode) => {
       this.currentMode = mode;
-      selections[mode] = this.evaluateCandidatesLocally(candidatePayload).selectedIndex;
+      selections[mode] = learnedSelections?.[mode] ?? this.evaluateCandidatesLocally(candidatePayload).selectedIndex;
     });
     this.currentMode = originalMode;
 
@@ -1675,7 +1675,10 @@ class AIRouteEngine {
       .then((res) => res.json())
       .then((resData) => {
         if (requestId !== this.evaluationRequestId || requestedMode !== this.currentMode) return;
-        if (resData.ok && resData.data) this.applyEvaluationResult(resData.data, result, candidatePayload);
+        if (resData.ok && resData.data) {
+          this.updateStrategyRouteNotes(candidatePayload, resData.data.modeSelections);
+          this.applyEvaluationResult(resData.data, result, candidatePayload);
+        }
       })
       .catch((err) => {
         console.warn("Server-side RouteThink evaluation error, using client fallback:", err);

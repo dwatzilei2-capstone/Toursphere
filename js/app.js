@@ -688,7 +688,7 @@ const App = {
    
    
    
-  openDispatchModal(reservationId) {
+  openDispatchModal(reservationId, intent = "dispatch") {
     if (!window.TC_KANBAN_RESERVATIONS || !window.TC_DISPATCH_DATA) {
       this.showToast("Unavailable", "Dispatch options could not be loaded.", "danger");
       return;
@@ -709,11 +709,15 @@ const App = {
       return !underMaintenance && !onTrip && vehicle.is_operational === true && meetsCapacity && meetsType;
     });
     const availableDrivers = drivers.filter((driver) => !(driver.has_active_trip === true || driver.has_active_trip === "t") && ["Active", "Assigned"].includes(driver.status));
-    const currentVehicle = r.assignedVehicle && r.assignedVehicle !== "Pending" ? r.assignedVehicle.split(" ")[0] : "";
+    const currentVehicle = r.assignedVehicleId || (r.assignedVehicle && r.assignedVehicle !== "Pending" ? r.assignedVehicle.split(" ")[0] : "");
+    const currentDriver = r.assignedDriverId || drivers.find((d) => d.name === r.assignedDriver)?.id || "";
 
     const dispatchLocked = !["Approved", "Pending", "Assigned", "Confirmed"].includes(r.status);
     const canDispatch = (typeof window.TC_CAN_DISPATCH === "undefined" || window.TC_CAN_DISPATCH === true) && !dispatchLocked;
     const isAssigned = ["Assigned", "Confirmed"].includes(r.status);
+    const assignmentLocked = isAssigned && intent !== "assign";
+    const dispatchResourcesReady = operationalVehicles.some((v) => v.id === currentVehicle)
+      && availableDrivers.some((d) => d.id === currentDriver);
 
     if (!canDispatch) {
       const lockedNotice = dispatchLocked
@@ -767,6 +771,7 @@ const App = {
       <form method="post" action="${window.TC_BASE_URL}/actions/dispatch.php">
         <input type="hidden" name="reservation_id" value="${r.id}">
         <input type="hidden" name="return" value="${window.location.pathname}">
+        ${assignmentLocked ? `<input type="hidden" name="vehicle_id" value="${this.escapeHtml(currentVehicle)}"><input type="hidden" name="driver_id" value="${this.escapeHtml(currentDriver)}"><div class="alert alert-secondary py-2 small"><i class="bi bi-lock-fill me-1"></i>Vehicle and driver are locked to the saved assignment. Dispatch uses these resources only.${dispatchResourcesReady ? "" : " The assigned resources are currently unavailable; dispatch is disabled."}</div>` : ""}
         <div class="row g-3">
           <div class="col-md-6">
             <label class="tc-form-label d-flex justify-content-between align-items-center">
@@ -775,8 +780,9 @@ const App = {
                 ? `<span class="badge bg-danger-subtle text-danger border border-danger-subtle">Unavailable vehicles locked</span>`
                 : ""}
             </label>
-            <select class="tc-form-select" name="vehicle_id" required>
+            <select class="tc-form-select" ${assignmentLocked ? 'disabled aria-label="Assigned vehicle (locked)"' : 'name="vehicle_id" required'}>
               ${vehicles.map((v) => {
+                if (assignmentLocked && v.id !== currentVehicle) return "";
                 const underMaintenance = v.is_under_maintenance === true || v.is_under_maintenance === "t";
                 const onTrip = v.has_active_trip === true || v.has_active_trip === "t";
                 const notOperational = v.is_operational !== true;
@@ -794,8 +800,9 @@ const App = {
           </div>
           <div class="col-md-6">
             <label class="tc-form-label">Assign Driver</label>
-            <select class="tc-form-select" name="driver_id" required>
+            <select class="tc-form-select" ${assignmentLocked ? 'disabled aria-label="Assigned driver (locked)"' : 'name="driver_id" required'}>
               ${drivers.map((d) => {
+                if (assignmentLocked && d.id !== currentDriver) return "";
                 const onTrip = d.has_active_trip === true || d.has_active_trip === "t";
                 const unavailable = onTrip || !["Active", "Assigned"].includes(d.status);
                 return `<option value="${this.escapeHtml(d.id)}" ${d.name === r.assignedDriver && !unavailable ? "selected" : ""} ${unavailable ? "disabled" : ""}>${this.escapeHtml(d.name)} (${onTrip ? "On Trip" : this.escapeHtml(d.status)} - Score: ${Number(d.safety_score)})</option>`;
@@ -817,8 +824,8 @@ const App = {
         </div>
         <div class="d-flex justify-content-end gap-2 mt-4">
           <button type="button" class="tc-btn tc-btn-secondary" onclick="App.closeModal('modal-dispatch')">Cancel</button>
-          <button type="submit" name="dispatch_action" value="assign" class="tc-btn tc-btn-primary" ${operationalVehicles.length && availableDrivers.length ? "" : "disabled"}><i class="bi bi-person-check me-1"></i> ${isAssigned ? "Save Assignment" : "Confirm Assignment"}</button>
-          ${isAssigned ? `<button type="submit" name="dispatch_action" value="dispatch" class="tc-btn tc-btn-primary" ${operationalVehicles.length && availableDrivers.length ? "" : "disabled"}><i class="bi bi-send-check me-1"></i> Dispatch Trip</button>` : ""}
+          ${!assignmentLocked ? `<button type="submit" name="dispatch_action" value="assign" class="tc-btn tc-btn-primary" ${operationalVehicles.length && availableDrivers.length ? "" : "disabled"}><i class="bi bi-person-check me-1"></i> ${isAssigned ? "Save Assignment" : "Confirm Assignment"}</button>` : ""}
+          ${assignmentLocked ? `<button type="submit" name="dispatch_action" value="dispatch" class="tc-btn tc-btn-primary" ${dispatchResourcesReady ? "" : "disabled"}><i class="bi bi-send-check me-1"></i> Dispatch Trip</button>` : ""}
         </div>
       </form>
     `;
@@ -1164,7 +1171,7 @@ const App = {
       });
       chart.data.datasets.forEach((dataset) => {
         if (['pie', 'doughnut'].includes(chart.config.type)) dataset.borderColor = surface;
-        if (chart.config.type === 'line') dataset.pointBorderColor = surface;
+        if (chart.config.type === 'line') dataset.pointBorderColor = dataset.borderColor;
       });
       chart.update('none');
     });

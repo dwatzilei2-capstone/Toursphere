@@ -54,10 +54,11 @@ try {
         $code = is_string($_POST['code'] ?? null) ? trim($_POST['code']) : '';
         $userId = login_2fa_verify(db(), $state, $code, $ip);
         if (!$userId) {
-            login_2fa_back('The code is invalid, expired, already used, or the maximum number of attempts was reached.');
+            $status = login_2fa_status(db(), $state);
+            login_2fa_back($status['message'] ?: 'The code is incorrect or verification is temporarily limited. Check the latest 6-digit code and try again.');
         }
         session_regenerate_id(true);
-        $_SESSION = ['user_id' => $userId];
+        $_SESSION = ['user_id' => $userId, 'last_valid_activity' => time()];
         redirect_to(BASE_URL . '/index.php');
     }
 

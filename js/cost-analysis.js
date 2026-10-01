@@ -19,7 +19,7 @@
         borderColor: colors[index], borderWidth: 2.5,
         pointRadius: revenueData.labels.length === 1 ? 4 : 2.5,
         pointHoverRadius: 5, pointHitRadius: 14,
-        pointBackgroundColor: '#fff', pointBorderColor: colors[index], pointBorderWidth: 2,
+        pointBackgroundColor: colors[index], pointBorderColor: colors[index], pointBorderWidth: 0,
         tension: 0.15, cubicInterpolationMode: 'monotone',
         fill: index === 0,
         backgroundColor: (context) => {

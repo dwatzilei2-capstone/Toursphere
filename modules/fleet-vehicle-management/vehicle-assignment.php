@@ -25,7 +25,7 @@ $vehicles = $pdo->query(
             SELECT 1 FROM maintenance_orders active_mo
              WHERE active_mo.vehicle_id = v.id AND active_mo.status = 'In Repair'
          )
-      ORDER BY v.id"
+      ORDER BY v.created_at DESC NULLS LAST, v.id DESC"
 )->fetchAll();
 foreach ($vehicles as &$vehicle) {
   $vehicle['operational_compliance'] = vehicle_operational_compliance($pdo, $vehicle['id']);

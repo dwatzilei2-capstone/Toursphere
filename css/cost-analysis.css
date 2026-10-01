@@ -141,3 +141,10 @@
   .cost-chart-totals strong { font-size: 20px; }
   .cost-revenue-plot { height: 240px; }
 }
+.cost-breakdown-plot { height: 280px; width: 100%; min-width: 0; margin: 0 auto 16px; }
+.cost-breakdown-row { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 10px 0; font-size: 12px; }
+.cost-breakdown-row + .cost-breakdown-row { border-top: 1px solid var(--tc-border); }
+.cost-breakdown-category { display: flex; align-items: center; gap: 9px; min-width: 0; }
+.cost-breakdown-category i { width: 8px; height: 8px; border-radius: 50%; flex-shrink: 0; }
+.cost-breakdown-amount { display: flex; flex-direction: column; align-items: flex-end; flex-shrink: 0; font-variant-numeric: tabular-nums; }
+.cost-breakdown-amount small { color: var(--tc-text-muted); margin-top: 2px; }

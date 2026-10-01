@@ -25,7 +25,7 @@ if ($q !== '') {
     $like = '%' . $q . '%';
     array_push($params, $like, $like, $like, $like, $like);
 }
-$sql .= ' ORDER BY v.id';
+$sql .= ' ORDER BY v.created_at DESC NULLS LAST, v.id DESC';
 
 $stmt = $pdo->prepare($sql);
 $stmt->execute($params);

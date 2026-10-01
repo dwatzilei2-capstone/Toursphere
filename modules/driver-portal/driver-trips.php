@@ -13,10 +13,19 @@ $driver = $driver->fetch();
 $myTrips = [];
 if ($driver) {
     $tripsStmt = $pdo->prepare(
-        'SELECT r.*, v.plate_number, v.odometer AS vehicle_odometer, t.id AS trip_id, t.route_history_id FROM reservations r
+        "SELECT r.*, v.plate_number, v.odometer AS vehicle_odometer, t.id AS trip_id, t.route_history_id FROM reservations r
           LEFT JOIN vehicles v ON v.id = r.assigned_vehicle_id
           LEFT JOIN trips t ON t.reservation_id = r.id
-         WHERE r.assigned_driver_id = ? ORDER BY r.departure_date, r.departure_time'
+         WHERE r.assigned_driver_id = ?
+         ORDER BY CASE WHEN COALESCE(t.status, r.status) IN ('In Transit','Returning to Depot') THEN 0
+                       WHEN r.status IN ('Completed','Cancelled') OR t.status = 'Completed' THEN 2 ELSE 1 END,
+                  CASE WHEN r.status NOT IN ('Completed','Cancelled') AND COALESCE(t.status, '') <> 'Completed'
+                       THEN r.departure_date END ASC NULLS LAST,
+                  CASE WHEN r.status NOT IN ('Completed','Cancelled') AND COALESCE(t.status, '') <> 'Completed'
+                       THEN r.departure_time END ASC NULLS LAST,
+                  CASE WHEN r.status IN ('Completed','Cancelled') OR t.status = 'Completed'
+                       THEN COALESCE(t.actual_arrival, r.cancelled_at, r.created_at) END DESC NULLS LAST,
+                  r.created_at DESC, r.id DESC"
     );
     $tripsStmt->execute([$driver['id']]);
     $myTrips = $tripsStmt->fetchAll();

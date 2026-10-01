@@ -41,9 +41,6 @@ function cost_sources_sql(): string
               FROM maintenance_orders WHERE status='Completed'
             UNION ALL
             SELECT actual_arrival, vehicle_id, id, 'Toll'::text, COALESCE(toll_fee,0)::numeric
-              FROM trips WHERE status='Completed' AND actual_arrival IS NOT NULL
-            UNION ALL
-            SELECT actual_arrival, vehicle_id, id, 'Driver allowance'::text, COALESCE(driver_allowance,0)::numeric
               FROM trips WHERE status='Completed' AND actual_arrival IS NOT NULL";
 }
 
@@ -98,8 +95,7 @@ function cost_monthly_series(PDO $pdo, string $start, string $end): array
       SELECT to_char(m.month_start,'Mon YYYY') label,m.month_start,COALESCE(SUM(cm.amount),0) cost,COALESCE(MAX(rm.amount),0) revenue,
              COALESCE(SUM(cm.amount) FILTER(WHERE cm.category='Fuel'),0) fuel,
              COALESCE(SUM(cm.amount) FILTER(WHERE cm.category='Maintenance'),0) maintenance,
-             COALESCE(SUM(cm.amount) FILTER(WHERE cm.category='Toll'),0) toll,
-             COALESCE(SUM(cm.amount) FILTER(WHERE cm.category='Driver allowance'),0) driver
+             COALESCE(SUM(cm.amount) FILTER(WHERE cm.category='Toll'),0) toll
         FROM months m LEFT JOIN cost_months cm ON cm.month_start=m.month_start LEFT JOIN revenue_months rm ON rm.month_start=m.month_start GROUP BY m.month_start ORDER BY m.month_start");
     $stmt->execute([$start,$end,$start,$end,$start,$end]);
     return $stmt->fetchAll();

@@ -26,7 +26,7 @@ if (!empty($_SESSION['login_2fa'])) {
     redirect_to(BASE_URL . '/verify-login.php');
 }
 
-$login_error = $_GET['error'] ?? null;
+$login_error = !empty($GLOBALS['session_idle_expired']) ? SESSION_IDLE_MESSAGE : ($_GET['error'] ?? null);
 $login_success = $_SESSION['login_success'] ?? null;
 unset($_SESSION['login_success']);
 ?>

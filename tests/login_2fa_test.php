@@ -79,6 +79,11 @@ try {
     check_2fa($stored && $stored['otp_hash'] !== $deliveredAdminCode && password_verify($deliveredAdminCode, $stored['otp_hash']), 'Database stores only a secure OTP hash');
     check_2fa($stored['destination'] === $admin['recovery_email'], 'Challenge is bound to the registered recovery email');
     check_2fa($stored['purpose'] === 'login_2fa', 'Login OTP purpose is isolated from password recovery');
+    $status = login_2fa_status($pdo, $adminState);
+    check_2fa($status['active'] && $status['remaining'] >= 298 && $status['remaining'] <= 300, 'Fresh OTP has a full five-minute database countdown');
+    $pdo->prepare("UPDATE login_2fa_challenges SET expires_at = clock_timestamp() + interval '1 second' WHERE id = ?")->execute([$adminState['challenge_id']]);
+    check_2fa(login_2fa_state_is_active($pdo, $adminState), 'OTP remains active until its expiry boundary');
+    $pdo->prepare("UPDATE login_2fa_challenges SET expires_at = clock_timestamp() + interval '5 minutes' WHERE id = ?")->execute([$adminState['challenge_id']]);
 
     check_2fa(login_2fa_verify($pdo, $adminState, '000000' === $deliveredAdminCode ? '000001' : '000000', $adminIp) === null, 'Incorrect OTP is rejected');
     check_2fa(login_2fa_verify($pdo, $adminState, $deliveredAdminCode, $adminIp) === (int)$admin['id'], 'Correct Admin OTP completes verification');
@@ -95,6 +100,8 @@ try {
     $newDriverCode = null;
     $newDriverState = login_2fa_issue($pdo, $driver, $driverIp, static function (string $email, string $name, string $code) use (&$newDriverCode): void { $newDriverCode = $code; });
     check_2fa($oldDriverState['challenge_id'] !== $newDriverState['challenge_id'], 'Resend creates a new challenge');
+    $oldStatus = login_2fa_status($pdo, $oldDriverState);
+    check_2fa(!$oldStatus['active'] && $oldStatus['remaining'] > 0 && str_contains($oldStatus['message'], 'replaced'), 'Replaced code is not incorrectly reported as expired');
     check_2fa(login_2fa_verify($pdo, $oldDriverState, $oldDriverCode, $driverIp) === null, 'Old OTP is invalid after resend');
     check_2fa(login_2fa_verify($pdo, $newDriverState, $newDriverCode, $driverIp) === (int)$driver['id'], 'New Driver OTP verifies successfully');
 
@@ -102,6 +109,7 @@ try {
     $pdo->prepare("INSERT INTO login_2fa_challenges (id,user_id,destination,otp_hash,delivery_status,expires_at) VALUES (?,?,?,?, 'sent', clock_timestamp() - interval '1 second')")
         ->execute([$expiredId, $admin['id'], $admin['email'], password_hash('123456', PASSWORD_DEFAULT)]);
     check_2fa(login_2fa_verify($pdo, ['challenge_id' => $expiredId, 'user_id' => $admin['id']], '123456', $adminIp) === null, 'Expired OTP is rejected');
+    check_2fa(str_contains(login_2fa_status($pdo, ['challenge_id' => $expiredId, 'user_id' => $admin['id']])['message'], '5-minute'), 'True expiry has a specific message');
     $pdo->prepare("UPDATE login_2fa_challenges SET used_at = clock_timestamp(), otp_hash = '' WHERE id = ?")->execute([$expiredId]);
 
     $crossId = bin2hex(random_bytes(32));

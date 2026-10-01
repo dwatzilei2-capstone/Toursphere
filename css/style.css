@@ -2108,3 +2108,7 @@ html[data-bs-theme="dark"] .settings-nav a.is-active { color: #9dccff; }
 .notification-preview-close:hover { background: rgba(255,255,255,.12); }
 .notification-preview-link:focus-visible, .notification-preview-close:focus-visible { outline: 2px solid #fff; outline-offset: -2px; }
 @keyframes notification-preview-scroll { to { transform: translateX(-50%); } }
+.notification-preview { height: auto; min-height: 54px; padding: 12px 32px 12px 12px; }
+.notification-preview-link, .notification-preview-link:hover { white-space: normal; overflow-wrap: anywhere; }
+.notification-preview-title { display: block; margin-bottom: 4px; }
+.notification-preview-body { display: block; }

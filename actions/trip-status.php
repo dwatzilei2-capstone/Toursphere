@@ -223,6 +223,10 @@ try {
     }
 
     $pdo->commit();
+    if ($new_status === 'Completed') {
+        require_once dirname(__DIR__) . '/includes/routethink_engine.php';
+        ai_learning_after_trip($pdo, $trip['id'] ?? null);
+    }
 
     $messages = [
         'In Transit' => $reservation_id . ' marked as In Transit. Safe travels!',

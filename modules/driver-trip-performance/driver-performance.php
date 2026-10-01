@@ -48,7 +48,7 @@ $drivers = $pdo->query(
           WHERE at.driver_id=d.id AND at.status IN ('In Transit','Returning to Depot')
           ORDER BY at.actual_departure DESC NULLS LAST LIMIT 1
        ) active_vehicle ON TRUE
-      ORDER BY d.id"
+      ORDER BY u.created_at DESC NULLS LAST, d.id DESC"
 )->fetchAll();
 
 $active_page = 'drivers';

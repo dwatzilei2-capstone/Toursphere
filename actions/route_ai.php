@@ -109,6 +109,11 @@ try {
         }
 
         $selected = $evaluation['selectedCandidate'];
+        $modeSelections = [$mode => $evaluation['selectedIndex']];
+        foreach (['balanced', 'fastest', 'shortest', 'fuelEfficient'] as $strategy) {
+            if ($strategy === $mode) continue;
+            $modeSelections[$strategy] = RouteThinkEngine::evaluateCandidates($candidates, $vehicleSpecs, $strategy, $passengerCount, count($waypoints))['selectedIndex'];
+        }
 
         echo json_encode([
             'ok'   => true,
@@ -119,6 +124,7 @@ try {
                 'vehicle'           => $vehicleSpecs['name'],
                 'vehicleSpecs'      => $vehicleSpecs,
                 'selectedIndex'     => $evaluation['selectedIndex'],
+                'modeSelections'    => $modeSelections,
                 'selectedCandidate' => $selected,
                 'candidates'        => $evaluation['candidates'],
                 'explanation'       => $evaluation['explanation'],

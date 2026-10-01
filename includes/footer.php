@@ -79,6 +79,7 @@ $page_scripts = $page_scripts ?? '';
   <?php if ($include_chart): ?>
    
   <script src="<?= BASE_URL ?>/js/vendor/chart.umd.min.js"></script>
+  <script src="<?= BASE_URL ?>/js/chart-presentation.js?v=<?= (int)filemtime(ROOT_PATH . '/js/chart-presentation.js') ?>"></script>
   <?php endif; ?>
   <?php if ($include_leaflet): ?>
    
@@ -92,6 +93,21 @@ $page_scripts = $page_scripts ?? '';
   <script>window.TC_ROUTE_DATA = <?= json_encode($route_data, JSON_UNESCAPED_UNICODE) ?>;</script>
   <?php endif; ?>
   <script>window.TC_BASE_URL = <?= json_encode(BASE_URL) ?>;</script>
+  <?php if (session_timeout_applies($current_user['role_code'] ?? '')): ?>
+  <div class="modal fade session-warning" id="session-warning" tabindex="-1" aria-labelledby="session-warning-title" aria-describedby="session-warning-copy" data-bs-backdrop="static" data-bs-keyboard="false">
+    <div class="modal-dialog modal-dialog-centered"><div class="modal-content">
+      <div class="modal-body">
+        <h2 id="session-warning-title"><i class="bi bi-clock" aria-hidden="true"></i> Session Expiring</h2>
+        <p id="session-warning-copy">Your session will automatically end due to inactivity.</p>
+        <div id="session-warning-countdown" class="session-warning-countdown" role="timer" aria-label="Time remaining">01:00</div>
+        <p id="session-warning-status" class="session-warning-status" role="status"></p>
+        <div class="session-warning-actions"><button type="button" id="session-stay" class="tc-btn tc-btn-primary">Stay Logged In</button><button type="button" id="session-logout" class="tc-btn tc-btn-secondary">Log Out</button></div>
+      </div>
+    </div></div>
+  </div>
+  <script>window.TC_SESSION = <?= json_encode(['remaining'=>max(0,SESSION_IDLE_SECONDS-(time()-(int)$_SESSION['last_valid_activity'])), 'csrf'=>$_SESSION['session_activity_csrf'] ??= bin2hex(random_bytes(32)), 'userId'=>(int)$current_user['id']], JSON_HEX_TAG | JSON_HEX_AMP | JSON_HEX_APOS | JSON_HEX_QUOT) ?>;</script>
+  <script src="<?= BASE_URL ?>/js/session-timeout.js?v=<?= (int)filemtime(ROOT_PATH . '/js/session-timeout.js') ?>"></script>
+  <?php endif; ?>
 
    
   <?php if (!empty($include_map_route) || !empty($include_leaflet)): ?>

@@ -138,6 +138,7 @@ try {
            FROM vehicles v ORDER BY v.type, v.plate_number"
     );
     $availableVehicles = [];
+    $capacityDetails = [];
     $typeMatchCount = 0;
     $capacityMatchCount = 0;
     foreach ($vehiclesStmt->fetchAll() as $vehicle) {
@@ -145,6 +146,10 @@ try {
         $typeMatchCount++;
         if ((int)$vehicle['capacity'] < (int)$reservation['passenger_count']) {
             $addBlocker($vehicleBlockers, 'Below requested passenger capacity');
+            $capacityDetails[] = $vehicle['plate_number'] . ' · ' . $vehicle['type']
+                . ' · ' . (int)$vehicle['capacity'] . ' seats available; '
+                . (int)$reservation['passenger_count'] . ' passengers required ('
+                . ((int)$reservation['passenger_count'] - (int)$vehicle['capacity']) . ' seats short).';
             continue;
         }
         $capacityMatchCount++;
@@ -202,6 +207,14 @@ try {
         }
         return $formatted;
     };
+    $formattedVehicleBlockers = $formatBlockers($vehicleBlockers);
+    foreach ($formattedVehicleBlockers as &$blocker) {
+        if ($blocker['reason'] === 'Below requested passenger capacity') {
+            $blocker['reason'] = 'Not enough seats for this booking';
+            $blocker['details'] = $capacityDetails;
+        }
+    }
+    unset($blocker);
     $data['availability'] = [
         'applicable' => true,
         'buffer_hours' => $bufferHours,
@@ -209,7 +222,7 @@ try {
             'matched_count' => $capacityMatchCount,
             'available_count' => count($availableVehicles),
             'available_items' => array_slice($availableVehicles, 0, 5),
-            'blockers' => $formatBlockers($vehicleBlockers),
+            'blockers' => $formattedVehicleBlockers,
         ],
         'drivers' => [
             'available_count' => count($availableDrivers),

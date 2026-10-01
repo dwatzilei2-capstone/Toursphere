@@ -1,0 +1,13 @@
+.session-warning .modal-dialog { max-width: 360px; margin-left: auto; margin-right: auto; }
+.session-warning .modal-content { border: 1px solid var(--tc-border, #e2e8f0); border-radius: 12px; box-shadow: 0 12px 32px rgba(15,23,42,.16); }
+.session-warning .modal-body { padding: 24px; }
+.session-warning h2 { font-size: 17px; font-weight: 600; margin: 0 0 12px; display: flex; align-items: center; gap: 9px; }
+.session-warning h2 i { color: var(--tc-primary, #2f80ed); }
+.session-warning p { font-size: 13px; line-height: 1.6; margin-bottom: 16px; color: var(--tc-text-muted, #64748b); }
+.session-warning-countdown { font-size: 28px; line-height: 1.3; font-weight: 600; font-variant-numeric: tabular-nums; text-align: center; margin: 18px 0; }
+.session-warning .session-warning-status { font-size: 12px; margin: 0; }
+.session-warning-actions { display: flex; gap: 10px; margin-top: 20px; }
+.session-warning-actions .tc-btn { flex: 1; justify-content: center; min-height: 44px; font-size: 12px; white-space: normal; }
+.session-idle-backdrop { --bs-backdrop-opacity: .35; }
+@media (max-width: 575px) { .session-warning .modal-dialog { margin: 16px; max-width: none; } .session-warning .modal-body { padding: 20px; } }
+@media (prefers-reduced-motion: reduce) { .session-warning.fade .modal-dialog { transition: none; } }

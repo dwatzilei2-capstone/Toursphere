@@ -11,6 +11,8 @@
 
 
 
+require_once __DIR__ . '/ai-learning.php';
+
 class RouteThinkEngine {
      
     const DEFAULT_FUEL_PRICE_PHP = 58.40;
@@ -281,6 +283,9 @@ class RouteThinkEngine {
         $weights = self::$modeWeights[$optimizationMode] ?? self::$modeWeights['balanced'];
         $activeFuelModel = self::getActiveModel('fuel_liters');
         $activeDurationModel = self::getActiveModel('duration_mins');
+        $learningStats = [];
+        try { $learningStats = ai_learning_stats(db()); }
+        catch (Throwable $e) { /* Preserve baseline/legacy predictions if learning storage is unavailable. */ }
 
         $evaluated = [];
         $rawDistances = [];
@@ -332,7 +337,12 @@ class RouteThinkEngine {
                 * (1.0 + 0.40 * max(0.0, $trafficRatio - 1.0));
 
             $mlDuration = self::predictWithML($featureVector, $activeDurationModel);
-            $effectiveDurationMins = $mlDuration !== null ? round($mlDuration) : $trafficDurationMins;
+            $effectiveDurationMins = $mlDuration !== null ? $mlDuration : ($exactDurationSecs > 0 ? $exactDurationSecs / 60 : $trafficDurationMins);
+            // Continuous calibration takes over gradually while retaining legacy deployed models as the prior.
+            $effectiveFuel = ai_learning_adjust($effectiveFuel, 'fuel_liters', $featureVector, $learningStats);
+            $effectiveDurationMins = ai_learning_adjust((float)$effectiveDurationMins, 'duration_mins', $featureVector, $learningStats);
+            $exactDurationSecs = $effectiveDurationMins * 60.0;
+            $exactFuelScore = $effectiveFuel;
 
              
             $fuelCost = round($effectiveFuel * self::DEFAULT_FUEL_PRICE_PHP);
@@ -347,7 +357,7 @@ class RouteThinkEngine {
                 'exactDistanceMeters'   => $exactDistanceMeters,
                 'exactDurationSecs'     => $exactDurationSecs,
                 'exactFuelScore'        => $exactFuelScore,
-                'durationMins'          => $effectiveDurationMins,
+                'durationMins'          => max(1, (int)round($effectiveDurationMins)),
                 'baseDurationMins'      => $baseDurationMins,
                 'trafficDurationMins'   => $trafficDurationMins,
                 'trafficDelayRatio'     => $trafficRatio,
@@ -361,7 +371,9 @@ class RouteThinkEngine {
                 'isFullyMlActive'       => ($mlFuel !== null && $mlDuration !== null),
                 'fuelModelVersion'      => $activeFuelModel['version'] ?? null,
                 'durationModelVersion'  => $activeDurationModel['version'] ?? null,
-                'modelVersion'          => $activeFuelModel['version'] ?? 'v0-kinematic',
+                'modelVersion'          => isset($learningStats['fuel_liters'][ai_learning_context($featureVector)]) || isset($learningStats['duration_mins'][ai_learning_context($featureVector)]) ? 'v2-continuous' : ($activeFuelModel['version'] ?? 'v0-kinematic'),
+                'learningContext'       => ai_learning_context($featureVector),
+                'learningSamples'       => ['fuel' => (int)($learningStats['fuel_liters'][ai_learning_context($featureVector)]['samples'] ?? 0), 'duration' => (int)($learningStats['duration_mins'][ai_learning_context($featureVector)]['samples'] ?? 0)],
                 'rawRoute'              => $cand,
                 'features'              => $featureVector,
             ];
@@ -528,5 +540,3 @@ class RouteThinkEngine {
         }
     }
 }
-
-

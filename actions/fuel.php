@@ -22,8 +22,8 @@ try {
             if (!$context) {
                 redirect_with_toast($return, 'Your account is not linked to a Driver profile.', 'danger');
             }
-            if (empty($context['vehicle_id'])) {
-                redirect_with_toast($return, 'No vehicle is assigned to you. Ask Dispatch to assign a vehicle before logging fuel.', 'danger');
+            if (empty($context['trip_id']) || empty($context['vehicle_id']) || empty($context['plate_number'])) {
+                redirect_with_toast($return, 'No active or assigned trip with a vehicle is available. Ask Dispatch to assign a trip before logging fuel.', 'danger');
             }
             $driver_id = $context['driver_id'];
             $trip_id = $context['trip_id'] ?? '';
@@ -91,6 +91,10 @@ try {
             'UPDATE vehicle_cost_ledger SET fuel_cost = fuel_cost + ?, total_cost = total_cost + ? WHERE vehicle_id = ?'
         )->execute([$total, $total, $vehicle_id]);
         $pdo->commit();
+        if ($trip_id !== '' && $verifiedTripConsumption) {
+            require_once dirname(__DIR__) . '/includes/routethink_engine.php';
+            ai_learning_after_trip($pdo, $trip_id);
+        }
 
         redirect_with_toast($return, 'Refill ' . $fid . ' recorded: ' . number_format($liters, 1) . ' L (' . money($total) . ').', 'success');
     }

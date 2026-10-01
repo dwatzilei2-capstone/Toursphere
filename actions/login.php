@@ -63,6 +63,7 @@ try {
     session_regenerate_id(true);
     $_SESSION['user_id'] = (int)$user['id'];
     $_SESSION['user_name'] = $user['name'];
+    $_SESSION['last_valid_activity'] = time();
 
     redirect_to(BASE_URL . '/index.php');
 } catch (Exception $ex) {

@@ -5,6 +5,9 @@
   const key = `toursphere.notifications.${bell.dataset.userId}`;
   let cursor = Number(bell.dataset.cursor), busy = false, timer, queue = [], showing = false;
   try { const saved = sessionStorage.getItem(key); if (saved !== null) cursor = Number(saved); } catch (_) {}
+  const loginKey = `${key}.login.${bell.dataset.previewSession}`;
+  let loginPreviewPending = bell.dataset.loginPreview === '1';
+  try { if (sessionStorage.getItem(loginKey)) loginPreviewPending = false; } catch (_) {}
   const text = (tag, value, className) => { const el = document.createElement(tag); el.textContent = value; el.className = className || ''; return el; };
   const render = items => {
     const list = document.getElementById('notifications-dropdown-list');
@@ -25,7 +28,7 @@
   const positionPreview = () => {
     if (preview.hidden) return;
     const rect = bell.getBoundingClientRect();
-    const width = Math.min(260, window.innerWidth - 32);
+    const width = Math.min(340, window.innerWidth - 32);
     const left = Math.max(16, Math.min(rect.right + 12 - width, window.innerWidth - width - 16));
     preview.style.position = 'fixed';
     preview.style.width = `${width}px`;
@@ -41,15 +44,13 @@
     const message = [n.title, n.body].filter(Boolean).join(': ').replace(/\s+/g, ' ').trim();
     a.setAttribute('aria-label', message);
     a.title = message;
-    const track = text('span', '', 'notification-preview-track');
-    track.setAttribute('aria-hidden', 'true');
-    track.append(text('span', message, 'notification-preview-message'), text('span', message, 'notification-preview-message'));
+    const track = text('span', '', 'notification-preview-content');
+    track.append(text('strong', n.title === 'Trip Assignment' ? 'New Trip Assigned to You' : n.title, 'notification-preview-title'), text('span', n.body, 'notification-preview-body'));
     a.append(track);
     a.addEventListener('click', e => App.markNotificationRead(n.id, e));
     const close = text('button', '×', 'notification-preview-close'); close.type = 'button'; close.setAttribute('aria-label', 'Dismiss notification'); close.onclick = dismiss;
     preview.append(a, close); preview.hidden = false; positionPreview();
-    track.style.setProperty('--notification-scroll-duration', `${Math.max(12, track.scrollWidth / 2 / 25)}s`);
-    timer = setTimeout(dismiss, 10000);
+    timer = setTimeout(dismiss, 15000);
   };
   const renderCenter = items => {
     const list = document.getElementById('notifications-full-list');
@@ -76,10 +77,17 @@
   const poll = async () => {
     if (busy || document.hidden) return; busy = true;
     try {
-      const response = await fetch(`${window.TC_BASE_URL}/actions/notifications.php?after=${cursor}${document.getElementById('notifications-full-list') ? '&center=1' : ''}`, {cache:'no-store'});
+      const response = await fetch(`${window.TC_BASE_URL}/actions/notifications.php?after=${cursor}${loginPreviewPending ? '&login_preview=1' : ''}${document.getElementById('notifications-full-list') ? '&center=1' : ''}`, {cache:'no-store'});
       const data = await response.json(); if (!response.ok || !data.ok) return;
       App.updateNotifBadge(data.unread); render(data.items); renderCenter(data.all_items);
-      queue.push(...data.events.filter(n => !n.is_read)); cursor = data.cursor;
+      const events = [...(data.login_events || []), ...data.events].filter(n => !n.is_read);
+      const seen = new Set();
+      queue.push(...events.filter(n => { if (seen.has(n.id)) return false; seen.add(n.id); return true; }));
+      if (loginPreviewPending) {
+        loginPreviewPending = false;
+        try { sessionStorage.setItem(loginKey, '1'); } catch (_) {}
+      }
+      cursor = data.cursor;
       try { sessionStorage.setItem(key, String(cursor)); } catch (_) {}
       display();
     } catch (_) {} finally { busy = false; }

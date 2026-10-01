@@ -17,6 +17,7 @@ if (PHP_SAPI !== 'cli' && session_status() === PHP_SESSION_NONE) {
 }
 
  
+require_once __DIR__ . '/session-timeout.php';
 $current_user = null;
 
  
@@ -63,6 +64,16 @@ function load_current_user(): void
             $current_user = null;
             return;
         }
+        if (session_timeout_applies((string)$user['role_code'])) {
+            $now = time();
+            if (session_timeout_expired($_SESSION, $now)) {
+                $GLOBALS['session_idle_expired'] = true;
+                session_invalidate();
+                return;
+            }
+            if (!isset($_SESSION['last_valid_activity']) || !session_request_is_passive()) $_SESSION['last_valid_activity'] = $now;
+            session_timeout_headers();
+        }
         $current_user = $user;
 
          
@@ -100,7 +111,7 @@ function is_logged_in(): bool
 function require_login(): void
 {
     if (!is_logged_in()) {
-        redirect_to(BASE_URL . '/login.php');
+        session_unauthorized();
     }
 }
 
@@ -134,6 +145,7 @@ function has_role($roles): bool
  
 function require_permission(string $permission): void
 {
+    require_login();
     if (!can($permission)) {
         redirect_with_toast(BASE_URL . '/' . home_path(), 'You do not have permission to access that module or feature.', 'warning');
     }

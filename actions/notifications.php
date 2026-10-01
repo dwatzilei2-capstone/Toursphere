@@ -25,6 +25,19 @@ try {
     $new=$pdo->prepare('SELECT * FROM notifications WHERE user_id=? AND id>? AND id<=? ORDER BY id LIMIT 30'); $new->execute([$uid,$after,$cursor]); $events=$new->fetchAll();
     $next=count($events)===30 ? (int)end($events)['id'] : $cursor;
     $result=['ok'=>true,'unread'=>(int)$count->fetchColumn(),'cursor'=>$next,'items'=>array_map($serialize,$recent->fetchAll()),'events'=>array_map($serialize,$events)];
+    if (!empty($_GET['login_preview']) && ($current_user['role_code'] ?? '') === 'driver') {
+        // Show only still-current, unread assignments that predate login, never completed/removed trips.
+        $assignments = $pdo->prepare("SELECT DISTINCT ON (t.id) n.* FROM notifications n
+            JOIN trips t ON n.target='trip-details:'||t.id JOIN drivers d ON d.id=t.driver_id
+            WHERE n.user_id=? AND d.user_id=? AND n.is_read=0
+              AND n.title IN ('Trip Assignment','New Trip Assigned to You')
+              AND t.status IN ('Scheduled','Assigned','Confirmed','Dispatched','In Transit','Returning to Depot')
+            ORDER BY t.id,n.id DESC");
+        $assignments->execute([$uid,$uid]);
+        $pending = $assignments->fetchAll();
+        usort($pending, static fn($a,$b) => (int)$b['id'] <=> (int)$a['id']);
+        $result['login_events'] = array_map($serialize,array_slice($pending,0,3));
+    }
     if (!empty($_GET['center'])) { $all=$pdo->prepare('SELECT * FROM notifications WHERE user_id=? ORDER BY id DESC'); $all->execute([$uid]); $result['all_items']=array_map($serialize,$all->fetchAll()); }
     $pdo->commit(); echo json_encode($result);
 } catch (Throwable $e) {

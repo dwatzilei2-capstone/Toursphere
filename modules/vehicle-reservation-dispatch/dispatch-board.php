@@ -199,6 +199,7 @@ function kanban_card(array $r): string
           'requiredVehicleType' => $r['vehicle_requested'], 'requiredCapacity' => $r['required_capacity'] === null ? null : (int)$r['required_capacity'], 'origin' => $r['origin'], 'destination' => $r['destination'],
           'departureDate' => $r['departure_date'], 'departureTime' => $r['departure_time'],
           'assignedVehicle' => $r['assigned_vehicle_id'] ? $r['assigned_vehicle_id'] . ' (' . $r['plate_number'] . ')' : 'Pending',
+          'assignedVehicleId' => $r['assigned_vehicle_id'], 'assignedDriverId' => $r['assigned_driver_id'],
           'assignedDriver' => $r['driver_name'] ?? 'Pending', 'status' => $r['status'],
           'tripType' => $r['trip_type'], 'notes' => $r['notes'], 'estimatedCost' => money($r['estimated_cost']),
       ];

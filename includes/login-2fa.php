@@ -141,7 +141,21 @@ function login_2fa_cancel(PDO $pdo, array $state): void
 
 function login_2fa_state_is_active(PDO $pdo, array $state): bool
 {
-    $q = $pdo->prepare("SELECT 1 FROM login_2fa_challenges WHERE id = ? AND user_id = ? AND purpose = 'login_2fa' AND delivery_status = 'sent' AND used_at IS NULL AND expires_at > clock_timestamp() AND attempts < ?");
-    $q->execute([(string)($state['challenge_id'] ?? ''), (int)($state['user_id'] ?? 0), LOGIN_2FA_MAX_ATTEMPTS]);
-    return (bool)$q->fetchColumn();
+    return login_2fa_status($pdo, $state)['active'];
+}
+
+function login_2fa_status(PDO $pdo, array $state): array
+{
+    $q = $pdo->prepare("SELECT delivery_status, used_at, verified_at, attempts, CEIL(EXTRACT(EPOCH FROM (expires_at - clock_timestamp()))) AS remaining FROM login_2fa_challenges WHERE id = ? AND user_id = ? AND purpose = 'login_2fa'");
+    $q->execute([(string)($state['challenge_id'] ?? ''), (int)($state['user_id'] ?? 0)]);
+    $row = $q->fetch();
+    $remaining = max(0, (int)($row['remaining'] ?? 0));
+    $message = '';
+    if (!$row) $message = 'This verification code is no longer available. Request a new code.';
+    elseif ($row['verified_at']) $message = 'This code has already been used. Return to login to continue.';
+    elseif ($row['delivery_status'] !== 'sent') $message = 'This code could not be delivered. Request a new code.';
+    elseif ($row['used_at']) $message = 'This code was replaced by a new login or resend, or cancelled. Use the latest code in its verification page, or request a new code here.';
+    elseif ($remaining <= 0) $message = 'The 5-minute validity has ended. Request a new code.';
+    elseif ((int)$row['attempts'] >= LOGIN_2FA_MAX_ATTEMPTS) $message = 'The maximum number of incorrect attempts was reached. Request a new code.';
+    return ['active' => $message === '', 'remaining' => $remaining, 'message' => $message];
 }

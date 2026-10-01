@@ -4,6 +4,7 @@ require_once dirname(__DIR__) . '/includes/bootstrap.php';
 require_once ROOT_PATH . '/includes/vehicle_compliance.php';
 require_once ROOT_PATH . '/includes/driver_vehicle_assignment.php';
 require_once ROOT_PATH . '/includes/schedules.php';
+require_once ROOT_PATH . '/includes/dispatch-assignment.php';
 require_login();
 require_permission('dispatch.manage');
 
@@ -35,6 +36,7 @@ try {
     if (!$r) {
         throw new RuntimeException('Reservation not found.');
     }
+    validate_dispatch_assignment($r, $dispatch_action, $vehicle_id, $driver_id);
     $scheduleInstance = null;
     $dispatchPassengerDemand = (int)$r['passenger_count'];
     if (!empty($r['departure_schedule_instance_id'])) {
@@ -43,8 +45,33 @@ try {
         $scheduleInstance = $scheduleStmt->fetch();
         if (!$scheduleInstance || in_array($scheduleInstance['status'], ['Closed','Completed','Cancelled'], true)) throw new RuntimeException('The scheduled departure is no longer open for dispatch.');
         $dispatchPassengerDemand = schedule_reserved_demand($pdo, (int)$scheduleInstance['id']);
-        if ($scheduleInstance['assigned_vehicle_id'] && $scheduleInstance['assigned_vehicle_id'] !== $vehicle_id) throw new RuntimeException('This scheduled departure already has a different vehicle assigned.');
-        if ($scheduleInstance['assigned_driver_id'] && $scheduleInstance['assigned_driver_id'] !== $driver_id) throw new RuntimeException('This scheduled departure already has a different driver assigned.');
+        $updatingAssignment = $dispatch_action === 'assign' && in_array($r['status'], ['Assigned','Confirmed'], true);
+        if ($updatingAssignment) {
+            if ($scheduleInstance['status'] === 'Dispatched') throw new RuntimeException('This scheduled departure is already dispatched. Assignment cannot be changed.');
+            $sharedReservations = $pdo->prepare("SELECT id,status FROM reservations WHERE departure_schedule_instance_id=? AND status <> 'Cancelled' FOR UPDATE");
+            $sharedReservations->execute([$scheduleInstance['id']]);
+            foreach ($sharedReservations->fetchAll() as $shared) {
+                if (in_array($shared['status'], ['Dispatched','In Transit','Completed'], true)) throw new RuntimeException('This shared departure has already been dispatched or started. Assignment cannot be changed.');
+            }
+            $sharedTrips = $pdo->prepare('SELECT t.id,t.status FROM trips t JOIN reservations sr ON sr.id=t.reservation_id WHERE sr.departure_schedule_instance_id=? FOR UPDATE OF t');
+            $sharedTrips->execute([$scheduleInstance['id']]);
+            foreach ($sharedTrips->fetchAll() as $sharedTrip) {
+                if (in_array($sharedTrip['status'], ['Dispatched','In Transit','Returning to Depot','Completed'], true)) throw new RuntimeException('A trip on this shared departure has already been dispatched or started. Assignment cannot be changed.');
+            }
+        }
+        if (!$updatingAssignment && (($scheduleInstance['assigned_vehicle_id'] && $scheduleInstance['assigned_vehicle_id'] !== $vehicle_id)
+            || ($scheduleInstance['assigned_driver_id'] && $scheduleInstance['assigned_driver_id'] !== $driver_id))) {
+            $assignmentStmt = $pdo->prepare('SELECT v.plate_number, d.name FROM scheduled_departures s LEFT JOIN vehicles v ON v.id=s.assigned_vehicle_id LEFT JOIN drivers d ON d.id=s.assigned_driver_id WHERE s.id=?');
+            $assignmentStmt->execute([$scheduleInstance['id']]);
+            $assigned = $assignmentStmt->fetch();
+            $assignedVehicle = $scheduleInstance['assigned_vehicle_id']
+                ? $scheduleInstance['assigned_vehicle_id'] . ' (' . ($assigned['plate_number'] ?? 'plate unavailable') . ')'
+                : 'no vehicle yet';
+            $assignedDriver = $assigned['name'] ?? $scheduleInstance['assigned_driver_id'] ?? 'no driver yet';
+            throw new RuntimeException('Scheduled departure #' . $scheduleInstance['id'] . ' is already assigned to '
+                . $assignedVehicle . ' and ' . $assignedDriver . '. Your current selections differ from that assignment. '
+                . 'No changes were saved; the existing assignment remains. Select the already assigned vehicle and driver to continue.');
+        }
     }
     if (!in_array($r['status'], ['Approved', 'Pending', 'Assigned', 'Confirmed'], true)
         || ($r['customer_id'] && $r['status'] === 'Pending')) {
@@ -161,7 +188,7 @@ try {
             $targetStatus, $targetStatus === 'Dispatched' ? 10 : 0, $targetStatus,
         ]);
     } else {
-        if (in_array($existingTrip['status'], ['In Transit', 'Returning to Depot', 'Completed'], true)) {
+        if (in_array($existingTrip['status'], ['In Transit', 'Returning to Depot', 'Completed'], true) || ($dispatch_action === 'assign' && $existingTrip['status'] === 'Dispatched')) {
             throw new RuntimeException('An active or completed trip cannot be reassigned.');
         }
         $pdo->prepare(
@@ -177,6 +204,16 @@ try {
     }
 
 
+    if ($dispatch_action === 'assign' && $scheduleInstance && in_array($r['status'], ['Assigned','Confirmed'], true)) {
+        $pdo->prepare("UPDATE trips t SET vehicle_id=?,driver_id=? FROM reservations sr WHERE sr.id=t.reservation_id AND sr.departure_schedule_instance_id=? AND sr.status IN ('Assigned','Confirmed') AND t.status IN ('Scheduled','Assigned','Confirmed')")
+            ->execute([$vehicle_id,$driver_id,$scheduleInstance['id']]);
+    }
+    if ($r['assigned_vehicle_id'] && $r['assigned_vehicle_id'] !== $vehicle_id) refresh_vehicle_operational_status($pdo, $r['assigned_vehicle_id']);
+    if ($r['assigned_driver_id'] && $r['assigned_driver_id'] !== $driver_id) {
+        refresh_driver_operational_status($pdo, $r['assigned_driver_id']);
+        $pdo->prepare("UPDATE drivers SET status='Assigned' WHERE id=? AND status='Active' AND EXISTS (SELECT 1 FROM trips WHERE driver_id=? AND status IN ('Scheduled','Assigned','Dispatched'))")
+            ->execute([$r['assigned_driver_id'],$r['assigned_driver_id']]);
+    }
     $pdo->commit();
 
     $message = $targetStatus === 'Dispatched'

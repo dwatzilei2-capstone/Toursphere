@@ -48,7 +48,7 @@ $reservations = $pdo->query(
             ORDER BY trip.created_at DESC
             LIMIT 1
        ) t ON TRUE
-      ORDER BY r.departure_date, r.departure_time"
+      ORDER BY r.created_at DESC, r.id DESC"
 )->fetchAll();
 
  
@@ -155,7 +155,7 @@ require ROOT_PATH . '/includes/header.php';
                 <button class="tc-btn tc-btn-outline-danger tc-btn-sm reservation-action-btn" type="button" onclick="App.openReservationCancellationModal('<?= e($r['id']) ?>', 'cancel_reservation')">
                   <i class="bi bi-x-circle"></i> Cancel
                 </button>
-                <button class="tc-btn tc-btn-primary tc-btn-sm reservation-action-btn" type="button" onclick="App.openDispatchModal('<?= e($r['id']) ?>')">
+                <button class="tc-btn tc-btn-primary tc-btn-sm reservation-action-btn" type="button" onclick="App.openDispatchModal('<?= e($r['id']) ?>', 'assign')">
                   <i class="bi bi-person-check"></i> <?= in_array($r['status'], ['Assigned', 'Confirmed'], true) ? 'Update Assignment' : 'Assign' ?>
                 </button>
               <?php elseif (can('dispatch.manage') && $r['status'] === 'Dispatched'): ?>
@@ -392,13 +392,25 @@ function appendAvailabilityGroup(parent, title, resource) {
   if (resource.blockers.length) {
     const blockerHeading = document.createElement('div');
     blockerHeading.className = 'small fw-semibold';
-    blockerHeading.textContent = 'Unavailable';
+    blockerHeading.textContent = title === 'Vehicle'
+      ? 'Vehicles not eligible for this booking'
+      : 'Drivers not currently available for this booking';
     section.append(blockerHeading);
     const blockerList = document.createElement('ul');
     blockerList.className = 'small ps-3 mb-0';
     resource.blockers.forEach((blocker) => {
       const item = document.createElement('li');
       item.textContent = blocker.count + ' · ' + blocker.reason;
+      if (Array.isArray(blocker.details) && blocker.details.length) {
+        const details = document.createElement('ul');
+        details.className = 'text-muted-custom ps-3 mt-1';
+        blocker.details.forEach((description) => {
+          const detail = document.createElement('li');
+          detail.textContent = description;
+          details.append(detail);
+        });
+        item.append(details);
+      }
       blockerList.append(item);
     });
     section.append(blockerList);
@@ -444,6 +456,7 @@ function openReservationReject(reservationId) {
           'scheduledPassengerDemand' => (int)$r['scheduled_passenger_demand'],
           'departureDate' => $r['departure_date'], 'departureTime' => $r['departure_time'],
           'assignedVehicle' => $r['assigned_vehicle_id'] ? $r['assigned_vehicle_id'] . ' (' . $r['plate_number'] . ')' : 'Pending',
+          'assignedVehicleId' => $r['assigned_vehicle_id'], 'assignedDriverId' => $r['assigned_driver_id'],
           'assignedDriver' => $r['driver_name'] ?? 'Pending', 'status' => $r['status'], 'tripId' => $r['trip_id'],
           'tripType' => $r['trip_type'], 'notes' => $r['notes'], 'estimatedCost' => money($r['estimated_cost']),
           'cancellationType' => $r['cancellation_type'], 'cancellationReason' => $r['cancellation_reason'],

@@ -10,7 +10,11 @@ $orders = $pdo->query(
     "SELECT wo.*, v.plate_number, v.brand, v.model, v.type AS vehicle_type
        FROM maintenance_orders wo
        JOIN vehicles v ON v.id = wo.vehicle_id
-      ORDER BY wo.scheduled_date"
+      ORDER BY CASE WHEN wo.status = 'Completed' THEN 1 ELSE 0 END,
+               CASE WHEN wo.status <> 'Completed' THEN
+                 CASE wo.priority WHEN 'Critical' THEN 0 WHEN 'Medium' THEN 1 ELSE 2 END END,
+               CASE WHEN wo.status <> 'Completed' THEN wo.scheduled_date END ASC,
+               wo.created_at DESC, wo.id DESC"
 )->fetchAll();
 
  

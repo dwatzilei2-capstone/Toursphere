@@ -74,6 +74,7 @@ if (!isset($header_notifications)) {
   <?php if (in_array(($active_page ?? ''), ['ai-route-planner', 'route-comparison', 'route-history'], true)): ?><link rel="stylesheet" href="<?= BASE_URL ?>/css/ai-route-optimization.css?v=<?= (int)@filemtime(ROOT_PATH . '/css/ai-route-optimization.css') ?>"><?php endif; ?>
   <?php if (($active_page ?? '') === 'settings'): ?><link rel="stylesheet" href="<?= BASE_URL ?>/css/settings.css?v=<?= (int)filemtime(ROOT_PATH . '/css/settings.css') ?>"><?php endif; ?>
   <link rel="stylesheet" href="<?= BASE_URL ?>/css/theme.css?v=<?= (int)filemtime(ROOT_PATH . '/css/theme.css') ?>">
+  <?php if (session_timeout_applies($current_user['role_code'] ?? '')): ?><link rel="stylesheet" href="<?= BASE_URL ?>/css/session-timeout.css?v=<?= (int)filemtime(ROOT_PATH . '/css/session-timeout.css') ?>"><?php endif; ?>
   <?php if ($include_role_portal_polish): ?><link rel="stylesheet" href="<?= BASE_URL ?>/css/role-portals.css?v=<?= (int)filemtime(ROOT_PATH . '/css/role-portals.css') ?>"><?php endif; ?>
   <script>window.fleetCurrencySymbol = <?= json_encode(currency_symbol(), JSON_HEX_TAG | JSON_HEX_AMP | JSON_HEX_APOS | JSON_HEX_QUOT) ?>;</script>
 </head>
@@ -112,7 +113,7 @@ if (!isset($header_notifications)) {
 
            
           <div class="dropdown notification-anchor">
-            <button class="btn btn-sm btn-light position-relative border" id="header-notif-btn" data-csrf="<?= e($_SESSION['notification_csrf'] ??= bin2hex(random_bytes(32))) ?>" data-user-id="<?= (int)$current_user['id'] ?>" data-cursor="<?= (int)$header_pdo->query('SELECT COALESCE(MAX(id),0) FROM notifications')->fetchColumn() ?>" type="button" data-bs-toggle="dropdown" aria-expanded="false" title="Notifications">
+            <button class="btn btn-sm btn-light position-relative border" id="header-notif-btn" data-csrf="<?= e($_SESSION['notification_csrf'] ??= bin2hex(random_bytes(32))) ?>" data-login-preview="<?= ($current_user['role_code'] ?? '') === 'driver' ? '1' : '0' ?>" data-preview-session="<?= e($_SESSION['notification_preview_session'] ??= bin2hex(random_bytes(16))) ?>" data-user-id="<?= (int)$current_user['id'] ?>" data-cursor="<?= (int)$header_pdo->query('SELECT COALESCE(MAX(id),0) FROM notifications')->fetchColumn() ?>" type="button" data-bs-toggle="dropdown" aria-expanded="false" title="Notifications">
               <i class="bi bi-bell"></i>
               <span id="header-notif-badge" class="position-absolute top-0 start-100 translate-middle badge rounded-pill bg-danger" style="font-size: 10px; padding: 3px 6px; <?= $unread_count > 0 ? '' : 'display:none;' ?>"><?= (int)$unread_count ?></span>
             </button>

@@ -4,7 +4,7 @@
 function driver_fuel_context(PDO $pdo, string $userId): ?array
 {
     $stmt = $pdo->prepare("SELECT d.id AS driver_id, d.name AS driver_name,
-            COALESCE(t.vehicle_id, v.id) AS vehicle_id, t.id AS trip_id
+            t.vehicle_id, t.id AS trip_id, v.plate_number, v.brand, v.model
         FROM drivers d
         LEFT JOIN LATERAL (
             SELECT id, vehicle_id FROM trips
@@ -15,9 +15,7 @@ function driver_fuel_context(PDO $pdo, string $userId): ?array
                      scheduled_departure ASC NULLS LAST, created_at DESC
             LIMIT 1
         ) t ON TRUE
-        LEFT JOIN LATERAL (
-            SELECT id FROM vehicles WHERE assigned_driver_id=d.id ORDER BY id LIMIT 1
-        ) v ON TRUE
+        LEFT JOIN vehicles v ON v.id=t.vehicle_id
         WHERE d.user_id=?");
     $stmt->execute([$userId]);
     return $stmt->fetch() ?: null;
