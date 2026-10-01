@@ -12,6 +12,7 @@
   const endpoint = `${window.TC_BASE_URL}/actions/session.php`;
   let deadline = performance.now() + config.remaining * 1000;
   let busy = false, leaving = false, visible = false, lastActivitySent = -Infinity, activityTimer, queuedAction;
+  let manualLogout = false;
   const channel = typeof BroadcastChannel === 'function' ? new BroadcastChannel(`toursphere.session.${config.userId}`) : null;
   const login = expired => {
     if (leaving) return;
@@ -23,13 +24,19 @@
     deadline = performance.now() + Math.max(0, seconds) * 1000;
     if (seconds > 60 && visible) { modal.hide(); visible = false; }
   };
+  const handleUnauthorized = async response => {
+    if (leaving) return;
+    let expired = false;
+    try { expired = (await response.clone().json()).session_expired === true; } catch (_) { /* Unauthenticated is not proof of an idle timeout. */ }
+    login(!manualLogout && expired);
+  };
   // Existing same-origin AJAX calls also receive authoritative timeout updates/errors.
   window.fetch = async (...args) => {
     const response = await originalFetch(...args);
     if (new URL(response.url || endpoint, location.href).origin === location.origin) {
       const remaining = response.headers.get('X-TourSphere-Session-Remaining');
       if (remaining !== null) setRemaining(Number(remaining));
-      if (response.status === 401) login(true);
+      if (response.status === 401 && !manualLogout) await handleUnauthorized(response);
     }
     return response;
   };
@@ -40,7 +47,10 @@
     try {
       const body = new FormData(); body.append('action',action); body.append('csrf',config.csrf);
       const response = await originalFetch(endpoint, action === 'status' ? {cache:'no-store',headers:{Accept:'application/json'}} : {method:'POST',body,headers:{Accept:'application/json'}});
-      if (response.status === 401) { login(true); return; }
+      if (response.status === 401) {
+        if (manualLogout && action !== 'logout') { queuedAction = 'logout'; return; }
+        await handleUnauthorized(response); return;
+      }
       const data = await response.json();
       if (!response.ok || !data.ok) throw new Error('Unable to confirm your session. Please try again.');
       if (data.logged_out) { login(false); return; }
@@ -62,8 +72,16 @@
   };
   root.addEventListener('shown.bs.modal', () => { document.querySelectorAll('.modal-backdrop').forEach(el=>el.classList.add('session-idle-backdrop')); stay.focus(); });
   stay.addEventListener('click', () => { stay.disabled = true; request('activity'); });
-  logout.addEventListener('click', () => { logout.disabled = true; request('logout'); });
+  logout.addEventListener('click', () => { manualLogout = true; clearTimeout(activityTimer); logout.disabled = true; request('logout'); });
   const activity = event => {
+    const link = event.target.closest?.('a[href]');
+    if (event.type === 'click' && link && !event.defaultPrevented && event.button === 0 && !event.ctrlKey && !event.metaKey && !event.shiftKey && !event.altKey) {
+      const url = new URL(link.href, location.href);
+      if (url.origin === location.origin && url.pathname === `${window.TC_BASE_URL}/logout.php`) {
+        // Let the real logout request finish; pending AJAX must not cancel it.
+        manualLogout = true; leaving = true; clearTimeout(activityTimer); return;
+      }
+    }
     if (!event.isTrusted || visible || leaving || root.contains(event.target)) return;
     clearTimeout(activityTimer);
     const send = () => {

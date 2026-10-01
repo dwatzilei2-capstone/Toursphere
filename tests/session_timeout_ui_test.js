@@ -9,7 +9,7 @@ const node = id => {
   if(!nodes.has(id))nodes.set(id,{textContent:'',disabled:false,contains:()=>false,focus:()=>{},addEventListener:(type,handler)=>listeners.set(`${id}:${type}`,handler)});
   return nodes.get(id);
 };
-const response = data => ({status:expired?401:200,ok:!expired,headers:{get:()=>null},json:async()=>data});
+const response = data => ({status:expired?401:200,ok:!expired,headers:{get:()=>null},json:async()=>data,clone(){return this;}});
 const context={
   document:{getElementById:node,hidden:false,addEventListener:(type,handler)=>listeners.set(type,handler),querySelectorAll:()=>[]},
   bootstrap:{Modal:class {show(){shown++;}hide(){hidden++;}}},performance:{now:()=>now},
@@ -17,7 +17,7 @@ const context={
   setInterval:handler=>intervals.push(handler),setTimeout:()=>1,clearTimeout:()=>{},
   window:{TC_SESSION:{remaining:59,csrf:'test',userId:1},TC_BASE_URL:'/fleet',
     location:{replace:url=>{redirect=url;}},addEventListener:(type,handler)=>listeners.set(type,handler),
-    fetch:async(url,options)=>{ if(options?.body?.get('action')==='activity')remaining=300; return response({ok:!expired,remaining}); }
+    fetch:async(url,options)=>{ if(options?.body?.get('action')==='activity')remaining=300; return response({ok:!expired,remaining,session_expired:expired}); }
   }
 };
 const flush=async()=>{for(let i=0;i<8;i++)await Promise.resolve();};
