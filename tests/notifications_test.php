@@ -1,4 +1,5 @@
 <?php
+if (PHP_SAPI !== 'cli') { http_response_code(404); exit; }
 require dirname(__DIR__).'/includes/bootstrap.php';
 $p=db(); $p->exec(file_get_contents(ROOT_PATH.'/database/migrations/2026_09_30_notifications.sql'));
 function check($condition,$message) { if (!$condition) throw new RuntimeException($message); echo "PASS $message\n"; }

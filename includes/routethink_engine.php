@@ -12,13 +12,14 @@
 
 
 require_once __DIR__ . '/ai-learning.php';
+require_once __DIR__ . '/trip_funding.php';
 
 class RouteThinkEngine {
      
-    const DEFAULT_FUEL_PRICE_PHP = 58.40;
+    // Operational prices come from fuel_price_history, never a permanent demo price.
     
      
-    const DEFAULT_TOLL_RATE_PER_KM = 3.80;
+    // No supported toll-price source is configured yet.
 
      
     const CONGESTION_DRAG_COEFFICIENT = 0.40;  
@@ -119,6 +120,7 @@ class RouteThinkEngine {
                 elseif (stripos($row['type'], 'Coaster') !== false) $weightClass = 2;
 
                 return [
+                    'efficiency_available' => preg_match('/^\s*(\d+(?:\.\d+)?)\s*(?:km\s*\/\s*l)?\s*$/i',(string)$row['avg_fuel_km'],$efficiencyMatch) && (float)$efficiencyMatch[1]>0,
                     'id'                  => $row['id'],
                     'name'                => "{$row['brand']} {$row['model']} ({$row['plate_number']})",
                     'type'                => $row['type'],
@@ -345,10 +347,11 @@ class RouteThinkEngine {
             $exactFuelScore = $effectiveFuel;
 
              
-            $fuelCost = round($effectiveFuel * self::DEFAULT_FUEL_PRICE_PHP);
+            $configuredPrice=!empty($vehicleSpecs['id'])?fuel_current_price(db(),(string)$vehicleSpecs['fuel_type']):null;
+            $fuelCost = $configuredPrice && !empty($vehicleSpecs['efficiency_available']) ? round($effectiveFuel * (float)$configuredPrice['price_per_liter']) : null;
              
-            $tollEstimate = round($distanceKm * $highwayRatio * self::DEFAULT_TOLL_RATE_PER_KM);
-            $totalCost = $fuelCost + $tollEstimate;
+            $tollEstimate = null;
+            $totalCost = $fuelCost;
 
             $evaluated[] = [
                 'index'                 => $idx,
@@ -455,9 +458,9 @@ class RouteThinkEngine {
             $m = $item['durationMins'] % 60;
             $item['durationFormatted'] = $h > 0 ? "{$h} hr" . ($h > 1 ? 's ' : ' ') . "{$m} min" . ($m > 1 ? 's' : '') : "{$m} mins";
             $item['distanceFormatted'] = number_format($item['distanceKm'], 1) . " km";
-            $item['fuelFormatted']     = number_format($item['fuelEstimateLiters'], 1) . " L";
-            $item['costFormatted']     = "₱" . number_format($item['totalTripCost']);
-            $item['tollFormatted']     = "₱" . number_format($item['tollEstimate']);
+            $item['fuelFormatted']     = !empty($vehicleSpecs['efficiency_available']) ? number_format($item['fuelEstimateLiters'], 1) . " L" : 'Vehicle fuel efficiency data unavailable';
+            $item['costFormatted']     = $item['totalTripCost']===null ? 'Not Available' : "₱" . number_format($item['totalTripCost']);
+            $item['tollFormatted']     = 'Not Included in Estimate';
         }
         unset($item);
 

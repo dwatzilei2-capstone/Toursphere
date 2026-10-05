@@ -5,6 +5,8 @@ require_once ROOT_PATH . '/includes/vehicle_compliance.php';
 require_once ROOT_PATH . '/includes/driver_vehicle_assignment.php';
 require_once ROOT_PATH . '/includes/schedules.php';
 require_once ROOT_PATH . '/includes/dispatch-assignment.php';
+require_once ROOT_PATH . '/includes/reservation-assignment.php';
+require_once ROOT_PATH . '/includes/trip_funding.php';
 require_login();
 require_permission('dispatch.manage');
 
@@ -25,8 +27,10 @@ if ($reservation_id === '' || $vehicle_id === '' || $driver_id === '' || !in_arr
 }
 
 try {
+    if (!is_string($_POST['csrf'] ?? null) || empty($_SESSION['assignment_csrf']) || !hash_equals($_SESSION['assignment_csrf'],$_POST['csrf'])) throw new RuntimeException('Assignment session expired. Refresh the page.');
     $pdo = db();
     $pdo->beginTransaction();
+    $pdo->exec("SELECT pg_advisory_xact_lock(hashtext('fleet-designated-assignment'))");
     $lockStmt = $pdo->prepare("SELECT pg_advisory_xact_lock(hashtext(?)), pg_advisory_xact_lock(hashtext(?))");
     $lockStmt->execute(['dispatch-driver:' . $driver_id, 'dispatch-vehicle:' . $vehicle_id]);
 
@@ -37,6 +41,12 @@ try {
         throw new RuntimeException('Reservation not found.');
     }
     validate_dispatch_assignment($r, $dispatch_action, $vehicle_id, $driver_id);
+    if ($dispatch_action === 'dispatch') funding_assert_dispatch($pdo, $reservation_id);
+    if ($dispatch_action === 'assign') {
+        $pending = $pdo->prepare("SELECT 1 FROM trip_funding_requests f JOIN reservations fr ON fr.id=f.reservation_id WHERE (fr.id=? OR fr.departure_schedule_instance_id=(SELECT departure_schedule_instance_id FROM reservations WHERE id=?)) AND f.status='Pending Finance Approval'");
+        $pending->execute([$reservation_id,$reservation_id]);
+        if ($pending->fetchColumn()) throw new RuntimeException('Wait for Finance approval before changing this assignment.');
+    }
     $scheduleInstance = null;
     $dispatchPassengerDemand = (int)$r['passenger_count'];
     if (!empty($r['departure_schedule_instance_id'])) {
@@ -73,7 +83,7 @@ try {
                 . 'No changes were saved; the existing assignment remains. Select the already assigned vehicle and driver to continue.');
         }
     }
-    if (!in_array($r['status'], ['Approved', 'Pending', 'Assigned', 'Confirmed'], true)
+    if (!in_array($r['status'], ['Approved', 'Assigned', 'Confirmed'], true)
         || ($r['customer_id'] && $r['status'] === 'Pending')) {
         throw new RuntimeException("A {$r['status']} reservation is locked and cannot be dispatched again.");
     }
@@ -89,6 +99,17 @@ try {
     $driverStmt->execute([$driver_id]);
     $driver = $driverStmt->fetch();
     if (!$vehicle || !$driver) throw new RuntimeException('Selected vehicle or Driver was not found.');
+    if ($departure !== '' && strtotime($departure) === false) throw new RuntimeException('Enter a valid departure time.');
+    $departure_dt = date('Y-m-d H:i:s', strtotime($departure ?: $r['departure_date'].' '.$r['departure_time']));
+    if($dispatch_action==='dispatch' && $departure_dt!==date('Y-m-d H:i:s',strtotime($r['departure_date'].' '.$r['departure_time']))) throw new RuntimeException('Update the assignment and funding before changing the funded departure time.');
+    if ($scheduleInstance && $departure_dt !== date('Y-m-d H:i:s',strtotime($r['departure_date'].' '.$r['departure_time']))) {
+        throw new RuntimeException('This reservation shares a scheduled departure. Change its schedule through the reservation schedule workflow.');
+    }
+    $options = assignment_options($pdo, $r, $departure_dt);
+    $choice = null;
+    foreach ($options['vehicles'] as $option) if ($option['id'] === $vehicle_id) $choice = $option;
+    if (!$choice || !$choice['eligible']) throw new RuntimeException(implode('; ', $choice['reasons'] ?? ['Vehicle unavailable']));
+    $pairingChange = assignment_confirm_pairing($pdo, $vehicle, $driver_id, $choice, $dispatch_action, (string)($_POST['reassignment_from'] ?? ''));
     $compliance = vehicle_operational_compliance($pdo, $vehicle_id);
     if (!$compliance['operational']) {
         throw new RuntimeException('Vehicle cannot operate because required compliance documents are incomplete or invalid. ' . $compliance['reason']);
@@ -116,41 +137,9 @@ try {
         throw new RuntimeException('The selected Driver has an expired license.');
     }
 
-    $departure_dt = ($departure !== '' && strtotime($departure) !== false)
-        ? date('Y-m-d H:i:s', strtotime($departure))
-        : date('Y-m-d H:i:s', strtotime($r['departure_date'] . ' ' . $r['departure_time']));
-    $conflictStmt = $pdo->prepare(
-        "SELECT id FROM trips WHERE reservation_id <> ? AND status IN ('Scheduled','Assigned','Dispatched','In Transit','Returning to Depot')
-          AND (vehicle_id = ? OR driver_id = ?)
-          AND scheduled_departure BETWEEN (?::timestamp - (? || ' hours')::interval) AND (?::timestamp + (? || ' hours')::interval)
-          LIMIT 1"
-    );
-    $bufferHours = max(1, min(72, (int)fleet_setting('dispatch.buffer_hours', '4')));
-    $conflictStmt->execute([$reservation_id, $vehicle_id, $driver_id, $departure_dt, $bufferHours, $departure_dt, $bufferHours]);
-    if ($conflictStmt->fetchColumn()) throw new RuntimeException('Vehicle or Driver has a conflicting trip schedule.');
-    if ($r['customer_id']) {
-        $requestedStart = new DateTimeImmutable($r['departure_date'] . ' ' . $r['departure_time']);
-        $requestedEnd = $r['return_date'] && $r['return_time']
-            ? new DateTimeImmutable($r['return_date'] . ' ' . $r['return_time'])
-            : $requestedStart->modify('+4 hours');
-        $overlapStmt = $pdo->prepare(
-            "SELECT 1 FROM reservations other WHERE other.id <> ? AND (other.assigned_vehicle_id = ? OR other.assigned_driver_id = ?)
-               AND (?::bigint IS NULL OR other.departure_schedule_instance_id IS DISTINCT FROM ?::bigint)
-               AND other.status IN ('Assigned','Confirmed','Dispatched','In Transit')
-               AND other.departure_date::timestamp + COALESCE(NULLIF(other.departure_time,''),'00:00')::time < ?::timestamp + (? || ' hours')::interval
-               AND COALESCE(other.return_date::timestamp + COALESCE(NULLIF(other.return_time,''),'23:59')::time,
-                   other.departure_date::timestamp + COALESCE(NULLIF(other.departure_time,''),'00:00')::time + interval '4 hours') > ?::timestamp - (? || ' hours')::interval
-             LIMIT 1"
-        );
-        $instanceId = $scheduleInstance['id'] ?? null;
-        $overlapStmt->execute([$reservation_id, $vehicle_id, $driver_id, $instanceId, $instanceId, $requestedEnd->format('Y-m-d H:i:s'), $bufferHours, $requestedStart->format('Y-m-d H:i:s'), $bufferHours]);
-        if ($overlapStmt->fetchColumn()) throw new RuntimeException('The selected vehicle or driver is unavailable for the requested schedule.');
-    }
-
-     
     $pdo->prepare(
-        'UPDATE reservations SET assigned_vehicle_id = ?, assigned_driver_id = ?, status = ?, notes = ? WHERE id = ?'
-    )->execute([$vehicle_id, $driver_id, $targetStatus, $notes !== '' ? $notes : $r['notes'], $reservation_id]);
+        'UPDATE reservations SET assigned_vehicle_id = ?, assigned_driver_id = ?, status = ?, notes = ?, departure_date = ?, departure_time = ? WHERE id = ?'
+    )->execute([$vehicle_id, $driver_id, $targetStatus, $notes, substr($departure_dt,0,10), substr($departure_dt,11,5), $reservation_id]);
     if ($scheduleInstance) {
         $scheduleStatusUpdate = $dispatch_action === 'dispatch' ? ",status='Dispatched'" : '';
         $pdo->prepare("UPDATE scheduled_departures SET assigned_vehicle_id=?,assigned_driver_id=?{$scheduleStatusUpdate},updated_at=CURRENT_TIMESTAMP WHERE id=?")
@@ -208,17 +197,30 @@ try {
         $pdo->prepare("UPDATE trips t SET vehicle_id=?,driver_id=? FROM reservations sr WHERE sr.id=t.reservation_id AND sr.departure_schedule_instance_id=? AND sr.status IN ('Assigned','Confirmed') AND t.status IN ('Scheduled','Assigned','Confirmed')")
             ->execute([$vehicle_id,$driver_id,$scheduleInstance['id']]);
     }
+    if ($dispatch_action === 'dispatch' && $scheduleInstance) {
+        $pdo->prepare("UPDATE trips t SET status='Dispatched',current_step='Dispatched',progress_pct=10
+            FROM reservations sr WHERE sr.id=t.reservation_id AND sr.departure_schedule_instance_id=?
+            AND sr.status='Dispatched' AND t.vehicle_id=? AND t.driver_id=?
+            AND t.status IN ('Scheduled','Assigned','Confirmed')")
+            ->execute([$scheduleInstance['id'],$vehicle_id,$driver_id]);
+    }
     if ($r['assigned_vehicle_id'] && $r['assigned_vehicle_id'] !== $vehicle_id) refresh_vehicle_operational_status($pdo, $r['assigned_vehicle_id']);
     if ($r['assigned_driver_id'] && $r['assigned_driver_id'] !== $driver_id) {
         refresh_driver_operational_status($pdo, $r['assigned_driver_id']);
         $pdo->prepare("UPDATE drivers SET status='Assigned' WHERE id=? AND status='Active' AND EXISTS (SELECT 1 FROM trips WHERE driver_id=? AND status IN ('Scheduled','Assigned','Dispatched'))")
             ->execute([$r['assigned_driver_id'],$r['assigned_driver_id']]);
     }
+    $pdo->prepare('INSERT INTO audit_logs(action,user_id,entity_type,entity_id,details) VALUES (?,?,?,?,?)')->execute([
+        $dispatch_action === 'assign' ? 'reservation.assignment.confirmed' : 'reservation.dispatched', $current_user['id'], 'reservation', $reservation_id,
+        json_encode(['vehicle_id'=>$vehicle_id,'driver_id'=>$driver_id,'recommended_id'=>$options['recommended_id'],
+          'selection'=>$vehicle_id===$options['recommended_id'] ? 'recommended' : 'alternative','driver_source'=>$pairingChange ? 'new_designation' : 'inherited',
+          'pairing_change'=>$pairingChange,'role'=>$current_user['role_code'] ?? null,'departure'=>$departure_dt])
+    ]);
     $pdo->commit();
 
     $message = $targetStatus === 'Dispatched'
         ? 'Reservation ' . $reservation_id . ' dispatched to the assigned vehicle & driver.'
-        : 'Reservation ' . $reservation_id . ' assigned and ready for dispatch.';
+        : 'Reservation ' . $reservation_id . ' assigned. Prepare Trip Funding before dispatch.';
     redirect_with_toast($return, $message, 'success');
 } catch (Exception $ex) {
     if (isset($pdo) && $pdo->inTransaction()) $pdo->rollBack();

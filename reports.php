@@ -1,57 +1,22 @@
 <?php
- 
-require_once __DIR__ . '/includes/bootstrap.php';
-require_login();
-require_permission('reports.view');
-
-$active_page = 'reports';
-$page_title  = 'Fleet Operational Reports Generator';
-require ROOT_PATH . '/includes/header.php';
+ini_set('display_errors','0');
+require_once __DIR__.'/includes/bootstrap.php';
+require_once ROOT_PATH.'/includes/reports.php';
+require_once ROOT_PATH.'/includes/reports-ui.php';
+reports_require();
+$active_page='reports'; $page_title='Fleet Operational Reports'; $error=null;
+try { $range=reports_period($_GET); } catch(DomainException $e) { $error=$e->getMessage(); $range=reports_period([]); http_response_code(422); }
+$params=array_intersect_key($range,array_flip(['period','from','to']));
+reports_ui_assets(); require ROOT_PATH.'/includes/header.php';
 ?>
-
-<div class="d-flex justify-content-between align-items-center mb-4">
-  <div>
-    <h1 class="mb-1">Fleet Operational Reports Generator</h1>
-    <p class="text-muted-custom mb-0">Generate corporate reports for Fleet Utilization, Fuel Consumption, Driver Punctuality, and Cost Accounting.</p>
-  </div>
-</div>
-
-<div class="row g-3">
-  <div class="col-md-6 col-lg-3">
-    <div class="tc-card p-3 text-center h-100">
-      <i class="bi bi-file-earmark-pdf fs-1 text-danger mb-2 d-block"></i>
-      <h5 class="fw-bold mb-1">Monthly Fleet Summary</h5>
-      <p class="text-muted-custom small mb-3">Vehicle availability, mileage, and maintenance logs for August 2026.</p>
-      <a class="tc-btn tc-btn-secondary tc-btn-sm w-100" href="<?= BASE_URL ?>/actions/export.php?report=fleet"><i class="bi bi-download me-1"></i>Generate CSV</a>
-    </div>
-  </div>
-
-  <div class="col-md-6 col-lg-3">
-    <div class="tc-card p-3 text-center h-100">
-      <i class="bi bi-file-earmark-excel fs-1 text-success mb-2 d-block"></i>
-      <h5 class="fw-bold mb-1">Fuel & Cost Accounting</h5>
-      <p class="text-muted-custom small mb-3">Detailed expense ledger by vehicle, driver allowance, and station receipts.</p>
-      <a class="tc-btn tc-btn-secondary tc-btn-sm w-100" href="<?= BASE_URL ?>/actions/export.php?report=fuel"><i class="bi bi-download me-1"></i>Export CSV</a>
-    </div>
-  </div>
-
-  <div class="col-md-6 col-lg-3">
-    <div class="tc-card p-3 text-center h-100">
-      <i class="bi bi-speedometer fs-1 text-primary mb-2 d-block"></i>
-      <h5 class="fw-bold mb-1">Driver Performance Scorecard</h5>
-      <p class="text-muted-custom small mb-3">Safety scores, completed trips, and HRMS employee rating breakdown.</p>
-      <a class="tc-btn tc-btn-secondary tc-btn-sm w-100" href="<?= BASE_URL ?>/actions/export.php?report=drivers"><i class="bi bi-download me-1"></i>Export CSV</a>
-    </div>
-  </div>
-
-  <div class="col-md-6 col-lg-3">
-    <div class="tc-card p-3 text-center h-100">
-      <i class="bi bi-cpu fs-1 text-info mb-2 d-block"></i>
-      <h5 class="fw-bold mb-1">AI Route Optimization Audit</h5>
-      <p class="text-muted-custom small mb-3">Comparison analysis on route efficiencies and diesel carbon reductions.</p>
-      <a class="tc-btn tc-btn-secondary tc-btn-sm w-100" href="<?= BASE_URL ?>/actions/export.php?report=route"><i class="bi bi-download me-1"></i>Export CSV</a>
-    </div>
-  </div>
-</div>
-
-<?php require ROOT_PATH . '/includes/footer.php'; ?>
+<div class="report-page">
+<div class="report-intro"><h1>Fleet Operational Reports</h1><p class="text-muted-custom mb-0">Create operational reports from current TourSphere records. Preview the details, then download a formatted document or spreadsheet for your selected period.</p></div>
+<section class="tc-card report-period"><h2>Report Period</h2>
+<?php if($error): ?><p class="text-danger" role="alert"><?= e($error) ?></p><?php endif; ?>
+<form method="get" class="report-period-form"><div class="report-period-choice"><label for="report-period">Reporting period</label><select id="report-period" name="period"><?php foreach(reports_periods() as $key=>$label): ?><option value="<?= $key ?>" <?= $range['period']===$key?'selected':'' ?>><?= e($label) ?></option><?php endforeach; ?></select></div>
+<div id="report-custom" class="report-custom" <?= $range['period']!=='custom'?'hidden':'' ?>><div><label for="report-from">From</label><input id="report-from" type="date" name="from" min="2000-01-01" max="2100-12-31" value="<?= e($range['from']) ?>"></div><div><label for="report-to">To</label><input id="report-to" type="date" name="to" min="2000-01-01" max="2100-12-31" value="<?= e($range['to']) ?>"></div></div>
+<button class="tc-btn tc-btn-primary" type="submit"><i class="bi bi-check2" aria-hidden="true"></i> Apply Period</button></form>
+<p class="report-period-caption"><i class="bi bi-calendar3" aria-hidden="true"></i> <?= e($range['label']) ?> · <?= e(company_timezone()) ?></p></section>
+<div class="report-catalog"><?php foreach(reports_allowed() as $key=>$report): ?><article class="tc-card report-card"><div class="report-card-icon"><i class="bi bi-<?= e($report['icon']) ?>" aria-hidden="true"></i></div><h2><?= e($report['title']) ?></h2><p><?= e($report['description']) ?></p><div class="report-actions"><a class="tc-btn tc-btn-primary report-generate" href="<?= e(BASE_URL.'/report-preview.php?'.http_build_query(['report'=>$key]+$params)) ?>"><i class="bi bi-eye" aria-hidden="true"></i> Preview Report</a><?php reports_export_menu(['report'=>$key]+$params); ?></div></article><?php endforeach; ?></div>
+<div id="report-status" class="report-status" role="status" aria-live="polite" hidden></div></div>
+<?php require ROOT_PATH.'/includes/footer.php'; ?>

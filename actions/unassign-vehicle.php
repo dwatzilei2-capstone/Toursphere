@@ -11,12 +11,16 @@ try {
     if ($vehicleId === '') throw new RuntimeException('Vehicle is required.');
     $pdo = db();
     $pdo->beginTransaction();
+    $pdo->exec("SELECT pg_advisory_xact_lock(hashtext('fleet-designated-assignment'))");
     $stmt = $pdo->prepare('SELECT v.*,d.name driver_name FROM vehicles v LEFT JOIN drivers d ON d.id=v.assigned_driver_id WHERE v.id=? FOR UPDATE OF v');
     $stmt->execute([$vehicleId]);
     $vehicle = $stmt->fetch();
     if (!$vehicle || !$vehicle['assigned_driver_id']) throw new RuntimeException('This vehicle has no default driver assignment.');
     $driverId = $vehicle['assigned_driver_id'];
     $pdo->prepare('SELECT id FROM drivers WHERE id=? FOR UPDATE')->execute([$driverId]);
+    $pending = $pdo->prepare("SELECT 1 FROM trips WHERE (driver_id=? OR vehicle_id=?) AND status IN ('Scheduled','Assigned','Confirmed','Dispatched','In Transit','Returning to Depot') LIMIT 1");
+    $pending->execute([$driverId,$vehicleId]);
+    if ($pending->fetchColumn()) throw new RuntimeException('Complete or cancel the existing trip assignment before changing the designated driver.');
     if (driver_has_active_trip($pdo, $driverId) || vehicle_has_active_trip($pdo, $vehicleId)) {
         throw new RuntimeException('Cannot unassign this driver while an active trip is in progress. Complete or cancel the trip first.');
     }

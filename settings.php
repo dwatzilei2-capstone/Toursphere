@@ -7,6 +7,7 @@ $sections = ['general' => ['General', 'bi-sliders2', 'Company profile & preferen
 if (can('vehicles.manage')) $sections['maintenance'] = ['Maintenance', 'bi-tools', 'Service intervals & reminders'];
 if (can('dispatch.manage')) $sections['dispatch'] = ['Reservation & Dispatch', 'bi-calendar2-check', 'Booking & scheduling rules'];
 if (can('settings.manage')) $sections['fare'] = ['Fare Configuration', 'bi-cash-coin', 'Customer base fare & distance rate'];
+if (has_role('fleet_admin')) $sections['fuel-prices'] = ['Fuel Prices', 'bi-fuel-pump', 'Default prices & price history'];
 if (has_role('fleet_admin')) $sections['schedule-management'] = ['Schedule Management', 'bi-clock', 'Operating days & departure times'];
 if (has_role('fleet_admin')) $sections['ai-model-training'] = ['AI Model Training', 'bi-cpu', 'RouteThink models & diagnostics'];
 $tab = is_string($_GET['tab'] ?? null) && isset($sections[$_GET['tab']]) ? $_GET['tab'] : 'general';
@@ -238,6 +239,8 @@ require ROOT_PATH . '/includes/header.php';
         </div>
         <div class="px-4 pb-3 small text-muted-custom">Pricing changes apply only to new submissions. Existing reservations retain their saved pricing snapshot.</div>
       <?php settings_actions('fare', 'fare configuration', 'Vehicle capacity does not add a fare charge.'); ?></form>
+    <?php elseif ($tab === 'fuel-prices' && has_role('fleet_admin')): ?>
+      <?php $pdo = db(); require ROOT_PATH . '/includes/fuel-price-ui.php'; ?>
     <?php elseif ($tab === 'schedule-management' && has_role('fleet_admin')): ?>
       <div class="settings-section-title"><h2>Schedule Management</h2><p>Configure reusable departure schedules offered during customer reservations.</p></div>
       <form method="post" class="settings-card" id="schedule-editor">

@@ -20,11 +20,11 @@ $vehicles = $pdo->query(
             EXISTS (SELECT 1 FROM trips active_t WHERE active_t.status IN ('In Transit','Returning to Depot') AND (active_t.driver_id=v.assigned_driver_id OR active_t.vehicle_id=v.id)) AS assignment_has_active_trip
        FROM vehicles v
        LEFT JOIN drivers d ON d.id = v.assigned_driver_id
-      WHERE v.status IN ('Available','Assigned','Maintenance')
+      WHERE NOT v.is_archived AND v.status <> 'Retired' AND (v.status IN ('Available','Assigned','Maintenance')
          OR EXISTS (
             SELECT 1 FROM maintenance_orders active_mo
              WHERE active_mo.vehicle_id = v.id AND active_mo.status = 'In Repair'
-         )
+         ))
       ORDER BY v.created_at DESC NULLS LAST, v.id DESC"
 )->fetchAll();
 foreach ($vehicles as &$vehicle) {

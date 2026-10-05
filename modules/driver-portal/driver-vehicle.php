@@ -18,7 +18,7 @@ $activeTrip = null;
 $issueReports = [];
 $complianceDocuments = ['registration' => '—', 'insurance' => '—', 'ltfrb_permit' => '—'];
 if ($driver) {
-    $vehicle = $pdo->prepare('SELECT * FROM vehicles WHERE assigned_driver_id = ?');
+    $vehicle = $pdo->prepare("SELECT * FROM vehicles WHERE assigned_driver_id = ? AND status <> 'Retired'");
     $vehicle->execute([$driver['id']]);
     $vehicle = $vehicle->fetch() ?: null;
     $defaultVehicle = $vehicle;

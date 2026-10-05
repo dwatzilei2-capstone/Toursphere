@@ -1,0 +1,14 @@
+<?php
+if (!has_role('fleet_admin')) return;
+require_once ROOT_PATH.'/includes/trip_funding.php';
+$types=fuel_supported_types($pdo);
+$_SESSION['fuel_price_csrf']??=bin2hex(random_bytes(32));
+?>
+<link rel="stylesheet" href="<?= BASE_URL ?>/css/trip-funding.css?v=<?= filemtime(ROOT_PATH.'/css/trip-funding.css') ?>">
+<section class="tc-card p-3 funding-price-panel"><h2 class="fs-6 fw-bold">Current Fuel Prices</h2><p class="small text-muted-custom">Default prices for new trip estimates and fuel logs. Actual pump prices remain editable.</p>
+ <div class="funding-price-grid"><?php foreach($types as $type):$price=fuel_current_price($pdo,$type); ?><div class="funding-price-card"><span><?= e($type) ?></span><strong><?= $price?money($price['price_per_liter']).' / L':'Not configured' ?></strong><?php if($price): ?><small>Effective <?= e($price['effective_date']) ?></small><small>Updated <?= e(date('M j, Y · g:i A',strtotime($price['updated_at']))) ?></small><small>Source: <?= e($price['source']) ?></small><?php endif; ?></div><?php endforeach; ?></div>
+ <?php if(has_role('fleet_admin')): ?>
+ <form action="<?= BASE_URL ?>/actions/fuel-price.php" method="post" class="funding-price-form"><input type="hidden" name="csrf" value="<?= e($_SESSION['fuel_price_csrf']) ?>"><div><label class="tc-form-label" for="global-fuel-type">Fuel Type</label><select id="global-fuel-type" class="tc-form-select" name="fuel_type" required><?php foreach($types as $type): ?><option><?= e($type) ?></option><?php endforeach; ?></select></div><div><label class="tc-form-label" for="global-fuel-price">Current Price / Liter</label><input id="global-fuel-price" type="number" class="tc-form-control" name="price" min="0.0001" step="0.0001" required></div><div><label class="tc-form-label" for="global-fuel-date">Effective Date</label><input id="global-fuel-date" type="date" class="tc-form-control" name="effective_date" max="<?= date('Y-m-d') ?>" value="<?= date('Y-m-d') ?>" required></div><div><label class="tc-form-label" for="global-fuel-source">Source</label><input id="global-fuel-source" class="tc-form-control" name="source" maxlength="200" placeholder="Configured price source" required></div><button class="tc-btn tc-btn-primary" type="submit">Update Price</button></form>
+ <details class="mt-3 small"><summary>Fuel Price History</summary><div class="tc-table-container"><table class="tc-table"><thead><tr><th>Fuel Type</th><th>Price / L</th><th>Effective Date</th><th>Source</th><th>Updated</th></tr></thead><tbody><?php foreach($pdo->query('SELECT * FROM fuel_price_history ORDER BY id DESC LIMIT 30')->fetchAll() as $history): ?><tr><td><?= e($history['fuel_type']) ?></td><td><?= money($history['price_per_liter']) ?></td><td><?= e($history['effective_date']) ?></td><td><?= e($history['source']) ?></td><td><?= e($history['updated_at']) ?></td></tr><?php endforeach; ?></tbody></table></div></details>
+ <?php endif; ?>
+</section>

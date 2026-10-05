@@ -5,6 +5,7 @@
 
 require_once __DIR__ . '/includes/bootstrap.php';
 require_login();
+require_once ROOT_PATH . '/includes/reports.php';
 if (has_role('customer')) redirect_to(BASE_URL . '/' . home_path());
 
  
@@ -22,7 +23,7 @@ foreach ($pdo->query("SELECT status, COUNT(*) AS vehicle_count FROM vehicles GRO
         $fleetStatusCounts[$statusRow['status']] = (int)$statusRow['vehicle_count'];
     }
 }
-$total_vehicles    = (int)$pdo->query('SELECT COUNT(*) FROM vehicles')->fetchColumn();
+$total_vehicles    = (int)$pdo->query("SELECT COUNT(*) FROM vehicles WHERE NOT is_archived AND status <> 'Retired'")->fetchColumn();
 $available_count   = $fleetStatusCounts['Available'];
 $maintenance_count = $fleetStatusCounts['Maintenance'];
 $assigned_count    = $fleetStatusCounts['Assigned'];
@@ -127,7 +128,7 @@ require ROOT_PATH . '/includes/header.php';
     <?php endif; ?>
   </div>
   <div class="d-flex gap-2">
-    <?php if (can('reports.view')): ?>
+    <?php if (reports_allowed()): ?>
       <a class="tc-btn tc-btn-secondary tc-btn-sm" href="<?= BASE_URL ?>/reports.php"><i class="bi bi-download"></i> Export Summary</a>
     <?php endif; ?>
 
@@ -488,5 +489,3 @@ $page_scripts = '<script>(function(){
 })();</script>';
 ?>
 <?php require ROOT_PATH . '/includes/footer.php'; ?>
-
-

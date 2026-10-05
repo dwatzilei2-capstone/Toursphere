@@ -22,6 +22,9 @@ const App = {
   },
 
   init() {
+    document.querySelectorAll('[data-vehicle-photo]').forEach(image => {
+      if (image.complete && !image.naturalWidth) this.handleVehiclePhotoError(image);
+    });
     this.setupEventListeners();
     this.setupModals();
     this.applyToastFromUrl();
@@ -432,6 +435,16 @@ const App = {
    
    
   setupModals() {
+    // Mobile keyboards shrink the visible viewport, not always the layout viewport.
+    const updateVisibleViewport = () => {
+      const viewport = window.visualViewport;
+      document.documentElement.style.setProperty('--tc-visible-height', `${viewport ? viewport.height : window.innerHeight}px`);
+      document.documentElement.style.setProperty('--tc-visible-top', `${viewport ? viewport.offsetTop : 0}px`);
+    };
+    updateVisibleViewport();
+    window.addEventListener('resize', updateVisibleViewport, {passive: true});
+    window.visualViewport?.addEventListener('resize', updateVisibleViewport, {passive: true});
+    window.visualViewport?.addEventListener('scroll', updateVisibleViewport, {passive: true});
     document.querySelectorAll(".tc-modal-backdrop").forEach((backdrop) => {
       backdrop.addEventListener("click", (e) => {
         if (e.target === backdrop) {
@@ -531,6 +544,34 @@ const App = {
    
    
    
+  renderVehiclePhoto(photo, name, extraClass = "") {
+    const e = (value) => this.escapeHtml(value);
+    const placeholder = `${window.TC_BASE_URL || ""}/assets/images/vehicle-placeholder.svg`;
+    const p = photo || {src:placeholder,source:"placeholder",placeholderSrc:placeholder,label:"Vehicle photo unavailable"};
+    return `<span class="vehicle-photo ${e(extraClass)}" data-photo-source="${e(p.source)}"><img src="${e(p.src)}" alt="${e(name)} — ${e(p.label)}" loading="lazy" decoding="async" onload="this.parentElement.dataset.photoLoaded=1" data-vehicle-photo data-source="${e(p.source)}" data-sample-src="${e(p.sampleSrc || "")}" data-placeholder-src="${e(p.placeholderSrc || placeholder)}" onerror="App.handleVehiclePhotoError(this)"><span class="vehicle-photo-label" title="${e(p.label)}">${p.source === "sample" ? "Sample" : p.source === "placeholder" ? "No photo" : ""}</span></span>`;
+  },
+
+  handleVehiclePhotoError(image) {
+    const wrapper = image.closest(".vehicle-photo");
+    if (wrapper) delete wrapper.dataset.photoLoaded;
+    const label = wrapper?.querySelector(".vehicle-photo-label");
+    let source = "placeholder";
+    if (image.dataset.source === "actual" && image.dataset.sampleSrc) {
+      source = "sample";
+      image.src = image.dataset.sampleSrc;
+    } else if (image.dataset.source !== "placeholder") {
+      image.src = image.dataset.placeholderSrc;
+    } else {
+      // Inline neutral icon remains visible even if the placeholder asset fails.
+      image.hidden = true;
+      wrapper?.insertAdjacentHTML("afterbegin", '<i class="bi bi-truck-front" aria-hidden="true"></i>');
+    }
+    image.dataset.source = source;
+    if (wrapper) wrapper.dataset.photoSource = source;
+    image.alt = source === "sample" ? "Sample vehicle illustration — not actual fleet" : "Vehicle photo unavailable";
+    if (label) { label.textContent = source === "sample" ? "Sample" : "No photo"; label.title = image.alt; }
+  },
+
   viewVehicleDetails(vehicleId) {
     let v = null;
     if (window.TC_VEHICLES_DATA && window.TC_VEHICLES_DATA[vehicleId]) {
@@ -590,6 +631,19 @@ const App = {
     };
 
     modalBody.innerHTML = `
+      <section class="vehicle-photo-profile" aria-label="Vehicle Photo">
+        ${this.renderVehiclePhoto(v.photo, `${v.brand} ${v.model}`)}
+        <div class="vehicle-photo-profile-controls">
+          <h5 class="fw-bold mb-1">Vehicle Photo</h5>
+          <div class="small text-muted-custom">${this.escapeHtml(v.photo?.label || "Vehicle photo unavailable")}</div>
+          ${v.canManagePhoto ? `<form method="post" enctype="multipart/form-data" action="${window.TC_BASE_URL}/actions/vehicle-photo-upload.php">
+            <input type="hidden" name="vehicle_id" value="${this.escapeHtml(v.id)}">
+            <input type="hidden" name="csrf_token" value="${this.escapeHtml(v.csrfToken)}">
+            <input type="file" class="form-control form-control-sm" name="vehicle_photo" accept=".jpg,.jpeg,.png,.webp,image/jpeg,image/png,image/webp" required aria-label="Actual Vehicle Photo">
+            <button type="submit" class="tc-btn tc-btn-primary tc-btn-sm">${v.photo?.hasActual ? "Change Photo" : "Upload Actual Photo"}</button>
+          </form><div class="small text-muted-custom mt-1">JPG, PNG, or WebP · Up to 5 MB. Updates the directory and assignments automatically.</div>` : ""}
+        </div>
+      </section>
       <div class="row g-3">
         <div class="col-md-6 border-end">
           <h5 class="fw-bold mb-3 text-primary-custom"><i class="bi bi-truck me-2"></i>${v.brand} ${v.model} (${v.year})</h5>
@@ -699,26 +753,12 @@ const App = {
     const modalBody = document.getElementById("modal-dispatch-body");
     if (!modalBody) return;
 
-    const vehicles = window.TC_DISPATCH_DATA.vehicles || [];
     const drivers = window.TC_DISPATCH_DATA.drivers || [];
-    const operationalVehicles = vehicles.filter((vehicle) => {
-      const underMaintenance = vehicle.is_under_maintenance === true || vehicle.is_under_maintenance === "t";
-      const onTrip = vehicle.has_active_trip === true || vehicle.has_active_trip === "t";
-      const meetsCapacity = Number(vehicle.capacity) >= Number(r.scheduledPassengerDemand || r.passengerCount);
-      const meetsType = !r.requiredVehicleType || vehicle.type === r.requiredVehicleType;
-      return !underMaintenance && !onTrip && vehicle.is_operational === true && meetsCapacity && meetsType;
-    });
-    const availableDrivers = drivers.filter((driver) => !(driver.has_active_trip === true || driver.has_active_trip === "t") && ["Active", "Assigned"].includes(driver.status));
     const currentVehicle = r.assignedVehicleId || (r.assignedVehicle && r.assignedVehicle !== "Pending" ? r.assignedVehicle.split(" ")[0] : "");
     const currentDriver = r.assignedDriverId || drivers.find((d) => d.name === r.assignedDriver)?.id || "";
 
-    const dispatchLocked = !["Approved", "Pending", "Assigned", "Confirmed"].includes(r.status);
-    const canDispatch = (typeof window.TC_CAN_DISPATCH === "undefined" || window.TC_CAN_DISPATCH === true) && !dispatchLocked;
-    const isAssigned = ["Assigned", "Confirmed"].includes(r.status);
-    const assignmentLocked = isAssigned && intent !== "assign";
-    const dispatchResourcesReady = operationalVehicles.some((v) => v.id === currentVehicle)
-      && availableDrivers.some((d) => d.id === currentDriver);
-
+    const dispatchLocked = !["Approved", "Assigned", "Confirmed"].includes(r.status);
+    const canDispatch = window.TC_CAN_DISPATCH === true && !dispatchLocked;
     if (!canDispatch) {
       const lockedNotice = dispatchLocked
         ? `<div class="alert alert-${r.status === "Completed" ? "success" : "secondary"} py-2 small">
@@ -755,81 +795,203 @@ const App = {
       return;
     }
 
-    modalBody.innerHTML = `
-      <div class="mb-3">
-        <div class="d-flex justify-content-between align-items-center bg-light p-2 rounded">
-          <div>
-            <div class="fw-bold text-primary-custom">${r.id} - ${r.clientName}</div>
-            <div class="small text-muted-custom">${r.origin} → ${r.destination}</div>
-          </div>
-          <span class="badge bg-primary">${r.passengerCount} Passengers</span>
-        </div>
-      </div>
-
-      <div class="small text-muted-custom mb-3">Required Vehicle Type: <strong>${this.escapeHtml(r.requiredVehicleType || "Not recorded")}</strong> · Required Capacity: <strong>${r.requiredCapacity ? Number(r.requiredCapacity) + " passengers" : "Not recorded"}</strong></div>
-
-      <form method="post" action="${window.TC_BASE_URL}/actions/dispatch.php">
-        <input type="hidden" name="reservation_id" value="${r.id}">
-        <input type="hidden" name="return" value="${window.location.pathname}">
-        ${assignmentLocked ? `<input type="hidden" name="vehicle_id" value="${this.escapeHtml(currentVehicle)}"><input type="hidden" name="driver_id" value="${this.escapeHtml(currentDriver)}"><div class="alert alert-secondary py-2 small"><i class="bi bi-lock-fill me-1"></i>Vehicle and driver are locked to the saved assignment. Dispatch uses these resources only.${dispatchResourcesReady ? "" : " The assigned resources are currently unavailable; dispatch is disabled."}</div>` : ""}
-        <div class="row g-3">
-          <div class="col-md-6">
-            <label class="tc-form-label d-flex justify-content-between align-items-center">
-              <span>Assign Vehicle</span>
-              ${vehicles.some((v) => v.is_under_maintenance === true || v.is_under_maintenance === "t" || v.is_operational !== true)
-                ? `<span class="badge bg-danger-subtle text-danger border border-danger-subtle">Unavailable vehicles locked</span>`
-                : ""}
-            </label>
-            <select class="tc-form-select" ${assignmentLocked ? 'disabled aria-label="Assigned vehicle (locked)"' : 'name="vehicle_id" required'}>
-              ${vehicles.map((v) => {
-                if (assignmentLocked && v.id !== currentVehicle) return "";
-                const underMaintenance = v.is_under_maintenance === true || v.is_under_maintenance === "t";
-                const onTrip = v.has_active_trip === true || v.has_active_trip === "t";
-                const notOperational = v.is_operational !== true;
-                const belowCapacity = Number(v.capacity) < Number(r.scheduledPassengerDemand || r.passengerCount);
-                const wrongType = Boolean(r.requiredVehicleType) && v.type !== r.requiredVehicleType;
-                const locked = underMaintenance || onTrip || notOperational || belowCapacity || wrongType;
-                const reason = underMaintenance ? "Under maintenance." : onTrip ? "Currently used by an active trip." : belowCapacity ? "Below required passenger capacity." : wrongType ? "Does not match the required vehicle type." : v.operational_reason || "Required compliance documents are incomplete or invalid.";
-                const unavailable = onTrip ? "ON TRIP" : underMaintenance ? "UNDER MAINTENANCE" : "UNAVAILABLE: " + this.escapeHtml(reason);
-                const operationLabel = v.is_test_data ? "OPERATIONAL (TEST DATA)" : "OPERATIONAL";
-                return `<option value="${this.escapeHtml(v.id)}" ${v.id === currentVehicle ? "selected" : ""} ${locked ? "disabled" : ""}>${this.escapeHtml(v.plate_number)} - ${this.escapeHtml(v.brand)} ${this.escapeHtml(v.model)} (${Number(v.capacity)} pax)${locked ? ` — ${unavailable}` : ` — ${this.escapeHtml(v.status)} · ${operationLabel}`}</option>`;
-              }).join("")}
-            </select>
-            <div class="form-text"><i class="bi bi-shield-lock me-1"></i>Vehicles with incomplete or expired required documents cannot be dispatched.</div>
-            ${operationalVehicles.length ? "" : `<div class="small text-danger mt-2">No operational vehicle is available. ${vehicles.filter((vehicle) => vehicle.is_operational !== true).map((vehicle) => `${this.escapeHtml(vehicle.plate_number)}: ${this.escapeHtml(vehicle.operational_reason || "Compliance incomplete.")}`).join(" · ")}</div>`}
-          </div>
-          <div class="col-md-6">
-            <label class="tc-form-label">Assign Driver</label>
-            <select class="tc-form-select" ${assignmentLocked ? 'disabled aria-label="Assigned driver (locked)"' : 'name="driver_id" required'}>
-              ${drivers.map((d) => {
-                if (assignmentLocked && d.id !== currentDriver) return "";
-                const onTrip = d.has_active_trip === true || d.has_active_trip === "t";
-                const unavailable = onTrip || !["Active", "Assigned"].includes(d.status);
-                return `<option value="${this.escapeHtml(d.id)}" ${d.name === r.assignedDriver && !unavailable ? "selected" : ""} ${unavailable ? "disabled" : ""}>${this.escapeHtml(d.name)} (${onTrip ? "On Trip" : this.escapeHtml(d.status)} - Score: ${Number(d.safety_score)})</option>`;
-              }).join("")}
-            </select>
-          </div>
-          <div class="col-md-6">
-            <label class="tc-form-label">Target Departure Time</label>
-            <input type="text" class="tc-form-control" name="departure" value="${r.departureDate} ${r.departureTime}">
-          </div>
-          <div class="col-md-6">
-            <label class="tc-form-label">Fuel Allowance / Budget</label>
-            <input type="text" class="tc-form-control" value="${r.estimatedCost}" disabled>
-          </div>
-          <div class="col-12">
-            <label class="tc-form-label">Trip Notes & Dispatch Instructions</label>
-            <textarea class="tc-form-control" name="notes" rows="2">${r.notes || ""}</textarea>
-          </div>
-        </div>
-        <div class="d-flex justify-content-end gap-2 mt-4">
-          <button type="button" class="tc-btn tc-btn-secondary" onclick="App.closeModal('modal-dispatch')">Cancel</button>
-          ${!assignmentLocked ? `<button type="submit" name="dispatch_action" value="assign" class="tc-btn tc-btn-primary" ${operationalVehicles.length && availableDrivers.length ? "" : "disabled"}><i class="bi bi-person-check me-1"></i> ${isAssigned ? "Save Assignment" : "Confirm Assignment"}</button>` : ""}
-          ${assignmentLocked ? `<button type="submit" name="dispatch_action" value="dispatch" class="tc-btn tc-btn-primary" ${dispatchResourcesReady ? "" : "disabled"}><i class="bi bi-send-check me-1"></i> Dispatch Trip</button>` : ""}
-        </div>
-      </form>
-    `;
+    if (this.renderAssignmentForm(r, intent, currentVehicle, currentDriver) === false) return;
     this.openModal("modal-dispatch");
+  },
+
+  renderAssignmentForm(r, intent, currentVehicle, currentDriver) {
+    if (["Assigned", "Confirmed"].includes(r.status) && intent !== "assign" && window.TripFunding) {
+      this.closeModal("modal-dispatch");
+      window.TripFunding.open(r.id);
+      return false;
+    }
+    const body = document.getElementById("modal-dispatch-body");
+    const esc = (value) => this.escapeHtml(String(value ?? ""));
+    const locked = ["Assigned", "Confirmed"].includes(r.status) && intent !== "assign";
+    body.innerHTML = `<form class="dispatch-assignment-form" method="post" action="${window.TC_BASE_URL}/actions/dispatch.php">
+      <input type="hidden" name="csrf" value="${esc(window.TC_ASSIGNMENT_CSRF)}">
+      <input type="hidden" name="reservation_id" value="${esc(r.id)}">
+      <input type="hidden" name="return" value="${esc(window.location.pathname)}">
+      <input type="hidden" name="vehicle_id" value="">
+      <input type="hidden" name="driver_id" value="">
+      <input type="hidden" name="reassignment_from" value="">
+      <div class="assignment-form-content">
+        <section class="assignment-summary" aria-label="Reservation summary">
+          <div class="assignment-summary-heading"><div class="assignment-summary-identity"><span class="assignment-reservation-id">${esc(r.id)}</span><span class="assignment-status is-available">${esc(r.status)}</span></div><span class="assignment-status assignment-passengers"><i class="bi bi-people-fill" aria-hidden="true"></i> ${Number(r.passengerCount)} Passengers</span></div>
+          <strong class="assignment-customer">${esc(r.clientName)}</strong>
+          <div class="assignment-summary-bottom"><span class="assignment-route"><i class="bi bi-geo-alt" aria-hidden="true"></i> ${esc(r.origin)} → ${esc(r.destination)}</span><div class="assignment-requirements"><span><i class="bi bi-truck" aria-hidden="true"></i> ${esc(r.requiredVehicleType || "Any vehicle type")}</span><span><i class="bi bi-people" aria-hidden="true"></i> Minimum <span data-minimum>${Number(r.requiredCapacity || r.passengerCount)} seats</span></span></div></div>
+        </section>
+        <section><h5><i class="bi bi-truck" aria-hidden="true"></i> Vehicle Assignment</h5><div data-assignment-message role="status" aria-live="polite">Checking fleet and driver availability…</div><div data-vehicle-options></div></section>
+        <section><h5><i class="bi bi-person-badge" aria-hidden="true"></i> Assigned Driver</h5><div class="assigned-driver-info" data-driver-info>Select a vehicle to resolve its designated driver.</div></section>
+        <div class="assignment-trip-fields">
+          <section><label class="tc-form-label" for="assignment-departure"><i class="bi bi-calendar-event" aria-hidden="true"></i> Target Departure Time</label><input id="assignment-departure" type="datetime-local" class="tc-form-control" name="departure" required value="${esc(r.departureDate)}T${esc(r.departureTime)}" ${locked || r.departureScheduleInstanceId ? "readonly" : ""}>${r.departureScheduleInstanceId ? '<p class="form-text">Shared departure follows the reservation schedule.</p>' : ''}</section>
+          <section><label class="tc-form-label" for="assignment-notes"><i class="bi bi-file-earmark-text" aria-hidden="true"></i> Trip Notes & Dispatch Instructions</label><textarea id="assignment-notes" class="tc-form-control" name="notes" rows="2" placeholder="Add notes or special instructions…">${esc(r.notes)}</textarea></section>
+        </div>
+      </div><div class="assignment-form-footer"><button type="button" class="tc-btn tc-btn-secondary" onclick="App.closeModal('modal-dispatch')">Cancel</button><button type="submit" name="dispatch_action" value="${locked ? "dispatch" : "assign"}" class="tc-btn tc-btn-primary" disabled><i class="bi bi-check-circle" aria-hidden="true"></i> ${locked ? "Dispatch Trip" : "Confirm Assignment"}</button></div></form>`;
+    const form = body.querySelector("form");
+    const vehicleInput = form.elements.vehicle_id;
+    const driverInput = form.elements.driver_id;
+    const confirmation = form.elements.reassignment_from;
+    const submit = form.querySelector('button[type="submit"]');
+    const info = form.querySelector('[data-driver-info]');
+    const message = form.querySelector('[data-assignment-message]');
+    const options = form.querySelector('[data-vehicle-options]');
+    let selected = null, snapshot = null, request = 0;
+    const updateDriver = (v) => {
+      driverInput.value = ""; confirmation.value = ""; submit.disabled = true;
+      if (v.driver) {
+        driverInput.value = v.driver.id;
+        info.classList.remove('needs-driver', 'has-driver-selection');
+        info.innerHTML = `<div class="assignment-driver-heading"><strong>${esc(v.driver.name)}</strong><span class="assignment-status ${v.driver.reason ? 'is-unavailable' : 'is-available'}">${v.driver.reason ? "Unavailable" : "Available"}</span></div><p>${esc(v.driver.reason || "Automatically assigned from " + v.id)}</p>`;
+        submit.disabled = !v.eligible || (locked && v.driver.id !== currentDriver);
+        return;
+      }
+      info.classList.remove('has-driver-selection');
+      info.classList.add('needs-driver');
+      info.innerHTML = `<div class="assignment-driver-prompt"><i class="bi bi-exclamation-circle-fill" aria-hidden="true"></i><div><strong>No driver assigned</strong><p>Select an eligible driver for this vehicle.</p></div></div><details class="eligible-driver-panel"><summary><i class="bi bi-person-plus" aria-hidden="true"></i> Select Driver</summary><div class="eligible-driver-list">${v.drivers.map(d => `<button type="button" class="eligible-driver-option" data-driver-id="${esc(d.id)}"><strong>${esc(d.name)}</strong><span>Available · Compatible</span><span>Current Vehicle: ${esc(d.current_vehicles.map(x=>x.id+" ("+x.plate+")").join(", ") || "None")}</span>${d.reassignment ? '<span class="text-warning">Reassignment Required</span>' : ''}</button>`).join("")}</div></details><div data-reassignment-review></div>`;
+      info.querySelectorAll('[data-driver-id]').forEach(button => button.addEventListener('click', () => {
+        const d = v.drivers.find(x=>x.id===button.dataset.driverId);
+        driverInput.value = ""; confirmation.value = ""; submit.disabled = true;
+        const review = info.querySelector('[data-reassignment-review]');
+        const accept = () => {
+          driverInput.value = d.id;
+          confirmation.value = d.reassignment ? d.current_vehicles.map(x=>x.id).join(',') : '';
+          info.classList.remove('needs-driver');
+          info.classList.add('has-driver-selection');
+          info.querySelector('.assignment-driver-prompt').innerHTML = `<i class="bi bi-person-check-fill" aria-hidden="true"></i><div><strong>${esc(d.name)}</strong><p>Selected for ${esc(v.id)} · Pending confirmation</p></div>`;
+          info.querySelector('.eligible-driver-panel > summary').innerHTML = '<i class="bi bi-person-plus" aria-hidden="true"></i> Change Driver';
+          review.innerHTML = `<p class="assignment-driver-selection-status"><i class="bi bi-check-circle" aria-hidden="true"></i> Available · Compatible${d.reassignment ? ' · Reassignment confirmed' : ''}</p>`;
+          info.querySelector('details').open = false; submit.disabled = locked || !v.eligible;
+        };
+        if (!d.reassignment) { accept(); return; }
+        review.innerHTML = `<dialog class="assignment-reassignment-dialog" aria-label="Reassign Driver?"><div class="assignment-reassignment"><h6>Reassign Driver?</h6><p>${esc(d.name)} is currently designated to ${esc(d.current_vehicles.map(x=>x.id).join(', '))}. Confirming will remove that designation.</p><p>Current: ${esc(d.current_vehicles.map(x=>x.id).join(', '))} → ${esc(d.name)}<br>New: ${esc(v.id)} → ${esc(d.name)}</p><div class="d-flex flex-wrap gap-2"><button type="button" class="tc-btn tc-btn-secondary" data-cancel-reassignment>Cancel</button><button type="button" class="tc-btn tc-btn-primary" data-confirm-reassignment>Confirm Reassignment</button></div></div></dialog>`;
+        review.querySelector('dialog').showModal();
+        review.querySelector('[data-cancel-reassignment]').addEventListener('click',()=>{review.innerHTML='';});
+        review.querySelector('[data-confirm-reassignment]').addEventListener('click',accept);
+      }));
+    };
+    const selectVehicle = id => {
+      selected = snapshot.vehicles.find(v=>v.id===id && v.eligible);
+      vehicleInput.value = selected?.id || '';
+      options.querySelectorAll('[data-vehicle-id]').forEach(card=>{card.classList.toggle('is-selected',card.dataset.vehicleId===selected?.id);card.setAttribute('aria-pressed',String(card.dataset.vehicleId===selected?.id));});
+      if (selected) updateDriver(selected);
+    };
+    const card = (v,recommended=false) => {
+      const statusClass = !v.eligible ? 'is-unavailable' : v.status === 'Available' ? 'is-available' : 'is-attention';
+      return `<button type="button" class="assignment-vehicle-card ${recommended ? 'is-recommended' : ''}" data-vehicle-id="${esc(v.id)}" ${!v.eligible || (locked && v.id!==currentVehicle) ? 'disabled' : ''} aria-pressed="false">
+        <span class="assignment-choice-indicator" aria-hidden="true"></span>
+        ${this.renderVehiclePhoto(v.photo, v.name, "assignment-vehicle-thumbnail")}
+        <span class="assignment-vehicle-content">
+          ${recommended ? '<span class="assignment-recommendation-label"><span class="assignment-recommended-badge"><i class="bi bi-star-fill" aria-hidden="true"></i> Recommended</span><span class="assignment-match-badge">Best Match</span></span>' : ''}
+          <span class="assignment-vehicle-heading"><strong>${esc(v.name)}</strong><span class="assignment-status ${statusClass}">${esc(v.status)}</span></span>
+          <span class="assignment-vehicle-meta">${esc(v.id)} · ${esc(v.plate)}${recommended ? '' : ` · ${v.capacity} seats · ${esc(v.type)}`}</span>
+          ${recommended ? `<span class="assignment-vehicle-meta">${v.capacity} seats · ${esc(v.type)}</span>` : ''}
+          <span class="assignment-vehicle-driver">${recommended ? 'Assigned Driver' : 'Driver'}: <span class="${!v.driver ? 'assignment-driver-none' : ''}">${esc(v.driver?.name || 'None')}</span></span>
+          ${v.reasons.length ? `<span class="assignment-picker-reason">${esc(v.reasons.join(' · '))}</span>` : recommended ? `<span class="assignment-reason"><i class="bi bi-info-circle-fill" aria-hidden="true"></i> ${r.requiredVehicleType ? 'Matches required type and capacity.' : 'Meets required passenger capacity.'} ${v.driver ? 'Vehicle and designated driver are available.' : 'Select an eligible driver.'}</span>` : ''}
+        </span></button>`;
+    };
+    const refresh = async () => {
+      const token = ++request;
+      submit.disabled=true; vehicleInput.value=''; driverInput.value=''; confirmation.value='';
+      options.innerHTML=''; info.textContent='Checking driver availability…';
+      message.textContent='Checking fleet and driver availability…';
+      try {
+        const params = new URLSearchParams({reservation_id:r.id,departure:form.elements.departure.value});
+        const response = await fetch(`${window.TC_BASE_URL}/actions/reservation-assignment-options.php?${params}`,{credentials:'same-origin',cache:'no-store'});
+        const data = await response.json();
+        if (token!==request || !form.isConnected) return;
+        if (!response.ok || data.error) throw new Error(data.error || 'Could not check availability.');
+        snapshot=data;
+        form.querySelector('[data-minimum]').textContent=`${data.minimum_capacity} seats`;
+        const recommended = data.vehicles.find(v=>v.id===data.recommended_id);
+        message.textContent=locked ? 'Dispatch uses the saved vehicle and driver only.' : recommended ? 'System recommended a suitable vehicle based on your reservation requirements.' : 'No valid vehicle-driver combination is available. Review the restrictions below.';
+        const alternatives = data.vehicles.filter(v=>v.eligible && v.id!==data.recommended_id);
+        const unavailable = data.vehicles.filter(v=>!v.eligible);
+        options.innerHTML = `${recommended ? card(recommended,true) : ''}
+          <div class="assignment-other-vehicles"><h6>Other Eligible Vehicles (${alternatives.length})</h6><div class="assignment-vehicle-list assignment-eligible-list">${alternatives.map(v=>card(v)).join('') || '<p class="assignment-empty-list">No other eligible vehicles.</p>'}</div></div>
+          <details class="assignment-unavailable"><summary><i class="bi bi-slash-circle" aria-hidden="true"></i><span>Unavailable / Incompatible Vehicles (${unavailable.length})</span><i class="bi bi-chevron-down" aria-hidden="true"></i></summary><div class="assignment-vehicle-list assignment-unavailable-list">${unavailable.map(v=>card(v)).join('') || '<p class="assignment-empty-list">None.</p>'}</div></details>`;
+        options.querySelectorAll('[data-vehicle-id]').forEach(button=>button.addEventListener('click',()=>selectVehicle(button.dataset.vehicleId)));
+        const preferred = selected?.id || currentVehicle;
+        selectVehicle(locked ? currentVehicle : (data.vehicles.some(v=>v.id===preferred && v.eligible) ? preferred : data.recommended_id));
+        if (!selected) info.textContent='No valid assignment. Correct the listed restrictions before confirming.';
+      } catch(error) { if(token===request) {message.textContent=error.message; info.textContent='Availability could not be verified.';} }
+    };
+    form.elements.departure.addEventListener('change',refresh);
+    form.addEventListener('submit',event=>{if(submit.disabled || !vehicleInput.value || !driverInput.value) event.preventDefault();});
+    refresh();
+  },
+
+  enhanceAssignmentPickers(container) {
+    container.querySelectorAll("select[data-assignment-picker]").forEach((select) => {
+      const picker = document.createElement("details");
+      picker.className = "assignment-picker";
+      const trigger = document.createElement("summary");
+      trigger.className = "tc-form-select assignment-picker-trigger";
+      trigger.setAttribute("aria-label", select.dataset.assignmentPicker);
+      const list = document.createElement("div");
+      list.className = "assignment-picker-list";
+      const content = (option) => {
+        const wrapper = document.createElement("span");
+        wrapper.className = "assignment-picker-content";
+        const heading = document.createElement("span");
+        heading.className = "assignment-picker-heading";
+        const text = document.createElement("span");
+        text.textContent = option.disabled ? option.textContent.split(" — ")[0] : option.textContent;
+        const badge = document.createElement("span");
+        badge.className = "assignment-status " + (option.disabled ? "is-unavailable" : "is-available");
+        badge.textContent = option.disabled ? "Unavailable" : "Available";
+        heading.append(text, badge);
+        wrapper.append(heading);
+        if (option.disabled && option.dataset.reason) {
+          const reason = document.createElement("span");
+          reason.className = "assignment-picker-reason";
+          reason.textContent = option.dataset.reason;
+          wrapper.append(reason);
+        }
+        return wrapper;
+      };
+      const sync = () => {
+        const option = select.selectedOptions[0];
+        trigger.replaceChildren(option ? content(option) : document.createTextNode("No entries available"));
+      };
+      Array.from(select.options).forEach((option) => {
+        const row = document.createElement("button");
+        row.type = "button";
+        row.className = "assignment-picker-row";
+        row.disabled = option.disabled || select.disabled;
+        row.append(content(option));
+        row.addEventListener("click", () => {
+          if (option.disabled || select.disabled) return;
+          select.value = option.value;
+          select.dispatchEvent(new Event("change", {bubbles: true}));
+          picker.open = false;
+          trigger.focus();
+        });
+        list.append(row);
+      });
+      select.addEventListener("change", sync);
+      select.addEventListener("invalid", (event) => {
+        event.preventDefault();
+        picker.open = true;
+        trigger.focus();
+      });
+      trigger.addEventListener("click", (event) => {
+        if (select.disabled) event.preventDefault();
+      });
+      trigger.setAttribute("aria-disabled", String(select.disabled));
+      picker.addEventListener("keydown", (event) => {
+        if (event.key === "Escape") { picker.open = false; trigger.focus(); }
+      });
+      picker.addEventListener("focusout", () => {
+        setTimeout(() => { if (!picker.contains(document.activeElement)) picker.open = false; }, 0);
+      });
+      picker.append(trigger, list);
+      select.after(picker);
+      select.classList.add("visually-hidden");
+      select.tabIndex = -1;
+      select.setAttribute("aria-hidden", "true");
+      sync();
+    });
   },
 
   openReservationCancellationModal(reservationId, actionType) {

@@ -1,4 +1,5 @@
 <?php
+if (PHP_SAPI !== 'cli') { http_response_code(404); exit; }
 require dirname(__DIR__) . '/includes/bootstrap.php';
 
 // Render the actual shared layout using each role's active database account.

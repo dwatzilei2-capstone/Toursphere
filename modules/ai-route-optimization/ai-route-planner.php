@@ -6,6 +6,8 @@
 require_once dirname(__DIR__, 2) . '/includes/bootstrap.php';
 require_login();
 require_permission('ai.view');
+require_once ROOT_PATH.'/includes/trip_funding.php';
+$_SESSION['route_prepare_csrf']??=bin2hex(random_bytes(32));
 
  
  
@@ -104,7 +106,7 @@ if (!empty($route_context['route_history_id'])) {
 $fleet_vehicles = $pdo->query(
     "SELECT v.id, v.plate_number, v.type, v.brand, v.model, v.capacity, v.fuel_type, v.avg_fuel_km
        FROM vehicles v
-      WHERE v.status <> 'Maintenance'
+      WHERE v.status NOT IN ('Maintenance','Retired','Inactive')
         AND NOT EXISTS (
             SELECT 1 FROM maintenance_orders mo
              WHERE mo.vehicle_id = v.id AND mo.status = 'In Repair'
@@ -429,10 +431,11 @@ require ROOT_PATH . '/includes/header.php';
             <?php if (!empty($fleet_vehicles)): ?>
               <?php foreach ($fleet_vehicles as $v):
                 $val = "{$v['type']} - {$v['brand']} {$v['model']} ({$v['plate_number']})";
-                $kmL = $v['avg_fuel_km'] ?: '6.0 km/L';
+                $kmL = $v['avg_fuel_km'] ?: 'Efficiency unavailable';
+                $currentFuelPrice=fuel_current_price($pdo,(string)$v['fuel_type']);
                 $selected = ($context_vehicle_id === $val || $context_vehicle_id === $v['id'] || stripos((string)$context_vehicle_id, $v['plate_number']) !== false) ? 'selected' : '';
               ?>
-                <option value="<?= e($val) ?>" data-vehicle-id="<?= e($v['id']) ?>" data-consumption="<?= e($kmL) ?>" <?= $selected ?>>
+                <option value="<?= e($val) ?>" data-vehicle-id="<?= e($v['id']) ?>" data-consumption="<?= e($kmL) ?>" data-fuel-price="<?= e($currentFuelPrice['price_per_liter']??'') ?>" <?= $selected ?>>
                   <?= e($v['brand']) ?> <?= e($v['model']) ?> (<?= e($v['plate_number']) ?>) &bull; <?= e($v['type']) ?> &bull; <?= e($kmL) ?> &bull; <?= (int)$v['capacity'] ?> pax
                 </option>
               <?php endforeach; ?>
@@ -706,11 +709,15 @@ require ROOT_PATH . '/includes/header.php';
       <button type="button" id="btn-start-navigation" class="btn w-100 py-2 fw-semibold text-white" style="display: none;" onclick="aiRouteEngine.startNavigation()">
         <i class="bi bi-compass-fill me-2 fs-6"></i> START NAVIGATION
       </button>
+      <?php if(funding_can_manage() && !empty($route_context['trip_id']) && in_array($route_context['trip_status'],['Assigned','Confirmed','Scheduled'],true)): ?>
+      <button type="button" id="btn-save-funding-route" class="tc-btn tc-btn-secondary w-100" onclick="aiRouteEngine.saveFundingRoute(this)">Save Route for Trip Funding</button><span id="funding-route-message" class="small" role="status"></span>
+      <?php endif; ?>
     </div>
   </div>
 </div>
 
 <script>
+  window.TC_ROUTE_PREPARE_CSRF=<?= json_encode($_SESSION['route_prepare_csrf']) ?>;
   window.TC_ROUTE_REVENUE = <?= json_encode([
     'role' => $is_driver_user ? 'driver' : ($is_route_revenue_admin ? 'admin' : null),
     'endpoint' => BASE_URL . '/actions/route-revenue.php',
@@ -721,6 +728,7 @@ require ROOT_PATH . '/includes/header.php';
   window.TC_TOURIST_DESTINATIONS = <?= json_encode($tourist_destinations, JSON_UNESCAPED_UNICODE) ?>;
   window.TC_ROUTE_CONTEXT = <?= json_encode([
     'isDriver' => $is_driver_user,
+    'tripStatus' => $route_context['trip_status'] ?? null,
     'tripId' => $route_context['trip_id'] ?? null,
     'reservationId' => $route_context['reservation_id'] ?? null,
     'vehicleId' => $route_context['vehicle_id'] ?? null,
@@ -735,6 +743,21 @@ require ROOT_PATH . '/includes/header.php';
         && in_array($route_context['trip_status'] ?? '', ['In Transit', 'Returning to Depot'], true)
         && (int)($route_context['navigation_active'] ?? 0) === 1,
   ], JSON_UNESCAPED_UNICODE) ?>;
+
+  if (window.TC_ROUTE_CONTEXT.isDriver) {
+    const refreshDispatchState = async () => {
+      if (document.hidden) return;
+      try {
+        const response = await fetch(`${window.TC_BASE_URL}/actions/route-navigation-state.php`, {headers: {Accept: 'application/json'}});
+        const data = await response.json();
+        if (!response.ok || !data.ok) return;
+        window.TC_ROUTE_CONTEXT.tripStatus = data.trips.find(t => t.id === window.TC_ROUTE_CONTEXT.tripId)?.status || null;
+        window.aiRouteEngine?.updateDispatchStartButton();
+      } catch (_) { /* The start endpoint independently checks dispatch authorization. */ }
+    };
+    window.setInterval(refreshDispatchState, 5000);
+    document.addEventListener('visibilitychange', refreshDispatchState);
+  }
 
   window.initGoogleMapsCallback = function () {
     if (window.aiRouteEngine && typeof window.aiRouteEngine.init === 'function') {

@@ -64,6 +64,7 @@ if (!isset($header_notifications)) {
   <link rel="stylesheet" href="<?= BASE_URL ?>/css/vendor/leaflet/leaflet.css">
   <?php endif; ?>
    
+  <link rel="stylesheet" href="<?= BASE_URL ?>/css/vehicle-photo.css?v=<?= (int)filemtime(ROOT_PATH . '/css/vehicle-photo.css') ?>">
   <link rel="stylesheet" href="<?= BASE_URL ?>/css/style.css?v=<?= (int)@filemtime(ROOT_PATH . '/css/style.css') ?>">
   <?php if (($active_page ?? '') === 'dashboard'): ?><link rel="stylesheet" href="<?= BASE_URL ?>/css/dashboard.css?v=<?= (int)@filemtime(ROOT_PATH . '/css/dashboard.css') ?>"><?php endif; ?>
   <?php if (in_array(($active_page ?? ''), ['vehicles', 'vehicle-assignment', 'maintenance'], true)): ?><link rel="stylesheet" href="<?= BASE_URL ?>/css/fleet-vehicles.css?v=<?= (int)@filemtime(ROOT_PATH . '/css/fleet-vehicles.css') ?>"><?php endif; ?>
@@ -73,10 +74,13 @@ if (!isset($header_notifications)) {
   <?php if (in_array(($active_page ?? ''), ['cost-overview', 'cost-by-vehicle', 'cost-trends'], true)): ?><link rel="stylesheet" href="<?= BASE_URL ?>/css/cost-analysis.css?v=<?= (int)@filemtime(ROOT_PATH . '/css/cost-analysis.css') ?>"><?php endif; ?>
   <?php if (in_array(($active_page ?? ''), ['ai-route-planner', 'route-comparison', 'route-history'], true)): ?><link rel="stylesheet" href="<?= BASE_URL ?>/css/ai-route-optimization.css?v=<?= (int)@filemtime(ROOT_PATH . '/css/ai-route-optimization.css') ?>"><?php endif; ?>
   <?php if (($active_page ?? '') === 'settings'): ?><link rel="stylesheet" href="<?= BASE_URL ?>/css/settings.css?v=<?= (int)filemtime(ROOT_PATH . '/css/settings.css') ?>"><?php endif; ?>
+  <?php if (($active_page ?? '') === 'reports'): ?><link rel="stylesheet" href="<?= BASE_URL ?>/css/reports.css?v=<?= (int)filemtime(ROOT_PATH . '/css/reports.css') ?>"><?php endif; ?>
   <link rel="stylesheet" href="<?= BASE_URL ?>/css/theme.css?v=<?= (int)filemtime(ROOT_PATH . '/css/theme.css') ?>">
   <?php if (session_timeout_applies($current_user['role_code'] ?? '')): ?><link rel="stylesheet" href="<?= BASE_URL ?>/css/session-timeout.css?v=<?= (int)filemtime(ROOT_PATH . '/css/session-timeout.css') ?>"><?php endif; ?>
   <?php if ($include_role_portal_polish): ?><link rel="stylesheet" href="<?= BASE_URL ?>/css/role-portals.css?v=<?= (int)filemtime(ROOT_PATH . '/css/role-portals.css') ?>"><?php endif; ?>
   <script>window.fleetCurrencySymbol = <?= json_encode(currency_symbol(), JSON_HEX_TAG | JSON_HEX_AMP | JSON_HEX_APOS | JSON_HEX_QUOT) ?>;</script>
+  <link rel="stylesheet" href="<?= BASE_URL ?>/css/responsive-forms.css?v=<?= (int)filemtime(ROOT_PATH . '/css/responsive-forms.css') ?>">
+  <link rel="stylesheet" href="<?= BASE_URL ?>/css/table-scroll.css?v=<?= (int)filemtime(ROOT_PATH . '/css/table-scroll.css') ?>">
 </head>
 <body<?= !empty($body_class) ? ' class="' . e($body_class) . '"' : '' ?>>
 

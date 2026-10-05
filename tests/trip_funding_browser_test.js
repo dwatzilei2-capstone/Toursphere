@@ -1,0 +1,34 @@
+const fs=require('node:fs'),path=require('node:path'),assert=require('node:assert/strict');
+const {chromium}=require('C:/Users/LAPTOP-3DS/.cache/codex-runtimes/codex-primary-runtime/dependencies/node/node_modules/playwright');
+const sessions=JSON.parse(fs.readFileSync(path.join(__dirname,'../tmp/trip-funding-sessions.json'),'utf8'));
+(async()=>{const browser=await chromium.launch({headless:true,channel:'msedge'});let checks=0;const check=(ok,label)=>{assert(ok,label);checks++};
+try{
+ const context=await browser.newContext();await context.addCookies([{name:'PHPSESSID',value:sessions.fleet_admin,domain:'localhost',path:'/'}]);const page=await context.newPage();const errors=[];page.on('pageerror',e=>errors.push(e.message));
+ fs.mkdirSync(path.join(__dirname,'../tmp/trip-funding-validation'),{recursive:true});
+ for(const width of [390,768,1366]){await page.setViewportSize({width,height:900});for(const url of ['modules/vehicle-reservation-dispatch/reservations.php','modules/fuel-management/fuel-overview.php','modules/fuel-management/fuel-transactions.php','modules/cost-analysis/cost-overview.php']){
+  await page.goto('http://localhost/fleet/'+url);await page.locator('#content-container').waitFor();if(!(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth+1))){await page.screenshot({path:path.join(__dirname,'../tmp/trip-funding-validation/overflow.png'),fullPage:true});console.log(await page.evaluate(()=>Array.from(document.querySelectorAll('body *')).filter(el=>el.getBoundingClientRect().right>innerWidth+1).slice(0,8).map(el=>[el.tagName,el.className,Math.round(el.getBoundingClientRect().width)])))}check(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth+1),'Responsive '+url+' '+width);
+  if(url.includes('fuel-transactions')){await page.screenshot({path:path.join(__dirname,'../tmp/trip-funding-validation/fuel-form-debug.png')});await page.locator('button[onclick*="modal-log-fuel"]').first().click();const price=page.locator('#modal-log-fuel [name="price_per_liter"]');check(await price.isEditable(),'Price editable');await price.fill('96.20');await page.locator('#modal-log-fuel [name="liters"]').fill('30');check(await page.locator('.fuel-total-preview').textContent().then(x=>x.includes('2,886.00')),'Live fuel total');await page.locator('#modal-log-fuel').getByRole('button',{name:'Cancel',exact:true}).click();}
+  if(width===1366&&url.includes('fuel-overview'))await page.screenshot({path:path.join(__dirname,'../tmp/trip-funding-validation/fuel-overview.png'),fullPage:true});
+ }}
+ // Exercise the complete visible workflow with intercepted test-only payloads; no production records are written.
+ const payload={trip:{id:'TEST-TRIP',reservation_id:'TEST-RES',driver:'Test driver',vehicle:'TEST vehicle',vehicle_id:'TEST-V',driver_id:'TEST-D',departure:'2030-01-10 07:00:00',notes:'',status:'Assigned',origin:'Origin',destination:'Destination'},estimate:{issues:[],distance_km:180,expected_km_per_liter:8,reference_price:95,estimated_liters:22.5,estimated_fuel_cost:2137.5,estimated_total_cost:2137.5},request:null,status:'Not Requested',can_manage:true,methods:[{code:'company_card',name:'Company Card / Fuel Card'}],readiness:{ready:false,reasons:[],checks:{'Reservation Approved':true,'Vehicle Assigned':true,'Driver Assigned':true,'Trip Funding Confirmed':false}},csrf:'test',assignment_csrf:'test'};
+ let state=JSON.parse(JSON.stringify(payload)),posts=0;
+ await page.route('**/actions/trip-funding.php*',async route=>{
+  if(route.request().method()==='POST'){posts++;state.status='Pending Finance Approval';state.request={id:'TEST',method_name:'Company Card / Fuel Card',requested_amount:2300,approved_amount:null,approval_status:null};await new Promise(resolve=>setTimeout(resolve,5000));state.status='Funding Confirmed';state.request.approved_amount=2300;state.request.approval_status='APPROVED';state.request.approved_at='2030-01-10 07:00:05';state.readiness.ready=true;state.readiness.checks['Trip Funding Confirmed']=true;}
+  await route.fulfill({contentType:'application/json',body:JSON.stringify({ok:true,data:state})});
+ });
+ await page.setViewportSize({width:390,height:900});await page.goto('http://localhost/fleet/modules/vehicle-reservation-dispatch/reservations.php');await page.evaluate(()=>TripFunding.open('TEST-RES'));
+ await page.locator('#funding-request-form').waitFor();await page.locator('#funding-amount').fill('2300');const started=Date.now();await page.getByRole('button',{name:'Send Request to Finance',exact:true}).click();
+ await page.waitForFunction(()=>document.querySelector('.funding-status')?.textContent.includes('Pending Finance Approval'));
+ check(await page.getByRole('button',{name:'Dispatch Trip',exact:true}).isDisabled(),'Dispatch disabled while pending');check(await page.locator('#funding-request-form').count()===0,'Cannot edit/repeat pending request');
+ await page.waitForFunction(()=>document.querySelector('.funding-status')?.textContent.includes('Funding Confirmed'));check(Date.now()-started>=5000,'Visible wait not early');check(posts===1,'Single submission');
+ check(await page.getByRole('button',{name:'Dispatch Trip',exact:true}).isEnabled(),'Dispatch enabled after readiness');check(await page.getByText('Mock Finance \u2014 Test Mode',{exact:true}).count()>0,'Mock source label');
+ check(await page.locator('#trip-funding-modal').evaluate(el=>el.scrollWidth<=innerWidth),'Mobile modal fits');await page.screenshot({path:path.join(__dirname,'../tmp/trip-funding-validation/funding-mobile.png')});
+ await page.locator('#trip-funding-modal .modal-footer').getByRole('button',{name:'Close',exact:true}).click();
+ state=JSON.parse(JSON.stringify(payload));state.can_manage=false;await page.evaluate(()=>TripFunding.open('TEST-RES'));await page.waitForFunction(()=>document.querySelector('#trip-funding-body').textContent.includes('Estimated Trip Cost'));
+ check(await page.locator('#funding-request-form').count()===0 && await page.getByRole('button',{name:'Dispatch Trip',exact:true}).count()===0,'View-only controls hidden');
+ check(errors.length===0,'No browser errors: '+errors.join('; '));
+ const driverContext=await browser.newContext();await driverContext.addCookies([{name:'PHPSESSID',value:sessions.driver,domain:'localhost',path:'/'}]);const driver=await driverContext.newPage();await driver.goto('http://localhost/fleet/modules/fuel-management/fuel-transactions.php');
+ check(await driver.locator('#modal-log-fuel select[name="vehicle_id"]').count()===0,'Driver vehicle not selectable');check(await driver.locator('#modal-log-fuel input[name="price_per_liter"]').isEditable(),'Driver pump price remains editable');
+ console.log('PASS: '+checks+' responsive, editable fuel log, pending, five-second UI, duplicate, readiness and role-view browser checks.');
+}finally{await browser.close()}})().catch(e=>{console.error(e);process.exit(1)});

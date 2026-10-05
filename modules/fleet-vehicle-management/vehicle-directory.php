@@ -2,7 +2,9 @@
  
 require_once dirname(__DIR__, 2) . '/includes/bootstrap.php';
 require_once ROOT_PATH . '/includes/vehicle_document.php';
+require_once ROOT_PATH . '/includes/vehicle_photo.php';
 require_once ROOT_PATH . '/includes/vehicle_compliance.php';
+require_once ROOT_PATH . '/includes/archive.php';
 require_login();
 require_permission('vehicles.view');
 
@@ -14,7 +16,7 @@ $q      = trim($_GET['q'] ?? '');
 $sql = "SELECT v.*, d.name AS assigned_driver_name
           FROM vehicles v
           LEFT JOIN drivers d ON d.id = v.assigned_driver_id
-         WHERE 1=1";
+         WHERE NOT v.is_archived AND v.status <> 'Retired'";
 $params = [];
 if (in_array($filter, ['available', 'on trip', 'maintenance'], true)) {
     $sql .= ' AND LOWER(v.status) = ?';
@@ -30,6 +32,7 @@ $sql .= ' ORDER BY v.created_at DESC NULLS LAST, v.id DESC';
 $stmt = $pdo->prepare($sql);
 $stmt->execute($params);
 $vehicles = $stmt->fetchAll();
+$photos = vehicle_photo_records($pdo, array_column($vehicles, 'id'));
 
 $documents_by_vehicle = [];
 if ($vehicles) {
@@ -78,6 +81,8 @@ foreach ($vehicles as $v) {
   $operational_by_vehicle[$v['id']] = $operational;
     $vehicle_json[$v['id']] = [
         'id' => $v['id'],
+        'photo' => vehicle_photo_present($v['id'], $photos[$v['id']] ?? []),
+        'canManagePhoto' => can('vehicles.manage'),
         'plateNumber' => $v['plate_number'],
         'type' => $v['type'],
         'brand' => $v['brand'],
@@ -181,8 +186,11 @@ require ROOT_PATH . '/includes/header.php';
               <div class="text-muted-custom small"><?= e($v['type']) ?></div>
             </td>
             <td>
-              <div><?= e($v['brand']) ?> <?= e($v['model']) ?></div>
-              <div class="text-muted-custom small"><?= (int)$v['year'] ?> Model</div>
+              <div class="vehicle-directory-identity">
+                <?= vehicle_photo_html($vehicle_json[$v['id']]['photo'], trim($v['brand'].' '.$v['model']), 'vehicle-directory-thumbnail') ?>
+                <div><div><?= e($v['brand']) ?> <?= e($v['model']) ?></div>
+                <div class="text-muted-custom small"><?= (int)$v['year'] ?> Model</div></div>
+              </div>
             </td>
             <td><span class="badge bg-light text-dark border"><?= (int)$v['capacity'] ?> Seats</span></td>
             <td><span class="status-badge <?= status_badge_class($v['status']) ?>"><?= e($v['status']) ?></span></td>
@@ -202,6 +210,9 @@ require ROOT_PATH . '/includes/header.php';
             </td>
             <td class="text-end">
               <div class="btn-group">
+                <?php if (archive_can_retire()): ?>
+                <button type="button" class="tc-btn tc-btn-light tc-btn-sm" data-retire-vehicle="<?= e($v['id']) ?>"><i class="bi bi-archive"></i> Retire</button>
+                <?php endif; ?>
                 <button class="tc-btn tc-btn-secondary tc-btn-sm" onclick="App.viewVehicleDetails('<?= e($v['id']) ?>')">
                   <i class="bi bi-eye"></i> Details
                 </button>
@@ -256,6 +267,11 @@ require ROOT_PATH . '/includes/header.php';
           <div class="small text-muted-custom">This number will be confirmed when registration is successfully saved.</div>
         </div>
 
+        <div class="mb-3">
+          <label class="tc-form-label" for="vehicle-photo">Vehicle Photo <span class="fw-normal text-muted-custom">(Optional)</span></label>
+          <input id="vehicle-photo" type="file" name="vehicle_photo" class="tc-form-control" accept=".jpg,.jpeg,.png,.webp,image/jpeg,image/png,image/webp" aria-describedby="vehicle-photo-help">
+          <div id="vehicle-photo-help" class="vehicle-source-note">Actual vehicle photo, up to 5 MB. JPG, PNG, or WebP. You can add or change it later in Vehicle Details.</div>
+        </div>
         <div class="vehicle-step-label">Documents & Compliance</div>
         <label class="tc-form-label" for="vehicle-document">Vehicle Registration Document <span class="text-danger">*</span></label>
         <div id="vehicle-document-drop" class="vehicle-upload-zone" role="button" tabindex="0" aria-controls="vehicle-document">

@@ -35,6 +35,7 @@ try {
     $user = $stmt->fetch();
 
     if (!$user || !password_verify($password, $user['password_hash'])) {
+        audit_security('LOGIN_FAILED', $user ?: null);
         redirect_to(BASE_URL . '/login.php?error=' . rawurlencode('Invalid email or password. Please try again.'));
     }
 
@@ -60,6 +61,7 @@ try {
         redirect_to(BASE_URL . '/verify-login.php');
     }
 
+    audit_security('LOGIN_SUCCEEDED', $user);
     session_regenerate_id(true);
     $_SESSION['user_id'] = (int)$user['id'];
     $_SESSION['user_name'] = $user['name'];

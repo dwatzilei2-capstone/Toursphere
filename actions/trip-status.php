@@ -58,6 +58,21 @@ try {
     }
 
     $pdo->beginTransaction();
+    $resLock = $pdo->prepare('SELECT * FROM reservations WHERE id=? FOR UPDATE');
+    $resLock->execute([$reservation_id]);
+    $r = $resLock->fetch();
+    $tripLock = $pdo->prepare('SELECT * FROM trips WHERE reservation_id=? FOR UPDATE');
+    $tripLock->execute([$reservation_id]);
+    $lockedTrip = $tripLock->fetch();
+    if (!$r || !$lockedTrip || ($is_assigned_driver && ($lockedTrip['driver_id'] !== $d['id'] || $r['assigned_driver_id'] !== $d['id']))) {
+        throw new RuntimeException('This trip is not assigned to you or is no longer available.');
+    }
+    if ($new_status === 'In Transit' && ($lockedTrip['status'] !== 'Dispatched' || $r['status'] !== 'Dispatched')) {
+        throw new RuntimeException('This trip has not been dispatched yet. Please wait for the Dispatcher/Admin.');
+    }
+    if ($new_status === 'Completed' && !in_array($lockedTrip['status'], ['In Transit','Returning to Depot'], true)) {
+        throw new RuntimeException('Only an active trip can be completed.');
+    }
 
     if (!empty($r['departure_schedule_instance_id'])) {
         $pdo->prepare('UPDATE reservations SET status=? WHERE departure_schedule_instance_id=? AND assigned_vehicle_id=? AND assigned_driver_id=? AND status NOT IN (\'Cancelled\',\'Rejected\')')
@@ -81,16 +96,19 @@ try {
     if ($new_status === 'Returning to Depot' && (!$trip || $trip['status'] !== 'In Transit')) {
         throw new RuntimeException('Return navigation can start only after an active passenger trip.');
     }
-    if ($new_status === 'Completed' && $is_assigned_driver && (!$trip || $trip['status'] !== 'Returning to Depot')) {
-        throw new RuntimeException('Navigate back to the depot before completing the trip.');
-    }
     if ($new_status === 'In Transit' && (!$trip || empty($trip['vehicle_id']))) {
         throw new RuntimeException('An assigned vehicle is required before a trip can start.');
     }
     if ($new_status === 'In Transit' && $trip['status'] !== 'In Transit') {
-        $vehicleLock = $pdo->prepare('SELECT id FROM vehicles WHERE id = ? FOR UPDATE');
+        $vehicleLock = $pdo->prepare('SELECT * FROM vehicles WHERE id = ? FOR UPDATE');
         $vehicleLock->execute([$trip['vehicle_id']]);
-        if (!$vehicleLock->fetchColumn()) throw new RuntimeException('The trip vehicle could not be found.');
+        $startVehicle = $vehicleLock->fetch();
+        if (!$startVehicle) throw new RuntimeException('The trip vehicle could not be found.');
+        if ($startVehicle['status'] === 'Maintenance') throw new RuntimeException('The assigned vehicle is under maintenance.');
+        $repairCheck = $pdo->prepare("SELECT 1 FROM maintenance_orders WHERE vehicle_id=? AND status='In Repair' LIMIT 1");
+        $repairCheck->execute([$trip['vehicle_id']]);
+        if ($repairCheck->fetchColumn()) throw new RuntimeException('The assigned vehicle has an active maintenance repair.');
+        if ($r['assigned_vehicle_id'] !== $trip['vehicle_id'] || $r['assigned_driver_id'] !== $trip['driver_id']) throw new RuntimeException('The trip assignment is no longer valid.');
         $compliance = vehicle_operational_compliance($pdo, (string)$trip['vehicle_id']);
         if (!$compliance['operational']) {
             throw new RuntimeException('Vehicle cannot start an actual trip because required compliance documents are incomplete or invalid. ' . $compliance['reason']);

@@ -1,0 +1,22 @@
+<?php
+if(PHP_SAPI!=='cli'){http_response_code(404);exit;}
+require_once dirname(__DIR__).'/includes/bootstrap.php';
+$file=ROOT_PATH.'/tmp/trip-funding-sessions.json';$sessions=[];$checks=0;
+function funding_http($sid,$path,$post=null){$c=curl_init('http://localhost/fleet/'.$path);curl_setopt_array($c,[CURLOPT_RETURNTRANSFER=>true,CURLOPT_FOLLOWLOCATION=>false,CURLOPT_COOKIE=>session_name().'='.$sid,CURLOPT_TIMEOUT=>20]);if($post!==null)curl_setopt_array($c,[CURLOPT_POST=>true,CURLOPT_POSTFIELDS=>http_build_query($post)]);$body=curl_exec($c);if($body===false)throw new RuntimeException(curl_error($c));$code=curl_getinfo($c,CURLINFO_RESPONSE_CODE);curl_close($c);return [$code,$body];}
+function funding_http_check($ok,$label){global $checks;if(!$ok)throw new RuntimeException($label);$checks++;}
+if(in_array('--clean',$argv,true)){foreach(json_decode(is_file($file)?file_get_contents($file):'[]',true) as $sid){session_id($sid);session_start();$_SESSION=[];session_destroy();}if(is_file($file))unlink($file);echo "Trip Funding test sessions removed.\n";exit;}
+$trip=(string)db()->query('SELECT id FROM trips ORDER BY created_at DESC LIMIT 1')->fetchColumn();
+try{
+ foreach(['fleet_admin','dispatcher','fleet_manager','driver','customer'] as $role){$q=db()->prepare("SELECT u.id FROM users u JOIN roles r ON r.id=u.role_id WHERE r.code=? AND u.status='Active' LIMIT 1");$q->execute([$role]);$uid=$q->fetchColumn();if(!$uid)continue;
+  $sid=bin2hex(random_bytes(24));$sessions[$role]=$sid;session_id($sid);session_start();$_SESSION=['user_id'=>(int)$uid,'last_valid_activity'=>time()];session_write_close();
+  [$status,$body]=funding_http($sid,'actions/trip-funding.php?trip_id='.urlencode($trip));$allowed=in_array($role,['fleet_admin','dispatcher','fleet_manager'],true);funding_http_check($status===($allowed?200:403),'Read access '.$role);if($allowed){$data=json_decode($body,true);funding_http_check(!empty($data['ok']) && $data['data']['can_manage']===in_array($role,['fleet_admin','dispatcher'],true),'Read-only Manager '.$role);}
+  [$status]=funding_http($sid,'actions/trip-funding.php',['trip_id'=>$trip,'funding_method'=>'company_card','requested_amount'=>'99999','csrf'=>'invalid']);funding_http_check($status===403,'Direct unauthorized/CSRF request '.$role);
+  [$settingsStatus,$settingsBody]=funding_http($sid,'settings.php?tab=fuel-prices');funding_http_check($settingsStatus===200 || ($role==='customer' && $settingsStatus===302),'Settings access '.$role);funding_http_check(str_contains($settingsBody,'id="global-fuel-price"')===($role==='fleet_admin'),'Fuel price settings Admin only '.$role);
+  if($role==='fleet_admin'){[$overviewStatus,$overviewBody]=funding_http($sid,'modules/fuel-management/fuel-overview.php');funding_http_check($overviewStatus===200 && !str_contains($overviewBody,'Current Fuel Prices'),'Price configuration removed from Fuel Overview');}
+  [$status]=funding_http($sid,'actions/fuel-price.php',['fuel_type'=>'Diesel','price'=>1,'csrf'=>'invalid']);funding_http_check($role==='fleet_admin'?$status===302:$status===403,'Fuel price restricted '.$role);
+  if($allowed)foreach(['modules/vehicle-reservation-dispatch/reservations.php','modules/vehicle-reservation-dispatch/dispatch-board.php','trip-details.php?id='.urlencode($trip)] as $path){[$status,$body]=funding_http($sid,$path);funding_http_check($status===200 && !str_contains($body,'Warning:') && str_contains($body,'trip-funding-modal'),'Funding UI integrates '.$role.' '.$path);}
+  if($role==='fleet_admin')foreach(['modules/fuel-management/fuel-overview.php','modules/fuel-management/fuel-transactions.php','modules/cost-analysis/cost-overview.php','modules/cost-analysis/cost-by-vehicle.php','modules/cost-analysis/cost-trends.php','modules/ai-route-optimization/ai-route-planner.php?trip_id='.urlencode($trip)] as $path){[$status,$body]=funding_http($sid,$path);funding_http_check($status===200 && !str_contains($body,'Warning:') && !str_contains($body,'value="58.40"'),'Existing pages integrate '.$path);}
+ }
+ if(in_array('--browser',$argv,true))file_put_contents($file,json_encode($sessions));
+}finally{if(!in_array('--browser',$argv,true))foreach($sessions as $sid){session_id($sid);session_start();$_SESSION=[];session_destroy();}}
+echo "PASS: $checks HTTP authorization, read-only Manager, fuel-price access and page integration checks.\n";

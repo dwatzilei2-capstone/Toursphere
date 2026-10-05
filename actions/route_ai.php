@@ -138,7 +138,7 @@ try {
                 'duration'          => $selected['durationFormatted'],
                 'durationMins'      => $selected['durationMins'],
                 'fuelEstimate'      => $selected['fuelFormatted'],
-                'fuelCost'          => '₱' . number_format($selected['fuelCost']),
+                'fuelCost'          => $selected['fuelCost']===null ? 'Current fuel price or efficiency unavailable' : '₱' . number_format($selected['fuelCost']),
                 'tollEstimate'      => $selected['tollFormatted'],
                 'totalTripCost'     => $selected['costFormatted'],
                 'routeScore'        => $selected['compositeScore'],

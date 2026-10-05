@@ -34,6 +34,7 @@ try {
     $vehicleStmt = $pdo->prepare(
         "SELECT v.* FROM vehicles v
           WHERE v.id = ?
+            AND v.status <> 'Retired'
             AND (v.assigned_driver_id = ? OR EXISTS (
                 SELECT 1 FROM reservations r
                  WHERE r.assigned_vehicle_id = v.id AND r.assigned_driver_id = ?

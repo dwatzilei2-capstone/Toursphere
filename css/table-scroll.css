@@ -1,0 +1,7 @@
+/* No sizing, scrollbar, color or touch overrides: native touch scrolling stays intact. */
+.tc-table-draggable { cursor: grab; }
+.tc-table-draggable :is(a,button,input,select,textarea,label,summary,[contenteditable],[role="button"],[role="link"],[onclick],[data-bs-toggle],[data-bs-dismiss],[data-no-table-drag]) { cursor: auto; }
+.tc-table-draggable :is(a,button,[role="button"],[role="link"],[onclick],[data-bs-toggle]) { cursor: pointer; }
+.tc-table-draggable.tc-table-dragging,
+.tc-table-draggable.tc-table-dragging * { cursor: grabbing !important; user-select: none !important; }
+.tc-table-draggable.tc-table-dragging { scroll-behavior: auto !important; }

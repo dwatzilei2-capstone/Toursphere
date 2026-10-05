@@ -74,7 +74,7 @@ require ROOT_PATH . '/includes/header.php';
             </td>
             <td><?= e($r['departure_date']) ?><br><span class="text-muted-custom small"><?= e($r['departure_time']) ?></span></td>
             <td><span class="badge bg-light text-dark border"><?= (int)$r['passenger_count'] ?> pax</span></td>
-            <td><span class="status-badge <?= status_badge_class($r['status']) ?>"><?= e($r['status']) ?></span></td>
+            <td><span class="status-badge <?= status_badge_class($r['status']) ?>"><?= e($r['status']) ?></span><?php $driverFundingTripId=$r['trip_id']; require ROOT_PATH.'/includes/driver-funding-ui.php'; ?></td>
             <td class="text-end">
               <?php if ($r['status'] !== 'Completed' && !empty($r['assigned_vehicle_id'])): ?>
                 <details class="d-inline-block text-start me-1">
@@ -102,8 +102,9 @@ require ROOT_PATH . '/includes/header.php';
                 <span class="text-muted-custom small">Completed</span>
               <?php elseif (!in_array($r['status'], ['In Transit','Returning to Depot'], true) && !empty($r['trip_id'])): ?>
                 <a class="tc-btn tc-btn-primary tc-btn-sm" href="<?= BASE_URL ?>/modules/ai-route-optimization/ai-route-planner.php?trip_id=<?= urlencode($r['trip_id'] ?? '') ?>">
-                  <i class="bi bi-compass"></i> Open Navigation
+                  <i class="bi bi-compass"></i> <?= $r['status'] === 'Dispatched' ? 'Open Navigation' : 'Generate / View Route Plan' ?>
                 </a>
+                <?php if ($r['status'] !== 'Dispatched'): ?><span class="small text-muted-custom d-block mt-1">Waiting for Dispatch</span><?php endif; ?>
               <?php elseif (!in_array($r['status'], ['In Transit','Returning to Depot'], true)): ?>
                 <span class="tc-btn tc-btn-secondary tc-btn-sm disabled" title="Dispatch must create the operational trip before navigation can start">
                   <i class="bi bi-hourglass-split"></i> Awaiting Dispatch
@@ -151,3 +152,20 @@ require ROOT_PATH . '/includes/header.php';
 </div>
 
 <?php require ROOT_PATH . '/includes/footer.php'; ?>
+<script>
+(() => {
+  const snapshot = <?= json_encode(array_column($myTrips, 'status', 'trip_id')) ?>;
+  let editing = false;
+  document.querySelectorAll('form input, form textarea, form select').forEach(el => el.addEventListener('input', () => { editing = true; }));
+  const refresh = async () => {
+    if (document.hidden || editing) return;
+    try {
+      const response = await fetch(`${window.TC_BASE_URL}/actions/route-navigation-state.php`, {headers: {Accept: 'application/json'}});
+      const data = await response.json();
+      if (response.ok && data.ok && data.trips.some(trip => Object.hasOwn(snapshot, trip.id) && snapshot[trip.id] !== trip.status)) window.location.reload();
+    } catch (_) { /* Keep the existing trip view available if the network is offline. */ }
+  };
+  window.setInterval(refresh, 5000);
+  document.addEventListener('visibilitychange', refresh);
+})();
+</script>

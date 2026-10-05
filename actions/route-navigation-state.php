@@ -3,6 +3,19 @@
 require_once dirname(__DIR__) . '/includes/bootstrap.php';
 require_login();
 header('Content-Type: application/json; charset=UTF-8');
+header('Cache-Control: no-store');
+
+if ($_SERVER['REQUEST_METHOD'] === 'GET') {
+    if (($current_user['role_code'] ?? '') !== 'driver') {
+        http_response_code(403);
+        echo json_encode(['ok' => false, 'error' => 'Driver access required.']);
+        exit;
+    }
+    $stmt = db()->prepare('SELECT t.id,t.status FROM trips t JOIN drivers d ON d.id=t.driver_id WHERE d.user_id=?');
+    $stmt->execute([$current_user['id']]);
+    echo json_encode(['ok' => true, 'trips' => $stmt->fetchAll()]);
+    exit;
+}
 
 if ($_SERVER['REQUEST_METHOD'] !== 'POST') {
     http_response_code(405);

@@ -20,6 +20,7 @@ scratch/
 logs/
 temp/
 tmp/
+/storage/private/reports/
 /vendor/
 _archive_unused/
 
@@ -27,3 +28,13 @@ _archive_unused/
 database/backups/
 *.dump
 *.backup
+
+/storage/private/vehicle-photos/
+
+# Private uploads and local development artifacts
+/storage/private/vehicle-documents/
+/storage/private/testing-backups/
+/.freebuff/
+/latest.sql
+/tatus --short
+/tmp_verify_next_vehicle.php

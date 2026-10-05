@@ -2,6 +2,7 @@
 
 require_once dirname(__DIR__) . '/includes/bootstrap.php';
 require_once ROOT_PATH . '/includes/vehicle_document.php';
+require_once ROOT_PATH . '/includes/vehicle_photo.php';
 require_login();
 require_permission('vehicles.manage');
 
@@ -191,6 +192,11 @@ try {
         throw new InvalidArgumentException('This plate number is already registered in the fleet.');
     }
 
+    $photoUpload = $_FILES['vehicle_photo'] ?? [];
+    $photoValidated = vehicle_photo_validate_upload($photoUpload, true);
+    $photoStored = $photoValidated ? vehicle_photo_store_upload($photoUpload, $photoValidated) : null;
+    if ($photoStored) $storedFiles[] = $photoStored['path'];
+
     $uploadDir = ROOT_PATH . '/storage/private/vehicle-documents';
     if (!is_dir($uploadDir) && !mkdir($uploadDir, 0750, true) && !is_dir($uploadDir)) {
         throw new RuntimeException('Secure document storage is unavailable.');
@@ -308,6 +314,11 @@ try {
             'vehicle_match_statuses' => array_column(array_filter($documents, static fn(array $document): bool => isset($document['vehicle_match_status'])), 'vehicle_match_status', 'type'),
         ], JSON_UNESCAPED_SLASHES),
     ]);
+    $photoVehicle = ['id'=>$vid, 'brand'=>$selection['brand_name'], 'model'=>trim($modelName . ' ' . ($variantName ?? '')), 'type'=>$selection['type_name'], 'year'=>$year];
+    $photoCatalogPath = ROOT_PATH . '/assets/images/vehicle-samples/manifest.json';
+    $photoCatalog = is_file($photoCatalogPath) ? (json_decode(file_get_contents($photoCatalogPath), true) ?: []) : [];
+    vehicle_photo_seed_sample($pdo, $photoVehicle, $photoCatalog);
+    if ($photoStored) vehicle_photo_save_actual($pdo, $vid, $photoStored, (string)$current_user['id']);
     $pdo->commit();
     $storedFiles = [];
     $_SESSION['vehicle_csrf_token'] = bin2hex(random_bytes(32));

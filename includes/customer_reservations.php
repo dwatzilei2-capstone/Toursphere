@@ -11,7 +11,7 @@ function customer_vehicle_requirement_options(PDO $pdo): array
            LEFT JOIN vehicle_models vm ON vm.id = vv.model_id AND vm.status = 'Active'
            LEFT JOIN vehicle_types vt ON vt.id = vm.vehicle_type_id AND vt.status = 'Active'
           WHERE v.capacity > 0
-            AND v.status NOT IN ('Maintenance', 'On Trip')
+            AND v.status NOT IN ('Maintenance', 'On Trip', 'Retired', 'Inactive')
             AND NOT EXISTS (SELECT 1 FROM maintenance_orders m WHERE m.vehicle_id = v.id AND m.status = 'In Repair')
           ORDER BY v.capacity, v.type, v.id"
     )->fetchAll();
@@ -118,7 +118,7 @@ function customer_vehicle_available(PDO $pdo, string $type, int $passengers, Dat
     $end = $return ?? $departure->modify('+4 hours');
     $stmt = $pdo->prepare(
         "SELECT v.id FROM vehicles v
-         WHERE v.type = ? AND v.capacity >= ? AND v.status NOT IN ('Maintenance', 'On Trip')
+         WHERE v.type = ? AND v.capacity >= ? AND v.status NOT IN ('Maintenance', 'On Trip', 'Retired', 'Inactive')
            AND NOT EXISTS (SELECT 1 FROM maintenance_orders m WHERE m.vehicle_id=v.id AND m.status='In Repair')
            AND NOT EXISTS (
              SELECT 1 FROM reservations r WHERE r.assigned_vehicle_id=v.id

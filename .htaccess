@@ -19,7 +19,7 @@ Options -Indexes
 # Composer dependencies and internal recovery tooling are never public resources.
 <IfModule mod_rewrite.c>
     RewriteEngine On
-    RewriteRule ^(?:vendor|tmp)/ - [F,L]
+    RewriteRule ^(?:vendor|tmp|lib/reporting)/ - [F,L]
 </IfModule>
 
  

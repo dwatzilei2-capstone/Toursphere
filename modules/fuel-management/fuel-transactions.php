@@ -148,7 +148,7 @@ require ROOT_PATH . '/includes/header.php';
           </div>
           <div class="col-6">
             <label class="tc-form-label">Price per Liter (<?= e(currency_symbol()) ?>)</label>
-            <input type="number" step="0.01" name="price_per_liter" class="tc-form-control" value="58.40" required>
+            <input type="number" step="0.01" name="price_per_liter" class="tc-form-control" value="" min="0.0001" required>
           </div>
           <div class="col-6">
             <label class="tc-form-label">Current Odometer (km)</label>
@@ -183,5 +183,6 @@ require ROOT_PATH . '/includes/header.php';
 </div>
 <?php endif; ?>
 
+<?php if(can('fuel.manage')) require ROOT_PATH.'/includes/fuel-log-defaults.php'; ?>
 <script src="<?= BASE_URL ?>/js/fuel-management.js?v=<?= (int)filemtime(ROOT_PATH . '/js/fuel-management.js') ?>"></script>
 <?php require ROOT_PATH . '/includes/footer.php'; ?>

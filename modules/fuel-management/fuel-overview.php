@@ -1,7 +1,8 @@
 <?php
- 
+
 require_once dirname(__DIR__, 2) . '/includes/bootstrap.php';
 require_once ROOT_PATH . '/includes/driver_fuel_context.php';
+require_once ROOT_PATH . '/includes/trip_funding.php';
 require_login();
 require_permission('fuel.view');
 
@@ -21,7 +22,7 @@ $monthlyStmt->execute([$current_month_key]);
 $monthlyTotals = $monthlyStmt->fetch();
 $monthly_liters = (float)($monthlyTotals['liters'] ?? 0);
 $monthly_cost = (float)($monthlyTotals['cost'] ?? 0);
-$avg_price       = (float)$pdo->query("SELECT COALESCE(AVG(price_per_liter),0) FROM fuel_transactions")->fetchColumn();
+$current_diesel_price = fuel_current_price($pdo, 'Diesel');
 
 $monthStart = date('Y-m-01');
 $monthEnd = date('Y-m-01', strtotime('+1 month'));
@@ -78,14 +79,16 @@ require ROOT_PATH . '/includes/header.php';
   </div>
   <div class="d-flex gap-2">
     <a class="tc-btn tc-btn-secondary tc-btn-sm" href="<?= BASE_URL ?>/modules/fuel-management/fuel-transactions.php"><i class="bi bi-card-list"></i> Transactions Log</a>
-    <?php if (can('fuel.manage')): ?>
+
+<?php if (can('fuel.manage')): ?>
       <button class="tc-btn tc-btn-primary tc-btn-sm" onclick="App.openModal('modal-log-fuel')"><i class="bi bi-plus-lg"></i> Log Fuel Refill</button>
     <?php endif; ?>
   </div>
 </div>
 </div>
 
- 
+
+
 <div class="row g-3 mb-4">
   <div class="col-6 col-md-3">
     <div class="stat-card">
@@ -103,9 +106,9 @@ require ROOT_PATH . '/includes/header.php';
   </div>
   <div class="col-6 col-md-3">
     <div class="stat-card">
-      <span class="stat-label">Avg. Diesel Price / L</span>
-      <div class="stat-value text-accent-custom"><?= money($avg_price) ?></div>
-      <div class="stat-trend text-muted-custom mt-2">Depot & retail average</div>
+      <span class="stat-label">Current Diesel Price / L</span>
+      <div class="stat-value text-accent-custom"><?= $current_diesel_price ? money($current_diesel_price['price_per_liter']) : 'Not configured' ?></div>
+      <div class="stat-trend text-muted-custom mt-2">Configured in Settings</div>
     </div>
   </div>
   <div class="col-6 col-md-3">
@@ -117,7 +120,7 @@ require ROOT_PATH . '/includes/header.php';
   </div>
 </div>
 
- 
+
 <div class="row g-3">
   <div class="col-12">
     <div class="tc-card">
@@ -148,6 +151,7 @@ require ROOT_PATH . '/includes/header.php';
   </div>
 </div>
 
+<?php require ROOT_PATH.'/includes/trip-fuel-comparison-ui.php'; ?>
 <?php if (can('fuel.manage')):
   $driver_fuel_trip = null;
   $current_driver_id = null;
@@ -159,7 +163,7 @@ require ROOT_PATH . '/includes/header.php';
       }
   }
 ?>
- 
+
 <div id="modal-log-fuel" class="tc-modal-backdrop">
   <div class="tc-modal">
     <div class="tc-card-header">
@@ -205,7 +209,7 @@ require ROOT_PATH . '/includes/header.php';
           </div>
           <div class="col-6">
             <label class="tc-form-label">Price per Liter (<?= e(currency_symbol()) ?>)</label>
-            <input type="number" step="0.01" name="price_per_liter" class="tc-form-control" value="58.40" required>
+            <input type="number" step="0.01" name="price_per_liter" class="tc-form-control" value="" min="0.0001" required>
           </div>
           <div class="col-6">
             <label class="tc-form-label">Current Odometer (km)</label>
@@ -240,5 +244,6 @@ require ROOT_PATH . '/includes/header.php';
 </div>
 <?php endif; ?>
 
+<?php if(can('fuel.manage')) require ROOT_PATH.'/includes/fuel-log-defaults.php'; ?>
 <script src="<?= BASE_URL ?>/js/fuel-management.js?v=<?= (int)filemtime(ROOT_PATH . '/js/fuel-management.js') ?>"></script>
 <?php require ROOT_PATH . '/includes/footer.php'; ?>

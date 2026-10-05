@@ -2,6 +2,11 @@
 
 function vehicle_operational_compliance(PDO $pdo, string $vehicleId, ?string $today = null): array
 {
+    $lifecycle = $pdo->prepare('SELECT status FROM vehicles WHERE id=?');
+    $lifecycle->execute([$vehicleId]);
+    if (in_array($lifecycle->fetchColumn(), ['Retired','Inactive'], true)) {
+        return ['operational'=>false,'status'=>'NOT OPERATIONAL','reason'=>'This vehicle is retired or inactive and cannot be assigned or dispatched.','test_data'=>false];
+    }
     $requiredDocuments = [
         'registration' => 'Registration document',
         'insurance' => 'Insurance document',
@@ -25,10 +30,20 @@ function vehicle_operational_compliance(PDO $pdo, string $vehicleId, ?string $to
         ];
     }
 
+    return vehicle_compliance_evaluate($documents, $today);
+}
+
+/** Evaluate a batch-loaded document snapshot using the operational rules. */
+function vehicle_compliance_evaluate(array $documents, ?string $today = null): array
+{
+    $requiredDocuments = ['registration'=>'Registration document','insurance'=>'Insurance document','ltfrb_permit'=>'LTFRB Permit'];
     $today ??= date('Y-m-d');
     $reasons = [];
     $hasTestFixtures = false;
-    $isDevelopment = in_array(strtolower((string)(getenv('APP_ENV') ?: 'production')), ['development', 'testing'], true);
+    // Bootstrap's request-local configuration is stable under threaded Apache;
+    // process environment values can change while other requests are running.
+    $environment = $_ENV['APP_ENV'] ?? (getenv('APP_ENV') ?: 'production');
+    $isDevelopment = in_array(strtolower(trim((string)$environment)), ['development', 'testing'], true);
 
     foreach ($requiredDocuments as $type => $label) {
         if (!isset($documents[$type])) {

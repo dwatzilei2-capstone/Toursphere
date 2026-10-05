@@ -4,6 +4,8 @@
 
 
 $active_page = $active_page ?? '';
+require_once ROOT_PATH . '/includes/archive.php';
+require_once ROOT_PATH . '/includes/reports.php';
 $is_driver = ($current_user['role_code'] ?? '') === 'driver';
 $is_customer = ($current_user['role_code'] ?? '') === 'customer';
 
@@ -226,11 +228,21 @@ if (!function_exists('nav_active')) {
        
       <div class="sidebar-section-title">System</div>
       <ul class="p-0 m-0">
-        <?php if (can('reports.view')): ?>
+        <?php if (audit_can_view()): ?>
+        <li class="nav-item-custom"><a class="nav-link-custom <?= nav_active('audit-log') ?>" href="<?= BASE_URL ?>/audit-log.php"><i class="bi bi-journal-text"></i><span class="nav-label">Audit Log</span></a></li>
+        <?php endif; ?>
+        <?php if (reports_allowed()): ?>
         <li class="nav-item-custom">
           <a class="nav-link-custom <?= nav_active('reports') ?>" href="<?= BASE_URL ?>/reports.php">
             <i class="bi bi-file-earmark-bar-graph"></i>
             <span class="nav-label">Reports</span>
+          </a>
+        </li>
+        <?php endif; ?>
+        <?php if (archive_can_view()): ?>
+        <li class="nav-item-custom">
+          <a class="nav-link-custom <?= nav_active('archive') ?>" href="<?= BASE_URL ?>/archive.php">
+            <i class="bi bi-archive"></i><span class="nav-label">Archive</span>
           </a>
         </li>
         <?php endif; ?>

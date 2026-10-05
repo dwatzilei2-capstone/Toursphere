@@ -2,10 +2,16 @@
  
 require_once __DIR__ . '/includes/bootstrap.php';
 require_login();
+require_once ROOT_PATH . '/includes/trip_funding.php';
 
 $pdo = db();
 
 $trip_id = $_GET['id'] ?? 'TRP-8801';
+if (has_role('driver')) {
+    $owner=$pdo->prepare('SELECT 1 FROM trips t JOIN drivers d ON d.id=t.driver_id WHERE t.id=? AND d.user_id=?');
+    $owner->execute([$trip_id,$current_user['id']]);
+    if(!$owner->fetchColumn()){http_response_code(404);exit('Trip not found.');}
+}
 if (has_role('customer')) {
     $owner = $pdo->prepare('SELECT 1 FROM trips t JOIN reservations r ON r.id=t.reservation_id WHERE t.id=? AND r.customer_id=?');
     $owner->execute([$trip_id, $current_user['id']]);
@@ -52,6 +58,11 @@ require ROOT_PATH . '/includes/header.php';
 
 <div class="row g-3">
   <div class="col-lg-7">
+    <?php if (funding_can_view()): ?>
+    <section class="tc-card funding-inline p-3 mb-3"><h2 class="fs-6 fw-bold">Trip Funding</h2><p class="small text-muted-custom">Review the saved estimate, requested funding and Finance status before dispatch.</p><button type="button" class="tc-btn tc-btn-primary tc-btn-sm" onclick="TripFunding.open(null, '<?= e($trip['id']) ?>')">View Trip Funding</button></section>
+    <?php elseif (has_role('driver')): $safeFunding=funding_request($pdo,$trip['id']); ?>
+    <section class="tc-card p-3 mb-3"><h2 class="fs-6 fw-bold">Trip Funding</h2><div class="small">Funding Method: <?= e($safeFunding['method_name'] ?? 'Not Requested') ?><br>Funding Status: <?= e($safeFunding['status'] ?? 'Not Requested') ?></div></section>
+    <?php endif; ?>
     <div class="tc-card p-3 mb-3">
       <h4 class="fw-bold mb-3 fs-6"><i class="bi bi-info-circle me-2 text-primary-custom"></i>Trip Summary & Allocation</h4>
       <div class="row g-2 small">
@@ -60,7 +71,7 @@ require ROOT_PATH . '/includes/header.php';
         <div class="col-6"><span class="text-muted-custom">Departure Time:</span> <strong><?= e(date('h:i A (M d, Y)', strtotime($trip['scheduled_departure']))) ?></strong></div>
         <div class="col-6"><span class="text-muted-custom">Distance:</span> <strong><?= number_format((float)$trip['distance_km'], 1) ?> km</strong></div>
         <div class="col-6"><span class="text-muted-custom">Estimated Fuel:</span> <strong><?= e($trip['fuel_estimate'] ?? '—') ?></strong></div>
-        <div class="col-6"><span class="text-muted-custom">Total Trip Cost:</span> <strong class="text-primary-custom"><?= money($trip['total_cost']) ?></strong></div>
+        <div class="col-6"><span class="text-muted-custom">Actual Recorded Trip Cost:</span> <strong class="text-primary-custom"><?= funding_money(funding_actual_cost($pdo,$trip['id'])) ?></strong></div>
       </div>
     </div>
 

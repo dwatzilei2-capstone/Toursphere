@@ -25,6 +25,9 @@ if (file_exists($envFile) && is_readable($envFile)) {
     }
 }
 
+require_once __DIR__ . '/runtime-errors.php';
+toursphere_configure_runtime_errors((string)($_ENV['APP_ENV'] ?? (getenv('APP_ENV') ?: 'production')));
+
 require_once dirname(__DIR__) . '/config/database.php';
 require_once dirname(__DIR__) . '/config/maps.php';
 require_once dirname(__DIR__) . '/includes/functions.php';
@@ -36,3 +39,5 @@ db()->prepare("SELECT set_config('TimeZone', ?, false)")->execute([company_timez
 
 require_once __DIR__ . '/notifications.php';
 load_current_user();
+require_once __DIR__ . '/audit.php';
+audit_set_actor(db(), current_user());

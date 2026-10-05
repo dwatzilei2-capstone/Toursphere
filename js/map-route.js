@@ -87,7 +87,7 @@ class AIRouteEngine {
       "Executive Van": 9.2,
       "VIP SUV": 10.5
     };
-    this.fuelPricePerLiter = 58.40;  
+    this.fuelPricePerLiter = null;
   }
 
   init(containerId = "map") {
@@ -1368,7 +1368,9 @@ class AIRouteEngine {
     };
     const weights = weightsByMode[this.currentMode] || weightsByMode.balanced;
     const vehicleName = document.getElementById("route-vehicle-select")?.value || "Tour Bus";
-    const economy = Math.max(1, this.getVehicleEconomy(vehicleName));
+    const economy = this.getVehicleEconomy(vehicleName);
+    const configuredPrice=Number(document.getElementById('route-vehicle-select')?.selectedOptions[0]?.dataset.fuelPrice);
+    this.fuelPricePerLiter=configuredPrice>0?configuredPrice:null;
     const vehicleLabel = vehicleName.toLowerCase();
     const vehicleCapacity = vehicleLabel.includes("tour bus") ? 45
       : vehicleLabel.includes("coaster") ? 29
@@ -1381,18 +1383,18 @@ class AIRouteEngine {
       const trafficRatio = Math.max(1, candidate.trafficDelayRatio || 1);
       const exactDistanceKm = (candidate.distanceMeters || (candidate.distanceKm * 1000)) / 1000;
       const exactDurationSecs = candidate.durationSecs || (candidate.durationMins * 60);
-      const fuel = (exactDistanceKm / economy) * (1 + 0.40 * (trafficRatio - 1));
-      const toll = candidate.distanceKm * candidate.highwayRatio * 3.80;
-      const fuelCost = fuel * this.fuelPricePerLiter;
+      const fuel = economy>0 ? (exactDistanceKm / economy) * (1 + 0.40 * (trafficRatio - 1)) : null;
+      const toll = null; // No configured toll source exists; exclude it from operational estimates.
+      const fuelCost = fuel!==null && this.fuelPricePerLiter!==null ? fuel * this.fuelPricePerLiter : null;
       return {
         ...candidate,
         exactDistanceMeters: candidate.distanceMeters || (candidate.distanceKm * 1000),
         exactDurationSecs,
         exactFuelEstimateLiters: fuel,
-        fuelEstimateLiters: Number(fuel.toFixed(2)),
-        fuelCost: Math.round(fuelCost),
-        tollEstimate: Math.round(toll),
-        totalTripCost: Math.round(fuelCost + toll),
+        fuelEstimateLiters: fuel===null?null:Number(fuel.toFixed(2)),
+        fuelCost: fuelCost===null?null:Math.round(fuelCost),
+        tollEstimate: toll,
+        totalTripCost: fuelCost===null?null:Math.round(fuelCost),
         features: {
           distance_km: exactDistanceKm,
           base_duration_mins: candidate.baseDurationMins,
@@ -1452,10 +1454,10 @@ class AIRouteEngine {
       candidates: evaluated,
       distance: `${selected.distanceKm.toFixed(1)} km`,
       duration: hours ? `${hours} hr${hours > 1 ? "s" : ""} ${minutes} min${minutes !== 1 ? "s" : ""}` : `${minutes} mins`,
-      fuelEstimate: `${selected.fuelEstimateLiters.toFixed(1)} L`,
-      fuelCost: `₱${selected.fuelCost.toLocaleString()}`,
-      tollEstimate: `₱${selected.tollEstimate.toLocaleString()}`,
-      totalTripCost: `₱${selected.totalTripCost.toLocaleString()}`,
+      fuelEstimate: selected.fuelEstimateLiters===null?'Efficiency unavailable':`${selected.fuelEstimateLiters.toFixed(1)} L`,
+      fuelCost: selected.fuelCost===null?'Current fuel price unavailable':`₱${selected.fuelCost.toLocaleString()}`,
+      tollEstimate: 'Not Included in Estimate',
+      totalTripCost: selected.totalTripCost===null?'Not Available':`₱${selected.totalTripCost.toLocaleString()}`,
       routeScore: selected.compositeScore,
       explanation: `Selected ${selected.summary} as the best available candidate for ${this.getModeTitle(this.currentMode)}.`,
       modelVersion: "v0-kinematic",
@@ -1551,7 +1553,9 @@ class AIRouteEngine {
       distanceKm: selectedCandidate.distanceKm,
       duration: aiData.duration,
       durationMins: selectedCandidate.durationMins,
-      fuelEstimate: `${aiData.fuelEstimate} (${aiData.fuelCost})`,
+      fuelEstimate: selectedCandidate.fuelCost === null
+        ? `${aiData.fuelEstimate} · ${!aiData.vehicleSpecs?.efficiency_available ? "Add vehicle fuel efficiency in Fleet & Vehicles to estimate fuel cost." : "Configure the current fuel price in Settings → Fuel Prices."}`
+        : `${aiData.fuelEstimate} (${aiData.fuelCost})`,
       fuelEstimateLiters: selectedCandidate.fuelEstimateLiters,
       tollEstimate: aiData.tollEstimate,
       totalTripCost: aiData.totalTripCost,
@@ -1574,6 +1578,7 @@ class AIRouteEngine {
       }
     }
     this.updateResultsUI();
+    this.updateDispatchStartButton();
     if (!this.isNavigating && !this.preserveViewportOnRouteSwitch) this.fitMapBounds();
     if (window.TC_ROUTE_CONTEXT?.resumeNavigation && !this.navigationResumeAttempted && !this.isNavigating) {
       this.navigationResumeAttempted = true;
@@ -1662,7 +1667,7 @@ class AIRouteEngine {
     const form = new FormData();
     form.append("origin", origin);
     form.append("destination", destination);
-    form.append("vehicle", vehicleValue);
+    form.append("vehicle", vehicleSelect?.selectedOptions[0]?.dataset.vehicleId || vehicleValue);
     form.append("trip_id", window.TC_ROUTE_CONTEXT?.tripId || "");
     form.append("reservation_id", window.TC_ROUTE_CONTEXT?.reservationId || "");
     form.append("mode", this.currentMode);
@@ -1692,6 +1697,11 @@ class AIRouteEngine {
    
    
   async startNavigation(options = {}) {
+    if (window.TC_ROUTE_CONTEXT?.isDriver && !['Dispatched', 'In Transit', 'Returning to Depot'].includes(window.TC_ROUTE_CONTEXT.tripStatus)) {
+      this.updateDispatchStartButton();
+      window.showAppToast?.('Waiting for Dispatch', 'This trip has not been dispatched yet. Please wait for the Dispatcher/Admin.', 'warning');
+      return;
+    }
     if (this.isNavigating) {
       this.recenterNavigation();
       return;
@@ -2515,11 +2525,22 @@ class AIRouteEngine {
   }
 
   getVehicleEconomy(name) {
-    if (name.includes("Coaster") || name.includes("29")) return 6.4;
-    if (name.includes("Bus") || name.includes("45s")) return 3.8;
-    if (name.includes("Van") || name.includes("HiAce")) return 9.2;
-    if (name.includes("SUV") || name.includes("Everest")) return 10.5;
-    return 7.0;
+    const value=document.getElementById('route-vehicle-select')?.selectedOptions[0]?.dataset.consumption || '';
+    const match=value.match(/^\s*(\d+(?:\.\d+)?)\s*km\s*\/\s*l\s*$/i);
+    return match && Number(match[1])>0?Number(match[1]):null;
+  }
+  async saveFundingRoute(button) {
+    const message=document.getElementById('funding-route-message');
+    if(!this.currentRouteData || !(this.currentRouteData.distanceKm>0)){message.textContent='Generate the assigned route first.';return;}
+    button.disabled=true;
+    try{
+      const fields=new URLSearchParams({csrf:window.TC_ROUTE_PREPARE_CSRF,trip_id:window.TC_ROUTE_CONTEXT.tripId,
+        vehicle_id:document.getElementById('route-vehicle-select')?.selectedOptions[0]?.dataset.vehicleId||'',
+        origin:document.getElementById('route-origin-input').value,destination:document.getElementById('route-dest-input').value,
+        distance_km:this.currentRouteData.distanceKm,strategy:this.currentMode});
+      const response=await fetch(`${window.TC_BASE_URL}/actions/route-preparation.php`,{method:'POST',body:fields,credentials:'same-origin'});
+      const data=await response.json();if(!data.ok)throw Error(data.error);message.textContent='Route saved. Return to Reservation & Dispatch to prepare Trip Funding.';
+    }catch(error){message.textContent=error.message;}finally{button.disabled=false;}
   }
 
   getModeTitle(mode) {
@@ -2731,10 +2752,21 @@ class AIRouteEngine {
         if (navBtn) {
           navBtn.disabled = false;
           navBtn.innerHTML = `<i class="bi bi-compass-fill me-2 fs-6"></i> START NAVIGATION`;
+          this.updateDispatchStartButton();
         }
       });
 
     return this.routeSaveInFlight;
+  }
+
+  updateDispatchStartButton() {
+    if (!window.TC_ROUTE_CONTEXT?.isDriver) return;
+    const button = document.getElementById('btn-start-navigation');
+    if (!button || this.isNavigating || this.routeSaveInFlight) return;
+    const allowed = ['Dispatched', 'In Transit', 'Returning to Depot'].includes(window.TC_ROUTE_CONTEXT.tripStatus);
+    button.disabled = !allowed;
+    button.textContent = allowed ? 'START NAVIGATION' : 'Waiting for Dispatch';
+    button.title = allowed ? '' : 'This trip has not been dispatched yet. Please wait for the Dispatcher/Admin.';
   }
 }
 

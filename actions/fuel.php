@@ -2,6 +2,7 @@
  
 require_once dirname(__DIR__) . '/includes/bootstrap.php';
 require_once ROOT_PATH . '/includes/driver_fuel_context.php';
+require_once ROOT_PATH . '/includes/trip_funding.php';
 require_login();
 require_permission('fuel.manage');
 
@@ -14,6 +15,7 @@ try {
     $pdo = db();
 
     if (($_POST['action'] ?? '') === 'create') {
+        if(!is_string($_POST['csrf']??null) || empty($_SESSION['fuel_csrf']) || !hash_equals($_SESSION['fuel_csrf'],$_POST['csrf'])) throw new RuntimeException('Fuel log session expired. Refresh the page.');
         $vehicle_id = trim($_POST['vehicle_id'] ?? '');
         $trip_id    = trim($_POST['trip_id'] ?? '');
         $driver_id  = !empty($_POST['driver_id']) ? trim($_POST['driver_id']) : null;
@@ -40,10 +42,19 @@ try {
         $price      = (float)($_POST['price_per_liter'] ?? 0);
         $odometer   = (int)($_POST['odometer'] ?? 0);
         $station    = trim($_POST['station'] ?? '');
-        $fuel_type  = trim($_POST['fuel_type'] ?? 'Diesel');
+        $vehicleFuel=$pdo->prepare('SELECT fuel_type FROM vehicles WHERE id=?');$vehicleFuel->execute([$vehicle_id]);
+        $fuel_type=(string)$vehicleFuel->fetchColumn();
+        if($fuel_type==='')throw new RuntimeException('Assigned vehicle fuel type is unavailable.');
+        $systemPrice=fuel_current_price($pdo,$fuel_type);
+        if(!empty($_POST['system_fuel_price_id'])) {
+            $savedPrice=$pdo->prepare('SELECT * FROM fuel_price_history WHERE id=? AND lower(fuel_type)=lower(?) AND effective_date<=CURRENT_DATE');
+            $savedPrice->execute([(int)$_POST['system_fuel_price_id'],$fuel_type]);
+            $systemPrice=$savedPrice->fetch() ?: $systemPrice;
+        }
+        $funding=$trip_id!==''?funding_request($pdo,$trip_id):null;
         $verifiedTripConsumption = ($_POST['verified_trip_consumption'] ?? '') === '1';
 
-        if ($vehicle_id === '' || $liters <= 0 || $price <= 0 || $station === '') {
+        if ($vehicle_id === '' || !is_finite($liters) || !is_finite($price) || $liters <= 0 || $price <= 0 || $station === '') {
             redirect_with_toast($return, 'Please fill in the required fuel transaction fields.', 'danger');
         }
 
@@ -68,6 +79,8 @@ try {
             'REC-' . strtoupper(substr(preg_replace('/[^A-Za-z0-9]/', '', $station), 0, 3)) . '-' . mt_rand(10000, 99999),
             $efficiency,
         ]);
+        $pdo->prepare('UPDATE fuel_transactions SET system_default_price=?,system_fuel_price_id=?,funding_request_id=?,funding_method=?,funding_safe_reference=? WHERE id=?')
+            ->execute([$systemPrice['price_per_liter']??null,$systemPrice['id']??null,$funding['id']??null,$funding['method_name']??null,$funding['safe_reference']??null,$fid]);
 
          
         $pdo->prepare('UPDATE vehicles SET odometer = ?, current_fuel = 100 WHERE id = ?')->execute([$odometer, $vehicle_id]);

@@ -98,7 +98,13 @@ require ROOT_PATH . '/includes/header.php';
                   <div class="bg-primary-subtle p-2 rounded mb-1">
                     <strong class="d-block text-primary"><?= e($short_id) ?>: <?= e(explode(',', $r['destination'])[0]) ?></strong>
                     <span class="text-muted-custom">
-                      <?= e($r['brand'] ?? '') ?> <?= e($r['vehicle_type'] ?? '') ?> (<?= (int)$r['capacity'] ?> pax) • <?= e(driver_short_name($r['driver_name'] ?? '')) ?>
+                      <?= (int)$r['passenger_count'] > 0 ? (int)$r['passenger_count'] . ' pax' : 'Passenger count unavailable' ?>
+                      <br>
+                      <?php if (!empty($r['assigned_vehicle_id'])): ?>
+                        <?= e(trim(($r['brand'] ?? '') . ' ' . ($r['vehicle_type'] ?? '')) ?: $r['assigned_vehicle_id']) ?>
+                        <?php if ((int)($r['capacity'] ?? 0) > 0): ?> (Capacity: <?= (int)$r['capacity'] ?>)<?php endif; ?>
+                      <?php else: ?>Vehicle not assigned<?php endif; ?>
+                      • <?= !empty($r['driver_name']) ? e(driver_short_name($r['driver_name'])) : 'Driver not assigned' ?>
                     </span>
                   </div>
                 <?php endforeach; else: ?>

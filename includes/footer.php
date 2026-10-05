@@ -114,8 +114,15 @@ $page_scripts = $page_scripts ?? '';
   <script src="<?= BASE_URL ?>/js/map-route.js?v=<?= (int)@filemtime(ROOT_PATH . '/js/map-route.js') ?>"></script>
   <?php endif; ?>
   <script src="<?= BASE_URL ?>/js/app.js?v=<?= (int)@filemtime(ROOT_PATH . '/js/app.js') ?>"></script>
+  <script src="<?= BASE_URL ?>/js/table-scroll.js?v=<?= (int)filemtime(ROOT_PATH . '/js/table-scroll.js') ?>"></script>
+  <?php if (isset($_SESSION['archive_success'])):
+    $archive_success=(string)$_SESSION['archive_success']; unset($_SESSION['archive_success']); ?>
+  <script>document.addEventListener('DOMContentLoaded', () => { App.showToast('Success', App.escapeHtml(<?= json_encode($archive_success,JSON_HEX_TAG|JSON_HEX_AMP|JSON_HEX_APOS|JSON_HEX_QUOT) ?>), 'success'); });</script>
+  <?php endif; ?>
   <script src="<?= BASE_URL ?>/js/notifications.js?v=<?= (int)@filemtime(ROOT_PATH . '/js/notifications.js') ?>"></script>
   <?php if (!empty($include_role_portal_polish)): ?><script src="<?= BASE_URL ?>/js/role-portals.js?v=<?= (int)filemtime(ROOT_PATH . '/js/role-portals.js') ?>"></script><?php endif; ?>
+  <?php if (in_array($active_page ?? '', ['vehicles','dispatch-board'], true)) require ROOT_PATH . '/includes/archive-ui.php'; ?>
+  <?php if (in_array($active_page ?? '', ['reservations','dispatch-board'], true) || basename($_SERVER['SCRIPT_NAME'] ?? '') === 'trip-details.php') require ROOT_PATH . '/includes/trip-funding-ui.php'; ?>
   <?php if (!empty($page_scripts)): ?>
   <?= $page_scripts   ?>
   <?php endif; ?>

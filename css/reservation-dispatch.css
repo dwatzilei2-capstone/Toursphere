@@ -274,3 +274,131 @@
     scroll-behavior: auto !important;
   }
 }
+/* Scoped to the vehicle/driver controls in the assignment modal. */
+#modal-dispatch .assignment-picker { position: relative; min-width: 0; }
+#modal-dispatch .assignment-picker-trigger { cursor: pointer; list-style: none; padding-right: 2rem; }
+#modal-dispatch .assignment-picker-trigger::-webkit-details-marker { display: none; }
+#modal-dispatch .assignment-picker-trigger[aria-disabled="true"] { background-color: var(--bs-secondary-bg, #e9ecef); cursor: default; }
+#modal-dispatch .assignment-picker-trigger:focus-visible,
+#modal-dispatch .assignment-picker-row:focus-visible { outline: 2px solid var(--bs-primary); outline-offset: 2px; }
+#modal-dispatch .assignment-picker-list { position: absolute; z-index: 20; top: calc(100% + 4px); left: 0; right: 0; max-height: min(280px, 40vh); overflow-y: auto; background: var(--bs-body-bg, #fff); border: 1px solid var(--bs-border-color, #dee2e6); border-radius: 8px; box-shadow: 0 6px 18px rgba(0,0,0,.12); padding: 4px; }
+#modal-dispatch .assignment-picker-row { display: block; width: 100%; min-height: 44px; border: 0; border-radius: 5px; background: transparent; color: inherit; padding: 9px 8px; text-align: left; font: inherit; }
+#modal-dispatch .assignment-picker-row:not(:disabled):hover { background: var(--bs-tertiary-bg, #f8f9fa); }
+#modal-dispatch .assignment-picker-row:disabled { color: var(--bs-secondary-color, #6c757d); background: var(--bs-tertiary-bg, #f8f9fa); cursor: not-allowed; }
+#modal-dispatch .assignment-picker-content { display: block; min-width: 0; }
+#modal-dispatch .assignment-picker-heading { display: flex; flex-wrap: wrap; align-items: center; gap: 5px 8px; font-size: .82rem; line-height: 1.45; }
+#modal-dispatch .assignment-picker-heading > span:first-child { flex: 1 1 130px; overflow-wrap: anywhere; }
+#modal-dispatch .assignment-status { flex: 0 0 auto; font-size: .68rem; font-weight: 600; line-height: 1.4; padding: 2px 7px; border-radius: 4px; }
+#modal-dispatch .assignment-status.is-available { color: var(--bs-success-text-emphasis, #0a3622); background: var(--bs-success-bg-subtle, #d1e7dd); }
+#modal-dispatch .assignment-status.is-unavailable { color: var(--bs-danger-text-emphasis, #58151c); background: var(--bs-danger-bg-subtle, #f8d7da); }
+#modal-dispatch .assignment-picker-reason { display: block; font-size: .75rem; line-height: 1.4; margin-top: 3px; overflow-wrap: anywhere; }
+/* Compact reservation assignment, aligned with TourSphere's operational UI. */
+#modal-dispatch { height:min(100dvh,var(--tc-visible-height,100dvh)); }
+#modal-dispatch .assignment-modal { width:min(720px,100%); margin:0; max-width:720px; max-height:min(calc(100dvh - 32px),calc(var(--tc-visible-height,100dvh) - 32px)); animation:none; transition:none; transform:none; display:flex; flex-direction:column; overflow:hidden; }
+#modal-dispatch .tc-card-header { flex:none; border-bottom:1px solid #EEF2F7; padding:16px 20px; }
+#modal-dispatch-body { min-height:0; overflow:auto; padding:0; }
+#modal-dispatch-body:has(.dispatch-assignment-form) { display:flex; overflow:hidden; }
+#modal-dispatch .dispatch-assignment-form { display:flex; flex-direction:column; flex:1; min-height:0; min-width:0; color:#1F2937; }
+#modal-dispatch .assignment-form-content { padding:14px 20px; display:grid; gap:12px; min-height:0; overflow:auto; overscroll-behavior:contain; flex:1; }
+#modal-dispatch .assignment-form-content section { min-width:0; }
+#modal-dispatch .assignment-form-content h5 { display:flex; align-items:center; gap:8px; font-size:13px; font-weight:600; margin:0 0 7px; }
+#modal-dispatch .assignment-form-content h5 > i,#modal-dispatch .tc-form-label > i { color:#2F80ED; font-size:15px; }
+#modal-dispatch .assignment-summary { background:#f3f8ff; border:1px solid #e8f0fc; border-radius:8px; padding:12px; }
+#modal-dispatch .assignment-summary-heading { display:flex; justify-content:space-between; align-items:flex-start; gap:8px; }
+#modal-dispatch .assignment-summary-identity { display:flex; align-items:center; flex-wrap:wrap; gap:8px; min-width:0; }
+#modal-dispatch .assignment-reservation-id { color:#2F80ED; font-size:13px; font-weight:600; overflow-wrap:anywhere; }
+#modal-dispatch .assignment-customer { display:block; font-size:13px; font-weight:600; margin:3px 0 5px; overflow-wrap:anywhere; }
+#modal-dispatch .assignment-summary-bottom { display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:6px 12px; font-size:10.5px; }
+#modal-dispatch .assignment-route { color:#6B7280; overflow-wrap:anywhere; }
+#modal-dispatch .assignment-route i,#modal-dispatch .assignment-requirements i { margin-right:4px; }
+#modal-dispatch .assignment-requirements { display:flex; flex-wrap:wrap; gap:6px 12px; }
+#modal-dispatch [data-assignment-message] { font-size:11px; color:#6B7280; margin-bottom:9px; }
+#modal-dispatch .assignment-vehicle-card { display:grid; grid-template-columns:16px 52px minmax(0,1fr); align-items:center; column-gap:10px; width:100%; padding:8px 12px; text-align:left; color:#1F2937; background:#fff; border:1px solid #EEF2F7; border-radius:7px; font:inherit; font-size:11px; line-height:1.35; overflow-wrap:anywhere; min-height:62px; }
+#modal-dispatch .assignment-vehicle-card.is-recommended { background:#f2f7ff; border-color:#b6d4ff; padding:10px 12px; grid-template-columns:16px 76px minmax(0,1fr); }
+#modal-dispatch .assignment-vehicle-card.is-selected { border-color:#2F80ED; box-shadow:inset 0 0 0 1px #2F80ED; background:#f2f7ff; }
+#modal-dispatch .assignment-vehicle-card:not(:disabled):hover { background:#f5f9ff; }
+#modal-dispatch .assignment-vehicle-card:focus-visible,#modal-dispatch .eligible-driver-option:focus-visible,#modal-dispatch summary:focus-visible { outline:2px solid #2F80ED; outline-offset:2px; }
+#modal-dispatch .assignment-vehicle-card:disabled { background:#F8FAFC; color:#6B7280; cursor:not-allowed; }
+#modal-dispatch .assignment-choice-indicator { width:15px; height:15px; border:1px solid #a7b5c8; border-radius:50%; background:#fff; position:relative; }
+#modal-dispatch .is-selected .assignment-choice-indicator { border:2px solid #2F80ED; }
+#modal-dispatch .is-selected .assignment-choice-indicator::after { content:""; position:absolute; inset:2px; border-radius:50%; background:#2F80ED; }
+#modal-dispatch .assignment-vehicle-card:disabled .assignment-choice-indicator { border-color:#d5dce6; background:#EEF2F7; }
+#modal-dispatch .assignment-vehicle-thumbnail { width:52px; height:42px; border-radius:6px; border:1px solid #e3e9f2; background:#F8FAFC; color:#7b8da8; display:flex; align-items:center; justify-content:center; font-size:26px; }
+#modal-dispatch .is-recommended .assignment-vehicle-thumbnail { width:76px; height:66px; font-size:36px; background:#fff; }
+#modal-dispatch .assignment-vehicle-content { display:flex; flex-direction:column; gap:2px; min-width:0; }
+#modal-dispatch .assignment-vehicle-heading { display:flex; justify-content:space-between; align-items:flex-start; gap:8px; width:100%; }
+#modal-dispatch .assignment-vehicle-heading strong { font-size:12px; font-weight:600; min-width:0; }
+#modal-dispatch .assignment-vehicle-meta,#modal-dispatch .assignment-vehicle-driver { color:#6B7280; font-size:10.5px; }
+#modal-dispatch .is-recommended .assignment-vehicle-driver { color:#1F2937; margin-top:2px; }
+#modal-dispatch .assignment-driver-none { color:#9b3c25; }
+#modal-dispatch .assignment-recommendation-label { display:flex; flex-wrap:wrap; gap:6px; margin-bottom:4px; font-size:9px; font-weight:600; }
+#modal-dispatch .assignment-recommended-badge { padding:2px 5px; color:white; background:#2F80ED; border-radius:4px; }
+#modal-dispatch .assignment-match-badge { padding:2px 5px; color:#2765b6; background:#dcecff; border-radius:4px; }
+#modal-dispatch .assignment-reason { display:block; margin-top:3px; color:#6B7280; font-size:10px; }
+#modal-dispatch .assignment-reason i { color:#2F80ED; margin-right:3px; }
+#modal-dispatch .assignment-status { flex:0 0 auto; font-size:9px; font-weight:500; line-height:1.4; padding:3px 6px; border-radius:5px; white-space:normal; max-width:135px; }
+#modal-dispatch .assignment-status.is-available { color:#217747; background:#e3f5e9; }
+#modal-dispatch .assignment-status.is-attention { color:#955409; background:#fff0d2; }
+#modal-dispatch .assignment-status.is-unavailable { color:#ae3434; background:#fdeaea; }
+#modal-dispatch .assignment-passengers { color:#245ba7; background:#e1edff; }
+#modal-dispatch .assignment-other-vehicles { margin-top:10px; }
+#modal-dispatch .assignment-other-vehicles h6 { font-size:11px; font-weight:600; margin:0 0 6px; }
+#modal-dispatch .assignment-vehicle-list { max-height:235px; overflow-y:auto; overscroll-behavior:contain; scrollbar-width:auto; display:grid; gap:6px; padding:2px; }
+#modal-dispatch .assignment-unavailable { margin-top:10px; border:1px solid #EEF2F7; border-radius:7px; background:#F8FAFC; }
+#modal-dispatch .assignment-unavailable > summary { display:flex; align-items:center; gap:8px; padding:10px 12px; min-height:40px; cursor:pointer; font-size:11px; font-weight:600; list-style:none; }
+#modal-dispatch .assignment-unavailable > summary::-webkit-details-marker { display:none; }
+#modal-dispatch .assignment-unavailable > summary > i:first-child { color:#ae3434; font-size:14px; }
+#modal-dispatch .assignment-unavailable > summary > span { flex:1; min-width:0; }
+#modal-dispatch .assignment-unavailable > summary > i:last-child { color:#6B7280; transition:transform .15s; }
+#modal-dispatch .assignment-unavailable[open] > summary > i:last-child { transform:rotate(180deg); }
+#modal-dispatch .assignment-unavailable-list { margin:0 8px 8px; max-height:235px; }
+#modal-dispatch .assignment-picker-reason { font-size:10.5px; margin-top:2px; color:#9e4545; }
+#modal-dispatch .assignment-empty-list { font-size:11px; color:#6B7280; margin:3px 0; }
+#modal-dispatch .assigned-driver-info { padding:10px 12px; border:1px solid #EEF2F7; border-radius:7px; font-size:12px; position:relative; }
+#modal-dispatch .assigned-driver-info.needs-driver { background:#fff8e9; border-color:#f7dfae; }
+#modal-dispatch .assignment-driver-heading { display:flex; align-items:center; justify-content:space-between; gap:8px; }
+#modal-dispatch .assigned-driver-info strong { font-weight:600; }
+#modal-dispatch .assigned-driver-info p { color:#6B7280; font-size:10.5px; margin:2px 0 0; }
+#modal-dispatch .assignment-driver-prompt { display:flex; align-items:center; gap:9px; padding-right:125px; }
+#modal-dispatch .assignment-driver-prompt > i { font-size:20px; color:#b57313; }
+#modal-dispatch .eligible-driver-panel { margin:0; }
+#modal-dispatch .eligible-driver-panel > summary { position:absolute; right:12px; top:10px; cursor:pointer; padding:7px 9px; border:1px solid #bfd8fa; border-radius:5px; color:#2F80ED; background:#fff; font-size:10.5px; list-style:none; min-height:32px; }
+#modal-dispatch .eligible-driver-panel > summary::-webkit-details-marker { display:none; }
+#modal-dispatch .eligible-driver-list { max-height:220px; overflow:auto; display:grid; gap:6px; margin-top:10px; }
+#modal-dispatch .eligible-driver-option { display:flex; flex-direction:column; gap:3px; padding:10px; background:white; border:1px solid #EEF2F7; border-radius:6px; text-align:left; font:inherit; font-size:11px; min-height:44px; }
+#modal-dispatch .assignment-trip-fields { display:grid; grid-template-columns:minmax(0,.95fr) minmax(0,1.05fr); gap:16px; }
+#modal-dispatch .assignment-trip-fields .tc-form-label { display:flex; align-items:center; gap:6px; font-size:10.5px; font-weight:500; margin-bottom:6px; }
+#modal-dispatch .assignment-trip-fields .tc-form-control { font-size:11px; padding:8px 10px; min-height:36px; }
+#modal-dispatch #assignment-notes { min-height:62px; resize:vertical; }
+#modal-dispatch .assignment-trip-fields .form-text { font-size:10px; margin:4px 0 0; color:#6B7280; }
+#modal-dispatch .assignment-form-footer { flex:none; position:static; background:white; border-top:1px solid #EEF2F7; padding:14px 20px; display:flex; justify-content:flex-end; gap:8px; }
+#modal-dispatch .assignment-form-footer .tc-btn:disabled { opacity:.55; cursor:not-allowed; }
+#modal-dispatch .has-driver-selection .assignment-driver-prompt > i,#modal-dispatch .assignment-driver-selection-status { color:#217747; }
+#modal-dispatch .assignment-form-footer .tc-btn { font-size:12px; min-height:38px; padding:8px 14px; }
+.assignment-reassignment-dialog { width:min(480px,calc(100vw - 32px)); max-height:calc(100dvh - 32px); padding:0; border:1px solid #EEF2F7; border-radius:10px; overflow:auto; color:#1F2937; }
+.assignment-reassignment-dialog::backdrop { background:rgba(15,23,42,.45); }
+.assignment-reassignment-dialog .assignment-reassignment { margin:0; padding:20px; border:0; background:#F8FAFC; font-size:12px; }
+.assignment-reassignment-dialog .assignment-reassignment p { margin-bottom:12px; }
+@media(max-width:767px) {
+ #modal-dispatch .assignment-trip-fields { grid-template-columns:minmax(0,1fr); gap:12px; }
+}
+@media(max-width:575px) {
+ #modal-dispatch .tc-card-header { padding:14px 16px; }
+ #modal-dispatch .assignment-form-content { padding:12px 14px; gap:12px; }
+ #modal-dispatch .assignment-summary-bottom { display:grid; gap:6px; }
+ #modal-dispatch .assignment-summary-heading { flex-wrap:wrap; }
+ #modal-dispatch .assignment-status { font-size:10px; }
+ #modal-dispatch .assignment-vehicle-card,#modal-dispatch .assignment-vehicle-card.is-recommended { grid-template-columns:15px 42px minmax(0,1fr); gap:8px; padding:10px; }
+ #modal-dispatch .assignment-vehicle-thumbnail,#modal-dispatch .is-recommended .assignment-vehicle-thumbnail { width:42px; height:40px; font-size:24px; }
+ #modal-dispatch .assignment-vehicle-heading { flex-wrap:wrap; gap:4px; }
+ #modal-dispatch .assignment-vehicle-meta,#modal-dispatch .assignment-vehicle-driver,#modal-dispatch .assignment-reason { font-size:11px; }
+ #modal-dispatch .assignment-recommendation-label { font-size:9px; }
+ #modal-dispatch .assignment-vehicle-list { max-height:220px; }
+ #modal-dispatch .assignment-eligible-list:not(:has(.assignment-vehicle-card:nth-child(5))) { max-height:none; }
+ #modal-dispatch .assignment-driver-prompt { padding-right:0; align-items:flex-start; }
+ #modal-dispatch .eligible-driver-panel { margin-top:8px; }
+ #modal-dispatch .eligible-driver-panel > summary { position:static; display:inline-flex; align-items:center; gap:5px; min-height:44px; padding:8px 12px; font-size:12px; }
+ #modal-dispatch .assignment-trip-fields .tc-form-control { font-size:16px; }
+ #modal-dispatch .assignment-form-footer { padding:12px 14px; }
+ #modal-dispatch .assignment-form-footer .tc-btn { min-height:44px; flex:1; white-space:normal; }
+}

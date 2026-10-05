@@ -1,0 +1,41 @@
+/* Keep long forms reachable without changing their workflows. */
+.tc-modal-backdrop {
+  top: var(--tc-visible-top, 0px); bottom: auto;
+  height: var(--tc-visible-height, 100vh);
+  height: var(--tc-visible-height, 100dvh);
+  box-sizing: border-box;
+  padding: max(12px, env(safe-area-inset-top)) max(12px, env(safe-area-inset-right)) max(12px, env(safe-area-inset-bottom)) max(12px, env(safe-area-inset-left));
+  overflow-y: auto; overscroll-behavior: contain;
+}
+.tc-modal-backdrop .tc-modal {
+  min-width: 0; min-height: 0; flex-shrink: 0; width: 100%; margin: 0;
+  max-height: calc(var(--tc-visible-height, 100vh) - 24px - env(safe-area-inset-top) - env(safe-area-inset-bottom));
+  max-height: calc(var(--tc-visible-height, 100dvh) - 24px - env(safe-area-inset-top) - env(safe-area-inset-bottom));
+}
+.tc-modal > .tc-card-header, .tc-modal > .tc-card-footer { flex: 0 0 auto; }
+.tc-modal > .tc-card-body, .tc-modal > form, .tc-drawer > .tc-card-body, .tc-drawer > #drawer-driver-content {
+  flex: 1 1 auto; min-height: 0; min-width: 0; overflow-y: auto;
+  overscroll-behavior: contain; -webkit-overflow-scrolling: touch; scroll-padding-block: 16px;
+}
+.tc-drawer {
+  top: var(--tc-visible-top, 0px); bottom: auto;
+  height: var(--tc-visible-height, 100vh);
+  height: var(--tc-visible-height, 100dvh);
+}
+.tc-drawer > .tc-card-header { flex-shrink: 0; }
+form :is(.tc-form-control, .tc-form-select, .form-control, .form-select) { min-width: 0; max-width: 100%; }
+form .row > [class*="col-"] { min-width: 0; }
+.tc-modal :is(.tc-form-label, label, .form-text) { overflow-wrap: anywhere; }
+.tc-modal :is(.tc-form-control, .tc-form-select, .form-control, .form-select) { scroll-margin-block: 16px; }
+.tc-modal :is(.justify-content-end.gap-2, .tc-card-footer) { flex-wrap: wrap; }
+.tc-modal :is(.tc-btn, .btn) { white-space: normal; }
+.modal .modal-dialog { min-width: 0; }
+.modal .modal-content { max-height: calc(var(--tc-visible-height, 100dvh) - 24px); overflow-y: auto; }
+.modal .modal-body { min-height: 0; overflow-y: auto; }
+.modal :is(.modal-header, .modal-footer) { flex-shrink: 0; }
+@media (max-width: 575.98px) {
+  form .row > :is(.col-6, .col-4, .col-3) { flex: 0 0 100%; width: 100%; }
+  .tc-modal > .tc-card-body { padding: 16px; }
+  .tc-modal :is(.tc-btn, .btn):not(.btn-close) { min-height: 44px; }
+  form :is(.tc-form-control, .tc-form-select, .form-control, .form-select) { font-size: max(1rem, 16px); }
+}

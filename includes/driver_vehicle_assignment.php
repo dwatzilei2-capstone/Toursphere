@@ -32,7 +32,7 @@ function refresh_driver_operational_status(PDO $pdo, string $driverId): void
     if (driver_has_active_trip($pdo, $driverId)) {
         $status = 'On Trip';
     } else {
-        $stmt = $pdo->prepare('SELECT 1 FROM vehicles WHERE assigned_driver_id=? LIMIT 1');
+        $stmt = $pdo->prepare("SELECT 1 FROM vehicles WHERE assigned_driver_id=? AND status <> 'Retired' LIMIT 1");
         $stmt->execute([$driverId]);
         $status = $stmt->fetchColumn() ? 'Assigned' : 'Active';
     }
@@ -41,6 +41,9 @@ function refresh_driver_operational_status(PDO $pdo, string $driverId): void
 
 function refresh_vehicle_operational_status(PDO $pdo, string $vehicleId): void
 {
+    $lifecycle = $pdo->prepare('SELECT status FROM vehicles WHERE id=?');
+    $lifecycle->execute([$vehicleId]);
+    if ($lifecycle->fetchColumn() === 'Retired') return;
     $repair = $pdo->prepare("SELECT 1 FROM maintenance_orders WHERE vehicle_id=? AND status IN ('Scheduled','In Repair') LIMIT 1");
     $repair->execute([$vehicleId]);
     if ($repair->fetchColumn()) {

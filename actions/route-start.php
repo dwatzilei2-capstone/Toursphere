@@ -49,9 +49,23 @@ try {
         if (!$trip) throw new RuntimeException('The selected trip could not be found.');
     }
 
+    if ($trip && !in_array($trip['status'], ['Dispatched', 'In Transit', 'Returning to Depot'], true)) {
+        throw new RuntimeException('This trip has not been dispatched yet. Please wait for the Dispatcher/Admin.');
+    }
+    if ($trip && in_array($trip['status'], ['In Transit', 'Returning to Depot'], true) && empty($trip['route_history_id'])) {
+        throw new RuntimeException('An active trip cannot be started again without its saved navigation route.');
+    }
     if ($trip) {
         $tripId = $trip['id'];
         $reservationId = $trip['reservation_id'] ?? $reservationId;
+        $assignmentCheck = $pdo->prepare('SELECT status,assigned_vehicle_id,assigned_driver_id FROM reservations WHERE id=? FOR UPDATE');
+        $assignmentCheck->execute([$reservationId]);
+        $assignedReservation = $assignmentCheck->fetch();
+        if (!$assignedReservation || !in_array($assignedReservation['status'], ['Dispatched','In Transit','Returning to Depot'], true)
+            || $assignedReservation['assigned_driver_id'] !== $trip['driver_id']
+            || $assignedReservation['assigned_vehicle_id'] !== $trip['vehicle_id']) {
+            throw new RuntimeException('This trip has not been dispatched with its current assignment. Please wait for the Dispatcher/Admin.');
+        }
     }
 
      
@@ -84,12 +98,20 @@ try {
             exit;
         }
     }
+    if ($trip && $trip['status'] !== 'Dispatched') {
+        throw new RuntimeException('The saved navigation route could not be resumed.');
+    }
     $reservation = null;
     if ($reservationId !== '') {
         $resStmt = $pdo->prepare('SELECT * FROM reservations WHERE id = ? FOR UPDATE');
         $resStmt->execute([$reservationId]);
         $reservation = $resStmt->fetch();
         if (!$reservation) throw new RuntimeException('The route reservation could not be found.');
+        if ($trip && ($reservation['status'] !== 'Dispatched'
+            || $reservation['assigned_vehicle_id'] !== $trip['vehicle_id']
+            || $reservation['assigned_driver_id'] !== $trip['driver_id'])) {
+            throw new RuntimeException('This trip has not been dispatched with its current assignment. Please wait for the Dispatcher/Admin.');
+        }
     }
 
      

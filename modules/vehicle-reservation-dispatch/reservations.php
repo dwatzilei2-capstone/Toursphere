@@ -14,7 +14,7 @@ $dispatchVehicles = $pdo->query(
         SELECT 1 FROM maintenance_orders active_mo
          WHERE active_mo.vehicle_id = v.id AND active_mo.status = 'In Repair'
       )) AS is_under_maintenance
-     FROM vehicles v ORDER BY v.id"
+     FROM vehicles v WHERE NOT v.is_archived AND v.status NOT IN ('Retired','Inactive') ORDER BY v.id"
 )->fetchAll();
 foreach ($dispatchVehicles as &$vehicle) {
   $compliance = vehicle_operational_compliance($pdo, $vehicle['id']);
@@ -109,7 +109,7 @@ require ROOT_PATH . '/includes/header.php';
               'scheduledPassengerDemand' => (int)$r['scheduled_passenger_demand'],
               'origin' => $r['origin'],
               'destination' => $r['destination'],
-              'departureDate' => $r['departure_date'],
+              'departureScheduleInstanceId' => $r['departure_schedule_instance_id'], 'departureDate' => $r['departure_date'],
               'departureTime' => $r['departure_time'],
               'assignedVehicle' => $r['assigned_vehicle_id'] ? $r['assigned_vehicle_id'] . ' (' . $r['plate_number'] . ')' : 'Pending',
               'assignedDriver' => $r['driver_name'] ?? 'Pending',
@@ -148,10 +148,16 @@ require ROOT_PATH . '/includes/header.php';
                   <i class="bi bi-signpost-split"></i> Route
                 </a>
               <?php endif; ?>
+              <?php if (has_role('fleet_manager') && !empty($r['trip_id'])): ?>
+                <button type="button" class="tc-btn tc-btn-secondary tc-btn-sm" onclick="TripFunding.open('<?= e($r['id']) ?>')">View Trip Funding</button>
+              <?php endif; ?>
               <?php if (has_role(['fleet_admin','dispatcher']) && $r['status'] === 'Pending Approval'): ?>
                 <form method="post" action="<?= BASE_URL ?>/actions/reservation-review.php" class="d-inline"><input type="hidden" name="reservation_id" value="<?= e($r['id']) ?>"><input type="hidden" name="decision" value="approve"><button class="tc-btn tc-btn-primary tc-btn-sm" type="submit">Approve</button></form>
                 <button class="tc-btn tc-btn-outline-danger tc-btn-sm" type="button" onclick="openReservationReject('<?= e($r['id']) ?>')">Reject</button>
-              <?php elseif (can('dispatch.manage') && in_array($r['status'], ['Approved', 'Pending', 'Assigned', 'Confirmed'], true)): ?>
+              <?php elseif (can('dispatch.manage') && in_array($r['status'], ['Approved', 'Assigned', 'Confirmed'], true)): ?>
+                <?php if (has_role(['fleet_admin','dispatcher']) && in_array($r['status'],['Assigned','Confirmed'],true)): ?>
+                <button type="button" class="tc-btn tc-btn-secondary tc-btn-sm reservation-action-btn" onclick="TripFunding.open('<?= e($r['id']) ?>')"><i class="bi bi-wallet2"></i> Trip Funding</button>
+                <?php endif; ?>
                 <button class="tc-btn tc-btn-outline-danger tc-btn-sm reservation-action-btn" type="button" onclick="App.openReservationCancellationModal('<?= e($r['id']) ?>', 'cancel_reservation')">
                   <i class="bi bi-x-circle"></i> Cancel
                 </button>
@@ -180,11 +186,11 @@ require ROOT_PATH . '/includes/header.php';
 </div>
 
  
-<div id="modal-dispatch" class="tc-modal-backdrop">
-  <div class="tc-modal">
+<div id="modal-dispatch" class="tc-modal-backdrop" role="dialog" aria-modal="true" aria-labelledby="assignment-modal-title">
+  <div class="tc-modal assignment-modal">
     <div class="tc-card-header">
-      <h4 class="mb-0 fw-bold fs-6"><i class="bi bi-person-check me-2 text-primary-custom"></i>Assign Vehicle & Driver</h4>
-      <button type="button" class="btn-close" onclick="App.closeModal('modal-dispatch')"></button>
+      <h4 id="assignment-modal-title" class="mb-0 fw-bold fs-6"><i class="bi bi-person-check me-2 text-primary-custom"></i>Assign Vehicle & Driver</h4>
+      <button type="button" class="btn-close" onclick="App.closeModal('modal-dispatch')" aria-label="Close assignment"></button>
     </div>
     <div class="tc-card-body" id="modal-dispatch-body">
        
@@ -447,6 +453,7 @@ function openReservationReject(reservationId) {
 
 <script>
   window.TC_CAN_DISPATCH = <?= can('dispatch.manage') ? 'true' : 'false' ?>;
+  window.TC_ASSIGNMENT_CSRF = <?= json_encode($_SESSION['assignment_csrf'] ??= bin2hex(random_bytes(32))) ?>;
   window.TC_DISPATCH_DATA = <?= json_encode($dispatch_data, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES) ?>;
   window.TC_KANBAN_RESERVATIONS = <?= json_encode(array_map(function ($r) {
       return [
@@ -454,7 +461,7 @@ function openReservationReject(reservationId) {
           'passengerCount' => (int)$r['passenger_count'], 'requiredVehicleType' => $r['vehicle_requested'],
           'requiredCapacity' => $r['required_capacity'] === null ? null : (int)$r['required_capacity'], 'origin' => $r['origin'], 'destination' => $r['destination'],
           'scheduledPassengerDemand' => (int)$r['scheduled_passenger_demand'],
-          'departureDate' => $r['departure_date'], 'departureTime' => $r['departure_time'],
+          'departureScheduleInstanceId' => $r['departure_schedule_instance_id'], 'departureDate' => $r['departure_date'], 'departureTime' => $r['departure_time'],
           'assignedVehicle' => $r['assigned_vehicle_id'] ? $r['assigned_vehicle_id'] . ' (' . $r['plate_number'] . ')' : 'Pending',
           'assignedVehicleId' => $r['assigned_vehicle_id'], 'assignedDriverId' => $r['assigned_driver_id'],
           'assignedDriver' => $r['driver_name'] ?? 'Pending', 'status' => $r['status'], 'tripId' => $r['trip_id'],

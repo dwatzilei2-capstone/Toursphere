@@ -30,7 +30,7 @@ function schedule_operational_capacity_at(PDO $pdo, string $date, string $time):
     $buffer = max(1, min(72, (int)fleet_setting('dispatch.buffer_hours', '4')));
     $stmt = $pdo->prepare(
         "SELECT v.id,v.capacity FROM vehicles v
-          WHERE v.capacity>0 AND v.status NOT IN ('Maintenance','On Trip')
+          WHERE v.capacity>0 AND v.status NOT IN ('Maintenance','On Trip','Retired','Inactive')
             AND NOT EXISTS (SELECT 1 FROM maintenance_orders m WHERE m.vehicle_id=v.id AND m.status='In Repair')
             AND NOT EXISTS (
               SELECT 1 FROM reservations r WHERE r.assigned_vehicle_id=v.id

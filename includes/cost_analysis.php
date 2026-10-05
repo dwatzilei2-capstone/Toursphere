@@ -32,15 +32,18 @@ function cost_date_range(array $input, ?string $defaultFrom = null, ?string $def
     ];
 }
 
-function cost_sources_sql(): string
+function cost_sources_sql(bool $includeSourceId = false): string
 {
-    return "SELECT transaction_date::timestamp AS occurred_at, vehicle_id, trip_id, 'Fuel'::text AS category, total_cost::numeric AS amount
+    $fuelId=$includeSourceId ? 'id AS source_id, ' : '';
+    $maintenanceId=$includeSourceId ? 'id, ' : '';
+    $tripId=$includeSourceId ? 'id, ' : '';
+    return "SELECT {$fuelId}transaction_date::timestamp AS occurred_at, vehicle_id, trip_id, 'Fuel'::text AS category, total_cost::numeric AS amount
               FROM fuel_transactions
             UNION ALL
-            SELECT scheduled_date::timestamp, vehicle_id, source_trip_id, 'Maintenance'::text, COALESCE(estimated_cost,0)::numeric
+            SELECT {$maintenanceId}scheduled_date::timestamp, vehicle_id, source_trip_id, 'Maintenance'::text, COALESCE(estimated_cost,0)::numeric
               FROM maintenance_orders WHERE status='Completed'
             UNION ALL
-            SELECT actual_arrival, vehicle_id, id, 'Toll'::text, COALESCE(toll_fee,0)::numeric
+            SELECT {$tripId}actual_arrival, vehicle_id, id, 'Toll'::text, COALESCE(toll_fee,0)::numeric
               FROM trips WHERE status='Completed' AND actual_arrival IS NOT NULL";
 }
 

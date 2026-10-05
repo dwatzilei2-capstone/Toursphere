@@ -20,7 +20,7 @@ $driver_rating = null;
 $driver_rating_count = 0;
 $driver_recent_reviews = [];
 if ($driver) {
-    $vehicle = $pdo->prepare('SELECT * FROM vehicles WHERE assigned_driver_id = ?');
+    $vehicle = $pdo->prepare("SELECT * FROM vehicles WHERE assigned_driver_id = ? AND status <> 'Retired'");
     $vehicle->execute([$driver['id']]);
     $vehicle = $vehicle->fetch() ?: null;
     $currentVehicleStmt = $pdo->prepare("SELECT v.*,t.id trip_id FROM trips t JOIN vehicles v ON v.id=t.vehicle_id WHERE t.driver_id=? AND t.status IN ('In Transit','Returning to Depot') ORDER BY t.actual_departure DESC NULLS LAST LIMIT 1");
@@ -243,7 +243,7 @@ require ROOT_PATH . '/includes/header.php';
 
 <div class="tc-card">
   <div class="tc-card-header">
-    <h3 class="mb-0 fs-6 fw-bold"><i class="bi bi-signpost-split me-2 text-primary-custom"></i>Next Trip Route Preview</h3>
+    <h3 class="mb-0 fs-6 fw-bold"><i class="bi bi-signpost-split me-2 text-primary-custom"></i>Next Trip Route Preview</h3><?php $driverFundingTripId=$nextTrip['trip_id']??null;require ROOT_PATH.'/includes/driver-funding-ui.php'; ?>
     <a href="<?= BASE_URL ?>/modules/driver-portal/driver-route.php" class="small text-primary-custom text-decoration-none fw-semibold">Open Route Info →</a>
   </div>
   <div class="tc-card-body" id="driver-route-preview">

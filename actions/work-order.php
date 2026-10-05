@@ -26,11 +26,11 @@ try {
         if (!$order) throw new RuntimeException('Work order not found.');
         $pdo->prepare('UPDATE maintenance_orders SET status = ? WHERE id = ?')->execute([$newStatus, $workOrderId]);
         if ($newStatus === 'In Repair') {
-            $pdo->prepare("UPDATE vehicles SET status='Maintenance', maintenance_status=? WHERE id=? AND status <> 'On Trip'")
+            $pdo->prepare("UPDATE vehicles SET status='Maintenance', maintenance_status=? WHERE id=? AND status NOT IN ('On Trip','Retired')")
                 ->execute([$order['service_type'].' (In Repair)', $order['vehicle_id']]);
         } elseif ($newStatus === 'Completed') {
             $nextDate = (new DateTimeImmutable('today'))->modify('+' . max(1, (int)fleet_setting('maintenance.interval_days', '90')) . ' days')->format('Y-m-d');
-            $pdo->prepare("UPDATE vehicles SET status='Available', maintenance_status='Healthy', last_maintenance=?, next_maintenance=? WHERE id=? AND status <> 'On Trip'")
+            $pdo->prepare("UPDATE vehicles SET status='Available', maintenance_status='Healthy', last_maintenance=?, next_maintenance=? WHERE id=? AND status NOT IN ('On Trip','Retired')")
                 ->execute([date('Y-m-d'), $nextDate, $order['vehicle_id']]);
             if ($order['status'] !== 'Completed') {
                 $cost = (float)$order['estimated_cost'];
@@ -64,7 +64,7 @@ try {
 
          
         if ($status === 'In Repair') {
-            $pdo->prepare("UPDATE vehicles SET status = 'Maintenance', maintenance_status = ? WHERE id = ?")
+            $pdo->prepare("UPDATE vehicles SET status = 'Maintenance', maintenance_status = ? WHERE id = ? AND status <> 'Retired'")
                 ->execute([$service_type . ' (In Repair)', $vehicle_id]);
         }
 
@@ -76,4 +76,3 @@ try {
     if (isset($pdo) && $pdo->inTransaction()) $pdo->rollBack();
     redirect_with_toast($return, 'Could not create the work order: ' . $ex->getMessage(), 'danger');
 }
-

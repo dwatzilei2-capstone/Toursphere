@@ -3,6 +3,7 @@
 require_once dirname(__DIR__) . '/includes/bootstrap.php';
 require_once ROOT_PATH . '/includes/vehicle_compliance.php';
 require_once ROOT_PATH . '/includes/driver_vehicle_assignment.php';
+require_once ROOT_PATH . '/includes/reservation-assignment.php';
 require_login();
 require_permission('vehicles.assign');
 
@@ -21,6 +22,7 @@ if ($vehicle_id === '' || $driver_id === '') {
 try {
     $pdo = db();
     $pdo->beginTransaction();
+    $pdo->exec("SELECT pg_advisory_xact_lock(hashtext('fleet-designated-assignment'))");
 
     $vehicle = $pdo->prepare('SELECT * FROM vehicles WHERE id = ? FOR UPDATE');
     $vehicle->execute([$vehicle_id]);
@@ -51,25 +53,20 @@ try {
         redirect_with_toast($return, 'This vehicle has an active maintenance repair and cannot be assigned.', 'danger');
     }
 
-    $existing = $pdo->prepare('SELECT id, plate_number FROM vehicles WHERE assigned_driver_id = ? AND id <> ? LIMIT 1');
+    $existing = $pdo->prepare("SELECT id, plate_number FROM vehicles WHERE assigned_driver_id = ? AND id <> ? LIMIT 1");
     $existing->execute([$driver_id, $vehicle_id]);
     if ($existing->fetch()) {
         redirect_with_toast($return, 'This driver is currently assigned to another vehicle. Unassign that vehicle first before continuing.', 'danger');
     }
 
-    $vehicle_type = strtolower((string)($v['type'] ?? ''));
-    $required_class = ((int)$v['capacity'] > 30 || str_contains($vehicle_type, 'bus') || str_contains($vehicle_type, 'coach')) ? 3 : 2;
-    $license_text = strtolower((string)($d['license_class'] ?? ''));
-    $has_required_class = preg_match('/(?:class|restriction)\s*' . $required_class . '\b/', $license_text) === 1;
-    // A Class 3 authorization also covers the lighter Class 2 vehicle category.
-    if ($required_class === 2) {
-        $has_required_class = $has_required_class || preg_match('/(?:class|restriction)\s*3\b/', $license_text) === 1;
-    }
-    if (!$has_required_class) {
-        redirect_with_toast($return, $d['name'] . ' does not have the required Class ' . $required_class . ' license for this vehicle.', 'danger');
-    }
+    if (!assignment_driver_class_matches($v,$d)) throw new RuntimeException('Driver qualification incompatible with this vehicle.');
+    if (!in_array($d['status'], ['Active','Assigned'],true)) throw new RuntimeException('Driver unavailable.');
+    if (!in_array($v['status'], ['Available','Assigned'],true)) throw new RuntimeException('Vehicle unavailable.');
+    if (!empty($d['license_expiration']) && $d['license_expiration'] < date('Y-m-d')) throw new RuntimeException('Driver license expired.');
 
-     
+    $pending = $pdo->prepare("SELECT 1 FROM trips WHERE (vehicle_id=? OR driver_id=? OR driver_id=?) AND status IN ('Scheduled','Assigned','Confirmed','Dispatched','In Transit','Returning to Depot') LIMIT 1");
+    $pending->execute([$vehicle_id,$driver_id,$v['assigned_driver_id']]);
+    if ($pending->fetchColumn()) throw new RuntimeException('Complete or cancel the existing trip assignment before changing the designated pairing.');
     $previousDriverId = $v['assigned_driver_id'] ?: null;
      
     $pdo->prepare("UPDATE vehicles SET assigned_driver_id = ?, status = 'Assigned' WHERE id = ?")->execute([$driver_id, $vehicle_id]);
