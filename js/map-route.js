@@ -2688,7 +2688,22 @@ class AIRouteEngine {
       const context=window.TC_ROUTE_CONTEXT || {};
       const form=new URLSearchParams({csrf:context.stateCsrf || '',trip_id:context.tripId || '',phase:context.routePhase || 'outbound',
         lifecycle,revision:String(this.plannerRevision),state:JSON.stringify(state),reroute:reroute?'1':''});
+      // Compress the complete snapshot without discarding navigation geometry.
+      if (typeof CompressionStream !== 'undefined') {
+        const compressed = new Blob([form.get('state')]).stream().pipeThrough(new CompressionStream('gzip'));
+        const bytes = new Uint8Array(await new Response(compressed).arrayBuffer());
+        let binary = '';
+        for (let offset = 0; offset < bytes.length; offset += 8192) {
+          binary += String.fromCharCode(...bytes.subarray(offset, offset + 8192));
+        }
+        form.set('state', btoa(binary));
+        form.set('state_encoding', 'gzip-base64');
+      }
       const response=await fetch(`${window.TC_BASE_URL}/actions/route-planner-state.php`,{method:'POST',body:form});
+      if (response.status === 413) throw new Error('The hosting server rejected the route save because its upload limit is too low.');
+      if (!(response.headers?.get('content-type') || 'application/json').includes('application/json')) {
+        throw new Error('The hosting server could not save the route. Please retry.');
+      }
       const data=await response.json();if(!response.ok || !data.ok)throw new Error(data.error || 'Route state could not be saved.');
       this.plannerRevision=data.revision;
       return data;

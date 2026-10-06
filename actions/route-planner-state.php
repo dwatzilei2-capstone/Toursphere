@@ -11,7 +11,7 @@ try{
  if($_SERVER['REQUEST_METHOD']!=='POST'){http_response_code(405);exit;}
  if($scope['trip'] && !has_role('driver')){http_response_code(403);echo json_encode(['ok'=>false,'error'=>'Trip routes are read-only for non-Driver users.']);exit;}
  if(!is_string($_POST['csrf']??null)||empty($_SESSION['route_state_csrf'])||!hash_equals($_SESSION['route_state_csrf'],$_POST['csrf']))throw new DomainException('Route Planner session expired.');
- $json=(string)($_POST['state']??'');if(strlen($json)>3000000)throw new DomainException('Route state exceeds the permitted size.');
+ $json=route_planner_decode_state((string)($_POST['state']??''),(string)($_POST['state_encoding']??''));
  $state=json_decode($json,true,128,JSON_THROW_ON_ERROR);route_planner_validate($state);
  $lifecycle=(string)($_POST['lifecycle']??'GENERATED');
  if(!in_array($lifecycle,['GENERATED','APPLIED','NAVIGATING'],true))throw new DomainException('Invalid route state.');

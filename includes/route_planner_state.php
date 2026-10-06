@@ -1,4 +1,16 @@
 <?php
+function route_planner_decode_state(string $payload,string $encoding=''): string {
+ if(strlen($payload)>4000000)throw new DomainException('Route state exceeds the permitted size.');
+ if($encoding==='gzip-base64'){
+  $bytes=base64_decode($payload,true);
+  if($bytes===false)throw new DomainException('Invalid compressed route state.');
+  $decoded=@gzdecode($bytes,3000001);
+  if($decoded===false)throw new DomainException('Invalid or oversized compressed route state.');
+  $payload=$decoded;
+ }elseif($encoding!=='')throw new DomainException('Unsupported route state encoding.');
+ if(strlen($payload)>3000000)throw new DomainException('Route state exceeds the permitted size.');
+ return $payload;
+}
 function route_planner_scope(PDO $pdo,string $tripId,string $phase): array {
  if(!can('ai.view'))throw new DomainException('Route Planner access denied.');
  if($tripId!=='' && !has_role('driver') && !can('dispatch.view'))throw new DomainException('Trip route access denied.');
