@@ -28,6 +28,7 @@ $stmt = $pdo->prepare(
 );
 $stmt->execute([$trip_id]);
 $trip = $stmt->fetch();
+$preparedSummary = $trip ? funding_trip_summary($pdo, funding_trip($pdo,$trip['id']) ?: $trip) : null;
 
 $timeline = [];
 if ($trip) {
@@ -69,8 +70,8 @@ require ROOT_PATH . '/includes/header.php';
         <div class="col-6"><span class="text-muted-custom">Vehicle:</span> <strong><?= e($trip['vehicle_brand'] ?? '') ?> <?= e($trip['vehicle_model'] ?? '') ?> (<?= e($trip['plate_number'] ?? '—') ?>)</strong></div>
         <div class="col-6"><span class="text-muted-custom">Assigned Driver:</span> <strong><?= e($trip['driver_name'] ?? '—') ?></strong></div>
         <div class="col-6"><span class="text-muted-custom">Departure Time:</span> <strong><?= e(date('h:i A (M d, Y)', strtotime($trip['scheduled_departure']))) ?></strong></div>
-        <div class="col-6"><span class="text-muted-custom">Distance:</span> <strong><?= number_format((float)$trip['distance_km'], 1) ?> km</strong></div>
-        <div class="col-6"><span class="text-muted-custom">Estimated Fuel:</span> <strong><?= e($trip['fuel_estimate'] ?? '—') ?></strong></div>
+        <div class="col-6"><span class="text-muted-custom">Distance:</span> <strong><?= e($preparedSummary['distance']) ?></strong></div>
+        <div class="col-6"><span class="text-muted-custom">Estimated Fuel:</span> <strong><?= e($preparedSummary['fuel']) ?></strong></div>
         <div class="col-6"><span class="text-muted-custom">Actual Recorded Trip Cost:</span> <strong class="text-primary-custom"><?= funding_money(funding_actual_cost($pdo,$trip['id'])) ?></strong></div>
       </div>
     </div>

@@ -8,6 +8,7 @@ require_login();
 require_permission('ai.view');
 require_once ROOT_PATH.'/includes/trip_funding.php';
 $_SESSION['route_prepare_csrf']??=bin2hex(random_bytes(32));
+$_SESSION['route_state_csrf']??=bin2hex(random_bytes(32));
 
  
  
@@ -23,7 +24,7 @@ $is_route_revenue_admin = has_role('fleet_admin');
 $route_context = null;
 $requested_trip_id = trim($_GET['trip_id'] ?? '');
 $requested_reservation_id = trim($_GET['reservation_id'] ?? '');
-$return_mode_requested = $is_driver_user && ($_GET['return'] ?? '') === '1';
+$return_mode_requested = ($_GET['return'] ?? '') === '1';
 
 if ($is_driver_user) {
     $driverTripSql =
@@ -264,7 +265,7 @@ $tourist_destinations = [
     ]
 ];
 
-$route_mode_is_locked = $route_context !== null && $saved_route_mode !== null;
+$route_mode_is_locked = $route_context !== null && (int)($route_context['navigation_active'] ?? 0) === 1;
 $requested_mode = ($route_mode_is_locked)
     ? $saved_route_mode
     : ($_GET['mode'] ?? 'balanced');
@@ -435,7 +436,7 @@ require ROOT_PATH . '/includes/header.php';
                 $currentFuelPrice=fuel_current_price($pdo,(string)$v['fuel_type']);
                 $selected = ($context_vehicle_id === $val || $context_vehicle_id === $v['id'] || stripos((string)$context_vehicle_id, $v['plate_number']) !== false) ? 'selected' : '';
               ?>
-                <option value="<?= e($val) ?>" data-vehicle-id="<?= e($v['id']) ?>" data-consumption="<?= e($kmL) ?>" data-fuel-price="<?= e($currentFuelPrice['price_per_liter']??'') ?>" <?= $selected ?>>
+                <option value="<?= e($val) ?>" data-vehicle-id="<?= e($v['id']) ?>" data-capacity="<?= (int)$v['capacity'] ?>" data-consumption="<?= e($kmL) ?>" data-fuel-price="<?= e($currentFuelPrice['price_per_liter']??'') ?>" <?= $selected ?>>
                   <?= e($v['brand']) ?> <?= e($v['model']) ?> (<?= e($v['plate_number']) ?>) &bull; <?= e($v['type']) ?> &bull; <?= e($kmL) ?> &bull; <?= (int)$v['capacity'] ?> pax
                 </option>
               <?php endforeach; ?>
@@ -728,6 +729,9 @@ require ROOT_PATH . '/includes/header.php';
   window.TC_TOURIST_DESTINATIONS = <?= json_encode($tourist_destinations, JSON_UNESCAPED_UNICODE) ?>;
   window.TC_ROUTE_CONTEXT = <?= json_encode([
     'isDriver' => $is_driver_user,
+    'userId' => (int)$current_user['id'],
+    'stateCsrf' => $_SESSION['route_state_csrf'],
+    'canApply' => can('ai.manage') || can('ai.navigate'),
     'tripStatus' => $route_context['trip_status'] ?? null,
     'tripId' => $route_context['trip_id'] ?? null,
     'reservationId' => $route_context['reservation_id'] ?? null,
@@ -739,8 +743,7 @@ require ROOT_PATH . '/includes/header.php';
     'selectedMode' => $initial_mode,
     'selectedModeLabel' => $selected_route_mode_label,
     'routePhase' => $is_return_mode ? 'return' : 'outbound',
-    'resumeNavigation' => $is_driver_user
-        && in_array($route_context['trip_status'] ?? '', ['In Transit', 'Returning to Depot'], true)
+    'resumeNavigation' => in_array($route_context['trip_status'] ?? '', ['In Transit', 'Returning to Depot'], true)
         && (int)($route_context['navigation_active'] ?? 0) === 1,
   ], JSON_UNESCAPED_UNICODE) ?>;
 

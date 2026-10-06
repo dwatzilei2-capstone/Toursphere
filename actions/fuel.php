@@ -3,6 +3,7 @@
 require_once dirname(__DIR__) . '/includes/bootstrap.php';
 require_once ROOT_PATH . '/includes/driver_fuel_context.php';
 require_once ROOT_PATH . '/includes/trip_funding.php';
+require_once ROOT_PATH . '/includes/fuel_receipts.php';
 require_login();
 require_permission('fuel.manage');
 
@@ -11,6 +12,7 @@ if ($_SERVER['REQUEST_METHOD'] !== 'POST') {
 }
 $return = $_POST['return'] ?? (BASE_URL . '/modules/fuel-management/fuel-transactions.php');
 
+$receiptSavedPath = null;
 try {
     $pdo = db();
 
@@ -58,6 +60,7 @@ try {
             redirect_with_toast($return, 'Please fill in the required fuel transaction fields.', 'danger');
         }
 
+        $receiptUpload = fuel_receipt_upload($_FILES['receipt'] ?? null);
         $pdo->beginTransaction();
 
         $total = round($liters * $price, 2);
@@ -76,9 +79,14 @@ try {
         );
         $stmt->execute([
             $fid, $vehicle_id, $driver_id, $trip_id ?: null, $fuel_type, $liters, $price, $total, $odometer, $station,
-            'REC-' . strtoupper(substr(preg_replace('/[^A-Za-z0-9]/', '', $station), 0, 3)) . '-' . mt_rand(10000, 99999),
+            null,
             $efficiency,
         ]);
+        if ($receiptUpload) {
+            $receiptSavedPath = fuel_receipt_store($receiptUpload);
+            $pdo->prepare('UPDATE fuel_transactions SET receipt_filename=?,receipt_original_name=?,receipt_mime=?,receipt_size=? WHERE id=?')
+                ->execute([$receiptUpload['filename'],$receiptUpload['name'],$receiptUpload['mime'],$receiptUpload['size'],$fid]);
+        }
         $pdo->prepare('UPDATE fuel_transactions SET system_default_price=?,system_fuel_price_id=?,funding_request_id=?,funding_method=?,funding_safe_reference=? WHERE id=?')
             ->execute([$systemPrice['price_per_liter']??null,$systemPrice['id']??null,$funding['id']??null,$funding['method_name']??null,$funding['safe_reference']??null,$fid]);
 
@@ -104,6 +112,7 @@ try {
             'UPDATE vehicle_cost_ledger SET fuel_cost = fuel_cost + ?, total_cost = total_cost + ? WHERE vehicle_id = ?'
         )->execute([$total, $total, $vehicle_id]);
         $pdo->commit();
+        $receiptSavedPath = null;
         if ($trip_id !== '' && $verifiedTripConsumption) {
             require_once dirname(__DIR__) . '/includes/routethink_engine.php';
             ai_learning_after_trip($pdo, $trip_id);
@@ -115,5 +124,6 @@ try {
     redirect_with_toast($return, 'Unknown fuel action.', 'danger');
 } catch (Exception $ex) {
     if (isset($pdo) && $pdo->inTransaction()) $pdo->rollBack();
+    if ($receiptSavedPath && is_file($receiptSavedPath)) unlink($receiptSavedPath);
     redirect_with_toast($return, 'Could not record the fuel transaction: ' . $ex->getMessage(), 'danger');
 }

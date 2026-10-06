@@ -75,10 +75,14 @@ class AIRouteEngine {
     this.savedRouteSignature = null;
     this.routeSaveInFlight = null;
     this.routeContextInitialized = false;
-    this.navigationResumeAttempted = false;
-    this.driverStrategyCommitted = false;
-    this.driverStrategySelectionPending = false;
-    this.pendingDriverStrategyLabel = "";
+    window.addEventListener('pagehide',()=>{ if(this.isNavigating)this.persistPlannerState().catch(()=>{}); });
+    this.plannerLifecycle = 'INITIAL';
+    this.plannerRevision = 0;
+    this.appliedRoute = null;
+    this.modeEvaluations = {};
+    this.generationId = null;
+    this.plannerRestorePending = false;
+    this.persistQueue = Promise.resolve();
     
      
     this.vehicleFuelEconomy = {
@@ -123,20 +127,43 @@ class AIRouteEngine {
      
      
     if (!window.TC_ROUTE_CONTEXT?.isDriver && window.TC_INITIAL_PRESET && typeof window.TC_INITIAL_PRESET === "string" && window.TC_INITIAL_PRESET.trim() !== "") {
-      this.setPreset(window.TC_INITIAL_PRESET);
+      if (!this.plannerRestorePending && !this.cachedDirectionsResponse) this.loadPresetInputs(window.TC_INITIAL_PRESET);
     } else {
       this.refreshRevenueCard();
     }
   }
 
   bindInputValidationListeners() {
+    if(this.inputValidationBound)return;this.inputValidationBound=true;
     ["route-origin-input", "route-dest-input", "route-vehicle-select"].forEach((id) => {
       const el = document.getElementById(id);
       if (el) {
         el.addEventListener("input", () => el.classList.remove("is-invalid"));
-        el.addEventListener("change", () => el.classList.remove("is-invalid"));
+        el.addEventListener("change", () => {
+          el.classList.remove("is-invalid");
+          if(!this.restoringPlanner && !this.isNavigating && this.generatedInputs && JSON.stringify(this.plannerInputs())!==JSON.stringify(this.generatedInputs)){
+            this.invalidatePreparedRoute();
+          }
+        });
       }
     });
+    document.getElementById('waypoints-container')?.addEventListener('input',()=>{
+      if(!this.restoringPlanner && !this.isNavigating && this.generatedInputs && JSON.stringify(this.plannerInputs())!==JSON.stringify(this.generatedInputs))this.invalidatePreparedRoute();
+    });
+  }
+
+  invalidatePreparedRoute() {
+    this.cachedDirectionsResponse=null;this.currentRouteData=null;this.currentEvaluationData=null;
+    this.currentDirectionsResult=null;this.currentRouteSummary=null;this.appliedRoute=null;
+    this.modeEvaluations={};this.plannerLifecycle='INITIAL';this.savedRouteSignature=null;
+    this.evaluationRequestId++;
+    this.selectedRoutePolyline?.setMap(null);this.clearCandidatePolylines();
+    this.directionsRenderer?.setDirections({routes:[]});
+    for(const id of ['ai-res-title','ai-res-distance','ai-res-duration','ai-res-fuel','ai-res-toll','ai-res-cost','ai-res-score','ai-res-reason']){
+      if(id==='ai-res-cost' && ['driver','admin'].includes(window.TC_ROUTE_REVENUE?.role))continue;
+      const element=document.getElementById(id);if(element)element.textContent=id==='ai-res-title'?'Generate a route for the updated inputs.':'—';
+    }
+    this.updateApplyButton();
   }
 
   bindRevenueScopeListeners() {
@@ -305,13 +332,7 @@ class AIRouteEngine {
     this.renderTouristDestinationMarkers();
 
      
-    const origin = document.getElementById("route-origin-input")?.value.trim();
-    const dest = document.getElementById("route-dest-input")?.value.trim();
-    const isDriver = Boolean(window.TC_ROUTE_CONTEXT?.isDriver);
-    const isResumingActiveNavigation = Boolean(window.TC_ROUTE_CONTEXT?.resumeNavigation);
-    if (origin && dest && (!isDriver || isResumingActiveNavigation)) {
-      this.renderCurrentPreset();
-    }
+    if (!this.plannerRestorePending && !this.plannerRestoreCompleted) this.restorePlannerState();
   }
 
   setupAutocomplete(inputId) {
@@ -418,47 +439,28 @@ class AIRouteEngine {
    
    
   selectMode(mode, el) {
-     
-    if (this.isNavigating || this.driverStrategyCommitted || window.TC_ROUTE_CONTEXT?.routeModeLocked) return;
-    if (!this.cachedDirectionsResponse || !this.cachedDirectionsResponse.routes || this.cachedDirectionsResponse.routes.length === 0) {
-      return;
-    }
-    document.querySelectorAll(".opt-option-card").forEach((c) => c.classList.remove("selected"));
-    if (el) {
-      el.classList.add("selected");
-    } else {
-      const card = document.querySelector(`.opt-option-card[data-mode="${mode}"]`);
-      if (card) card.classList.add("selected");
-    }
+    if (this.isNavigating || !['balanced','fastest','fuelEfficient','shortest'].includes(mode) || !this.cachedDirectionsResponse) return;
     this.currentMode = mode;
-    if (window.TC_ROUTE_CONTEXT?.isDriver) {
-      this.driverStrategySelectionPending = true;
-      this.pendingDriverStrategyLabel = el?.querySelector(".opt-title")?.textContent?.replace(/\s+/g, " ").trim()
-        || this.getModeTitle(mode);
-      const generateButton = document.getElementById("btn-generate-ai-route");
-      if (generateButton) {
-        generateButton.innerHTML = `<i class="bi bi-check2-circle me-1"></i> ${this.getModeButtonLabel(mode)}`;
-      }
-      // Preview the selected Google route immediately; the Apply button is
-      // still required to confirm and lock this strategy for the trip.
-      this.preserveViewportOnRouteSwitch = true;
-      this.updatePrePickupPathForMode();
-      this.processGoogleDirectionsResult(this.cachedDirectionsResponse);
-      return;
-    }
-     
-     
+    document.querySelectorAll('.opt-option-card').forEach(card => card.classList.toggle('selected', card.dataset.mode === mode));
     this.preserveViewportOnRouteSwitch = true;
     this.updatePrePickupPathForMode();
-
-     
-    this.processGoogleDirectionsResult(this.cachedDirectionsResponse);
+    const evaluation = this.modeEvaluations[mode];
+    if (evaluation) this.applyEvaluationResult(evaluation, this.cachedDirectionsResponse, this.candidatePayload);
+    else this.processGoogleDirectionsResult(this.cachedDirectionsResponse);
+    this.updateApplyButton();
+    this.persistPlannerState().catch(() => {});
   }
 
   setRouteStrategyLocked(locked, customMessage = "") {
     const lockedMessage = document.getElementById("route-strategy-locked");
     const options = document.getElementById("route-strategy-options");
     const generateButton = document.getElementById("btn-generate-ai-route");
+    this.navigationInputLocks ||= new Map();
+    for(const id of ['route-origin-input','route-dest-input','route-vehicle-select','route-preset-select','traffic-aware-toggle']){
+      const input=document.getElementById(id);if(!input)continue;
+      if(locked){if(!this.navigationInputLocks.has(id))this.navigationInputLocks.set(id,input.disabled);input.disabled=true;}
+      else if(this.navigationInputLocks.has(id)){input.disabled=this.navigationInputLocks.get(id);this.navigationInputLocks.delete(id);}
+    }
 
     document.querySelectorAll(".opt-option-card").forEach((card) => {
       card.setAttribute("aria-disabled", locked ? "true" : "false");
@@ -529,15 +531,14 @@ class AIRouteEngine {
   }
 
   onVehicleChange(vehicleName) {
-    if (this.cachedDirectionsResponse && this.cachedDirectionsResponse.routes && this.cachedDirectionsResponse.routes.length > 0) {
-      this.processGoogleDirectionsResult(this.cachedDirectionsResponse);
-    } else {
-      this.updateResultsUI();
-    }
+    if(!this.isNavigating && this.generatedInputs && JSON.stringify(this.plannerInputs())!==JSON.stringify(this.generatedInputs))this.invalidatePreparedRoute();
   }
 
   toggleTrafficAwareness(enabled) {
+    if(this.isNavigating)return;
+    const changed=this.trafficAware!==enabled;
     this.trafficAware = enabled;
+    if(changed && this.currentRouteData)this.invalidatePreparedRoute();
   }
 
   toggleTrafficLayer() {
@@ -1055,6 +1056,7 @@ class AIRouteEngine {
       row.appendChild(removeButton);
     }
     container.appendChild(row);
+    if(!this.restoringPlanner && !this.isNavigating && this.generatedInputs)this.invalidatePreparedRoute();
 
     if (this.mapType === "google") {
       this.setupAutocomplete(wpId);
@@ -1066,6 +1068,7 @@ class AIRouteEngine {
     if (row) {
       row.remove();
       this.renumberWaypoints();
+      if(!this.restoringPlanner && !this.isNavigating && this.generatedInputs)this.invalidatePreparedRoute();
     }
   }
 
@@ -1138,7 +1141,7 @@ class AIRouteEngine {
   }
 
   renderCurrentPreset() {
-    this.generateRoute();
+    if (!this.loadingPreset) this.generateRoute();
   }
 
    
@@ -1196,23 +1199,15 @@ class AIRouteEngine {
       return;
     }
 
-    // The route card click already renders the selected strategy as a preview.
-    // Applying it only confirms and locks that preview; it must not issue a
-    // duplicate Google Directions request or be blocked by request cooldowns.
-    if (
-      window.TC_ROUTE_CONTEXT?.isDriver &&
-      this.driverStrategySelectionPending &&
-      this.cachedDirectionsResponse
-    ) {
-      this.driverStrategySelectionPending = false;
-      this.driverStrategyCommitted = true;
-      const selectedLabel = this.pendingDriverStrategyLabel || this.getModeTitle(this.currentMode);
-      this.setRouteStrategyLocked(true, `Driver route selected — ${selectedLabel}. Other strategies are now locked.`);
-      if (window.showAppToast) {
-        window.showAppToast("Route Applied", `${selectedLabel} is ready for navigation.`, "success");
-      }
-      return;
+    if (this.isNavigating || this.isGenerating || this.plannerRestorePending) return;
+    if (this.cachedDirectionsResponse && JSON.stringify(this.plannerInputs()) === JSON.stringify(this.generatedInputs)) {
+      return this.applySelectedRoute();
     }
+    this.appliedRoute = null;
+    this.modeEvaluations = {};
+    this.generationId = crypto.randomUUID();
+    this.generatedInputs = this.plannerInputs();
+    this.plannerLifecycle = 'INITIAL';
 
     const requestSignature = JSON.stringify({
       origin: origin.toLowerCase(),
@@ -1224,11 +1219,7 @@ class AIRouteEngine {
     const now = Date.now();
     if (
       this.isGenerating ||
-      this.activeDirectionsRequestSignature === requestSignature ||
-      (
-        this.lastDirectionsRequestSignature === requestSignature &&
-        now - this.lastDirectionsRequestCompletedAt < this.directionsRequestCooldownMs
-      )
+      this.activeDirectionsRequestSignature === requestSignature
     ) {
       return;
     }
@@ -1254,7 +1245,7 @@ class AIRouteEngine {
         origin: origin,
         destination: destination,
         waypoints: waypoints,
-        optimizeWaypoints: (this.currentMode !== "shortest"),
+        optimizeWaypoints: false,
         provideRouteAlternatives: true,  
         travelMode: google.maps.TravelMode.DRIVING
       };
@@ -1372,9 +1363,9 @@ class AIRouteEngine {
     const configuredPrice=Number(document.getElementById('route-vehicle-select')?.selectedOptions[0]?.dataset.fuelPrice);
     this.fuelPricePerLiter=configuredPrice>0?configuredPrice:null;
     const vehicleLabel = vehicleName.toLowerCase();
-    const vehicleCapacity = vehicleLabel.includes("tour bus") ? 45
+    const vehicleCapacity = Number(document.getElementById("route-vehicle-select")?.selectedOptions[0]?.dataset.capacity) || (vehicleLabel.includes("tour bus") ? 45
       : vehicleLabel.includes("coaster") ? 29
-        : vehicleLabel.includes("suv") ? 7 : 14;
+        : vehicleLabel.includes("suv") ? 7 : 14);
     const vehicleWeightClass = vehicleLabel.includes("tour bus") ? 3
       : vehicleLabel.includes("coaster") ? 2 : 1;
     const passengerCount = Number(window.TC_ROUTE_CONTEXT?.passengerCount || 0);
@@ -1383,7 +1374,8 @@ class AIRouteEngine {
       const trafficRatio = Math.max(1, candidate.trafficDelayRatio || 1);
       const exactDistanceKm = (candidate.distanceMeters || (candidate.distanceKm * 1000)) / 1000;
       const exactDurationSecs = candidate.durationSecs || (candidate.durationMins * 60);
-      const fuel = economy>0 ? (exactDistanceKm / economy) * (1 + 0.40 * (trafficRatio - 1)) : null;
+      const loadRatio=Math.min(1,passengerCount/Math.max(1,vehicleCapacity));
+      const fuel = economy>0 ? (exactDistanceKm / economy) * (1 + 0.40 * Math.min(2,trafficRatio - 1)) * (1 + 0.12 * loadRatio) + 0.20 * waypointCount : null;
       const toll = null; // No configured toll source exists; exclude it from operational estimates.
       const fuelCost = fuel!==null && this.fuelPricePerLiter!==null ? fuel * this.fuelPricePerLiter : null;
       return {
@@ -1426,8 +1418,8 @@ class AIRouteEngine {
         + weights.distance * normalize(candidate.exactDistanceMeters, distances)
         + weights.cost * normalize(candidate.totalTripCost, costs);
       candidate.compositeScore = Math.max(50, Math.min(99, Math.round(100 * (1 - penalty))));
-      if (candidate.compositeScore > bestScore) {
-        bestScore = candidate.compositeScore;
+      if (-penalty > bestScore) {
+        bestScore = -penalty;
         selectedIndex = index;
       }
     });
@@ -1548,6 +1540,8 @@ class AIRouteEngine {
       destination: chosenRoute.legs[chosenRoute.legs.length - 1]?.end_address || "Destination"
     };
     this.currentRouteData = {
+      routeId: `${this.generationId}:${this.currentMode}:${selectedIdx}`,
+      mode: this.currentMode,
       title: `ROUTETHINK: ${aiData.modeTitle}`,
       distance: aiData.distance,
       distanceKm: selectedCandidate.distanceKm,
@@ -1579,16 +1573,17 @@ class AIRouteEngine {
     }
     this.updateResultsUI();
     this.updateDispatchStartButton();
+    this.updateApplyButton();
     if (!this.isNavigating && !this.preserveViewportOnRouteSwitch) this.fitMapBounds();
-    if (window.TC_ROUTE_CONTEXT?.resumeNavigation && !this.navigationResumeAttempted && !this.isNavigating) {
-      this.navigationResumeAttempted = true;
-      window.setTimeout(() => this.startNavigation({ resume: true }), 0);
-    }
+
   }
 
   processGoogleDirectionsResult(result) {
     if (!result || !result.routes || result.routes.length === 0) return;
     this.cachedDirectionsResponse = result;
+    this.generationId ||= crypto.randomUUID();
+    this.generatedInputs = this.plannerInputs();
+    this.plannerLifecycle = this.appliedRoute ? 'APPLIED' : 'GENERATED';
     this.revealRouteStrategies();
 
     const vehicleSelect = document.getElementById("route-vehicle-select");
@@ -1656,12 +1651,21 @@ class AIRouteEngine {
         trafficDelayRatio: candidate.trafficDelayRatio
       })));
     }
+    this.candidatePayload = candidatePayload;
+    const savedMode = this.currentMode;
+    this.modeEvaluations = {};
+    for (const mode of ['balanced','fastest','fuelEfficient','shortest']) {
+      this.currentMode = mode;
+      this.modeEvaluations[mode] = this.evaluateCandidatesLocally(candidatePayload);
+    }
+    this.currentMode = savedMode;
     this.updateStrategyRouteNotes(candidatePayload);
 
      
-    this.applyEvaluationResult(this.evaluateCandidatesLocally(candidatePayload), result, candidatePayload);
+    this.applyEvaluationResult(this.modeEvaluations[this.currentMode], result, candidatePayload);
+    if(!this.rerouting) this.persistPlannerState().catch(() => {});
     const requestId = ++this.evaluationRequestId;
-    const requestedMode = this.currentMode;
+    const requestedGeneration=this.generationId;
 
      
     const form = new FormData();
@@ -1672,21 +1676,37 @@ class AIRouteEngine {
     form.append("reservation_id", window.TC_ROUTE_CONTEXT?.reservationId || "");
     form.append("mode", this.currentMode);
     form.append("route_phase", window.TC_ROUTE_CONTEXT?.routePhase || "outbound");
-    form.append("passenger_count", window.TC_ROUTE_CONTEXT?.passengerCount || 15);
+    form.append("passenger_count", window.TC_ROUTE_CONTEXT?.passengerCount ?? 0);
     form.append("waypoints", JSON.stringify(waypointsList));
     form.append("candidates", JSON.stringify(candidatePayload));
 
-    fetch(`${window.TC_BASE_URL}/actions/route_ai.php`, { method: "POST", body: form })
+    this.evaluationPromise = fetch(`${window.TC_BASE_URL}/actions/route_ai.php`, { method: "POST", body: form })
       .then((res) => res.json())
       .then((resData) => {
-        if (requestId !== this.evaluationRequestId || requestedMode !== this.currentMode) return;
+        if (requestId !== this.evaluationRequestId || requestedGeneration!==this.generationId || !this.cachedDirectionsResponse || (this.isNavigating && !this.rerouting) || this.applyingRoute) return;
+        if (!resData.ok || !resData.data) throw new Error(resData.error || 'Route evaluation unavailable.');
         if (resData.ok && resData.data) {
           this.updateStrategyRouteNotes(candidatePayload, resData.data.modeSelections);
-          this.applyEvaluationResult(resData.data, result, candidatePayload);
+          const evaluations = resData.data.modeEvaluations || {};
+          for (const [mode,evaluation] of Object.entries(evaluations)) {
+            const selected = evaluation.selectedCandidate;
+            this.modeEvaluations[mode] = {...resData.data,...evaluation,mode,vehicleSpecs:resData.data.vehicleSpecs,
+              distance:selected.distanceFormatted,duration:selected.durationFormatted,fuelEstimate:selected.fuelFormatted,
+              fuelCost:selected.fuelCost===null?'Fuel price unavailable':`₱${selected.fuelCost.toLocaleString()}`,
+              tollEstimate:selected.tollFormatted,totalTripCost:selected.costFormatted,routeScore:selected.compositeScore};
+          }
+          this.applyEvaluationResult(this.modeEvaluations[this.currentMode] || resData.data, result, candidatePayload);
+          if(this.rerouting) {
+            this.appliedRoute=this.captureRouteSnapshot();this.plannerLifecycle='NAVIGATING';
+            this.currentStepIndex=0;this.currentLegIndex=0;this._computeLegTotals();
+            this.persistPlannerState(true).catch(error=>window.showAppToast?.('Reroute Save',error.message,'warning'));
+            this.rerouting=false;
+          } else this.persistPlannerState().catch(() => {});
         }
       })
       .catch((err) => {
         console.warn("Server-side RouteThink evaluation error, using client fallback:", err);
+        if(this.rerouting){this.appliedRoute=this.captureRouteSnapshot();this.plannerLifecycle='NAVIGATING';this.currentStepIndex=0;this.currentLegIndex=0;this._computeLegTotals();this.persistPlannerState(true).catch(()=>{});this.rerouting=false;}
       });
   }
 
@@ -1697,6 +1717,7 @@ class AIRouteEngine {
    
    
   async startNavigation(options = {}) {
+    if(window.TC_ROUTE_CONTEXT?.canApply===false)return;
     if (window.TC_ROUTE_CONTEXT?.isDriver && !['Dispatched', 'In Transit', 'Returning to Depot'].includes(window.TC_ROUTE_CONTEXT.tripStatus)) {
       this.updateDispatchStartButton();
       window.showAppToast?.('Waiting for Dispatch', 'This trip has not been dispatched yet. Please wait for the Dispatcher/Admin.', 'warning');
@@ -1713,11 +1734,22 @@ class AIRouteEngine {
       return;
     }
 
+    if(this.applyingRoute || this.navigationStarting || this.arrivalConfirmed)return;
+    if (!this.appliedRoute) {
+      window.showAppToast?.('Apply Route First','Apply the selected route before starting navigation.','warning');
+      return;
+    }
+    this.restoreRouteSnapshot(this.appliedRoute);
     const isResume = options && options.resume === true && window.TC_ROUTE_CONTEXT?.resumeNavigation;
+    this.navigationStarting=true;
+    await this.persistQueue.catch(()=>{});
     const routeSaved = await this.saveSelectedRouteToHistory();
+    this.navigationStarting=false;
     if (!routeSaved) return;
 
     this.isNavigating = true;
+    this.plannerLifecycle = 'NAVIGATING';
+    this.updateApplyButton();
     this.setRouteStrategyLocked(true);
     this.navigationStartedAt = Date.now();
     this.arrivalSince = null;
@@ -1733,9 +1765,17 @@ class AIRouteEngine {
     this.currentLegIndex = 0;
     this.accumulatedLegDistance = 0;
     this.accumulatedLegDuration = 0;
+    if(isResume && this.navigationRestoreState){
+      const saved=this.navigationRestoreState;
+      this.navigationStartedAt=saved.startedAt || this.navigationStartedAt;
+      this.currentStepIndex=saved.step || 0;this.currentLegIndex=saved.leg || 0;
+      this.hasReachedPickup=Boolean(saved.hasReachedPickup);
+      this.navigationRestoreState=null;
+    }
 
      
     this._computeLegTotals();
+    this.persistPlannerState().catch(error=>window.showAppToast?.('Navigation State',error.message,'warning'));
 
      
     const hud = document.getElementById("nav-hud-overlay");
@@ -2056,6 +2096,11 @@ class AIRouteEngine {
 
          
         this._trackCurrentStep(userLatLng, route);
+        const progressSignature=`${this.currentLegIndex}:${this.currentStepIndex}:${this.hasReachedPickup}`;
+        if(!this.rerouting && this.persistedNavigationProgress!==progressSignature){
+          this.persistedNavigationProgress=progressSignature;
+          this.persistPlannerState().catch(error=>{this.persistedNavigationProgress=null;window.showAppToast?.('Navigation State',error.message,'warning');});
+        }
 
          
          
@@ -2298,9 +2343,10 @@ class AIRouteEngine {
     this.lastLiveNavigationRequestPosition = { lat, lng };
     const request = {
       origin: { lat, lng },
-      destination: connectorDestination,
+      destination: this.hasReachedPickup ? legs[legs.length-1].end_location : connectorDestination,
+      waypoints:this.hasReachedPickup?legs.slice(this.currentLegIndex,-1).map(leg=>({location:leg.end_location,stopover:true})):[],
       travelMode: google.maps.TravelMode.DRIVING,
-      provideRouteAlternatives: false
+      provideRouteAlternatives: true
     };
     if (this.trafficAware) {
       request.drivingOptions = {
@@ -2326,11 +2372,23 @@ class AIRouteEngine {
       if (!this.isNavigating || requestId !== this.liveNavigationRequestId) return;
       this.liveNavigationRoutePending = false;
       if (status !== google.maps.DirectionsStatus.OK || !response?.routes?.[0]?.overview_path) return;
+      if(this.hasReachedPickup){
+        this.rerouting=true;this.currentMode=this.appliedRoute.mode;this.generationId=crypto.randomUUID();
+        if(this.liveNavigationPolyline){this.liveNavigationPolyline.setMap(null);this.liveNavigationPolyline=null;}
+        this.processGoogleDirectionsResult(response);return;
+      }
       if (this.liveNavigationPolyline) this.liveNavigationPolyline.setMap(null);
        
        
       if (this.selectedRoutePolyline) this.selectedRoutePolyline.setMap(null);
-      const connectorPath = this.getRouteRoadPath(response.routes[0]);
+      const connectorCandidates=response.routes.map((route,index)=>{
+        const meters=route.legs.reduce((sum,leg)=>sum+leg.distance.value,0);
+        const seconds=route.legs.reduce((sum,leg)=>sum+(leg.duration_in_traffic||leg.duration).value,0);
+        const base=route.legs.reduce((sum,leg)=>sum+leg.duration.value,0);
+        return {index,distanceMeters:meters,distanceKm:meters/1000,durationSecs:seconds,durationMins:seconds/60,baseDurationMins:base/60,trafficDelayRatio:seconds/Math.max(1,base)};
+      });
+      const connectorIndex=this.evaluateCandidatesLocally(connectorCandidates).selectedIndex;
+      const connectorPath = this.getRouteRoadPath(response.routes[connectorIndex]);
       const selectedRouteTail = plannedPath.slice(rejoinIndex);
       const preservedSelectedPath = [
         ...connectorPath,
@@ -2464,6 +2522,9 @@ class AIRouteEngine {
   finishArrivedNavigation() {
     if (!this.arrivalConfirmed) return;
     this.isNavigating = false;
+    this.plannerLifecycle='APPLIED';
+    this.persistPlannerState().catch(()=>{});
+    this.updateApplyButton();
     this.setRouteStrategyLocked(false);
     this.hasLiveGpsFix = false;
     this.navigationStartedAt = 0;
@@ -2524,20 +2585,151 @@ class AIRouteEngine {
     }
   }
 
+  plannerInputs() {
+    const vehicle = document.getElementById('route-vehicle-select');
+    return {origin:document.getElementById('route-origin-input')?.value.trim() || '',
+      destination:document.getElementById('route-dest-input')?.value.trim() || '',
+      vehicle:vehicle?.value || '',vehicleId:vehicle?.selectedOptions[0]?.dataset.vehicleId || '',
+      waypoints:this.getWaypointsList(),trafficAware:this.trafficAware};
+  }
+
+  loadPresetInputs(id) {
+    this.loadingPreset = true;
+    try { this.setPreset(id); } finally { this.loadingPreset = false; }
+  }
+
+  captureRouteSnapshot() {
+    if (!this.currentRouteData || !this.currentEvaluationData) return null;
+    return JSON.parse(JSON.stringify({routeId:this.currentRouteData.routeId,mode:this.currentMode,
+      data:this.currentRouteData,summary:this.currentRouteSummary,evaluation:{...this.currentEvaluationData,mode:this.currentMode},
+      directions:this.currentDirectionsResult}));
+  }
+
+  hydrateDirections(value) {
+    if (Array.isArray(value)) return value.map(item => this.hydrateDirections(item));
+    if (value && typeof value === 'object') {
+      if (typeof value.lat === 'number' && typeof value.lng === 'number') return new google.maps.LatLng(value.lat,value.lng);
+      if (['south','west','north','east'].every(key => typeof value[key] === 'number')) {
+        return new google.maps.LatLngBounds({lat:value.south,lng:value.west},{lat:value.north,lng:value.east});
+      }
+      return Object.fromEntries(Object.entries(value).map(([key,item]) => [key,this.hydrateDirections(item)]));
+    }
+    return value;
+  }
+
+  restoreRouteSnapshot(route) {
+    if (!route) return;
+    this.currentMode = route.mode;
+    const directions = this.hydrateDirections(route.directions || this.cachedDirectionsResponse);
+    this.applyEvaluationResult(route.evaluation,directions,this.candidatePayload || []);
+    this.currentRouteData = route.data;
+    this.currentRouteSummary = route.summary;
+    document.querySelectorAll('.opt-option-card').forEach(card => card.classList.toggle('selected',card.dataset.mode === route.mode));
+    this.updateResultsUI();this.updateApplyButton();
+  }
+
+  updateApplyButton() {
+    const button = document.getElementById('btn-generate-ai-route');
+    if (!button || this.isGenerating) return;
+    const applied = this.appliedRoute?.routeId === this.currentRouteData?.routeId;
+    button.disabled = this.isNavigating || this.applyingRoute || applied || (Boolean(this.currentRouteData) && window.TC_ROUTE_CONTEXT?.canApply === false);
+    button.textContent = this.isNavigating ? 'Navigation Active' : applied ? 'Applied' : this.currentRouteData ? this.getModeButtonLabel(this.currentMode) : 'Generate ROUTETHINK Route';
+    const navigation = document.getElementById('btn-start-navigation');
+    if(navigation && !this.isNavigating) {
+      navigation.disabled = !applied || window.TC_ROUTE_CONTEXT?.canApply===false;
+      navigation.textContent = applied ? 'START NAVIGATION' : 'Apply Route First';
+      if(this.arrivalConfirmed){navigation.disabled=true;navigation.textContent='Destination Reached';}
+      if(window.TC_ROUTE_CONTEXT?.tripId && !['Dispatched','In Transit','Returning to Depot'].includes(window.TC_ROUTE_CONTEXT.tripStatus)) {
+        navigation.disabled=true;navigation.textContent='Waiting for Dispatch';
+      }
+    }
+  }
+
+  persistPlannerState(reroute = false) {
+    if (!this.currentRouteData || this.restoringPlanner) return Promise.resolve();
+    const state = JSON.parse(JSON.stringify({version:1,generationId:this.generationId,inputs:this.generatedInputs || this.plannerInputs(),
+      directions:this.cachedDirectionsResponse,modeEvaluations:this.modeEvaluations,candidates:this.candidatePayload,
+      selected:this.captureRouteSnapshot(),applied:this.appliedRoute,
+      navigation:{startedAt:this.navigationStartedAt,step:this.currentStepIndex,leg:this.currentLegIndex,hasReachedPickup:this.hasReachedPickup}}));
+    const lifecycle=this.plannerLifecycle;
+    this.persistQueue=this.persistQueue.catch(() => {}).then(async () => {
+      const context=window.TC_ROUTE_CONTEXT || {};
+      const form=new URLSearchParams({csrf:context.stateCsrf || '',trip_id:context.tripId || '',phase:context.routePhase || 'outbound',
+        lifecycle,revision:String(this.plannerRevision),state:JSON.stringify(state),reroute:reroute?'1':''});
+      const response=await fetch(`${window.TC_BASE_URL}/actions/route-planner-state.php`,{method:'POST',body:form});
+      const data=await response.json();if(!response.ok || !data.ok)throw new Error(data.error || 'Route state could not be saved.');
+      this.plannerRevision=data.revision;
+      return data;
+    });
+    return this.persistQueue;
+  }
+
+  async applySelectedRoute() {
+    if (this.applyingRoute || this.isNavigating || window.TC_ROUTE_CONTEXT?.canApply === false) return;
+    await this.evaluationPromise;
+    if (!this.currentRouteData || this.appliedRoute?.routeId===this.currentRouteData.routeId) return;
+    this.applyingRoute=true;this.updateApplyButton();
+    const previous=this.appliedRoute;
+    try {
+      this.appliedRoute=this.captureRouteSnapshot();this.plannerLifecycle='APPLIED';
+      await this.persistPlannerState();
+      this.savedRouteSignature=null;
+      window.showAppToast?.('Route Applied',`${this.getModeTitle(this.currentMode)} is saved for navigation.`,'success');
+    } catch(error) {
+      this.appliedRoute=previous;this.plannerLifecycle=previous?'APPLIED':'GENERATED';
+      window.showAppToast?.('Apply Failed',error.message,'danger');
+    } finally {this.applyingRoute=false;this.updateApplyButton();}
+  }
+
+  async restorePlannerState() {
+    this.plannerRestorePending=true;this.plannerRestoreCompleted=true;
+    const context=window.TC_ROUTE_CONTEXT || {};
+    try {
+      const params=new URLSearchParams({trip_id:context.tripId || '',phase:context.routePhase || 'outbound'});
+      const response=await fetch(`${window.TC_BASE_URL}/actions/route-planner-state.php?${params}`);
+      const result=await response.json();if(!response.ok || !result.ok)throw new Error(result.error || 'Route restoration failed.');
+      const record=result.state;if(!record)return;
+      this.plannerRevision=Number(record.revision);
+      const state=record.state_data;
+      const current=this.plannerInputs();
+      if(context.tripId && (state.inputs.origin!==current.origin || state.inputs.destination!==current.destination || state.inputs.vehicleId!==context.vehicleId))return;
+      this.restoringPlanner=true;
+      for(const [id,key] of [['route-origin-input','origin'],['route-dest-input','destination'],['route-vehicle-select','vehicle']]){
+        const input=document.getElementById(id);if(input)input.value=state.inputs[key];
+      }
+      const waypoints=document.getElementById('waypoints-container');if(waypoints){waypoints.replaceChildren();(state.inputs.waypoints || []).forEach(value=>this.addWaypointField(value));}
+      this.trafficAware=state.inputs.trafficAware;
+      this.generatedInputs=state.inputs;this.generationId=state.generationId;
+      this.cachedDirectionsResponse=this.hydrateDirections(state.directions);
+      this.modeEvaluations=state.modeEvaluations || {};this.candidatePayload=state.candidates || [];
+      this.arrivalConfirmed=result.current_step==='Arrived';
+      this.appliedRoute=state.applied;this.plannerRevision=record.revision;this.plannerLifecycle=record.lifecycle;
+      this.restoreRouteSnapshot(record.lifecycle==='NAVIGATING'?state.applied:state.selected);
+      this.revealRouteStrategies();this.updateApplyButton();this.fitMapBounds();
+      this.restoringPlanner=false;
+      if(record.lifecycle==='NAVIGATING' && context.canApply!==false && (!context.tripId || Number(result.navigation_active)===1)){
+        context.resumeNavigation=true;
+        this.navigationRestoreState=state.navigation;
+        await this.startNavigation({resume:true});
+      }
+    } catch(error) {window.showAppToast?.('Route State',error.message,'warning');}
+    finally {this.restoringPlanner=false;this.plannerRestorePending=false;}
+  }
+
   getVehicleEconomy(name) {
     const value=document.getElementById('route-vehicle-select')?.selectedOptions[0]?.dataset.consumption || '';
-    const match=value.match(/^\s*(\d+(?:\.\d+)?)\s*km\s*\/\s*l\s*$/i);
+    const match=value.match(/^\s*(\d+(?:\.\d+)?)\s*(?:km\s*\/\s*l)?\s*$/i);
     return match && Number(match[1])>0?Number(match[1]):null;
   }
   async saveFundingRoute(button) {
     const message=document.getElementById('funding-route-message');
-    if(!this.currentRouteData || !(this.currentRouteData.distanceKm>0)){message.textContent='Generate the assigned route first.';return;}
+    if(!this.appliedRoute || this.appliedRoute.routeId!==this.currentRouteData?.routeId){message.textContent='Apply the selected route first.';return;}
     button.disabled=true;
     try{
       const fields=new URLSearchParams({csrf:window.TC_ROUTE_PREPARE_CSRF,trip_id:window.TC_ROUTE_CONTEXT.tripId,
         vehicle_id:document.getElementById('route-vehicle-select')?.selectedOptions[0]?.dataset.vehicleId||'',
         origin:document.getElementById('route-origin-input').value,destination:document.getElementById('route-dest-input').value,
-        distance_km:this.currentRouteData.distanceKm,strategy:this.currentMode});
+        route_id:this.appliedRoute.routeId,distance_km:this.appliedRoute.data.distanceKm,strategy:this.appliedRoute.mode});
       const response=await fetch(`${window.TC_BASE_URL}/actions/route-preparation.php`,{method:'POST',body:fields,credentials:'same-origin'});
       const data=await response.json();if(!data.ok)throw Error(data.error);message.textContent='Route saved. Return to Reservation & Dispatch to prepare Trip Funding.';
     }catch(error){message.textContent=error.message;}finally{button.disabled=false;}
@@ -2564,25 +2756,6 @@ class AIRouteEngine {
   }
 
   updateResultsUI() {
-    if (!this.currentRouteData) {
-      if (this.activePreset && this.activePreset.alternatives) {
-        const alt = this.activePreset.alternatives[this.currentMode] || this.activePreset.alternatives.balanced;
-        if (alt) {
-          this.currentRouteData = {
-            title: alt.title,
-            distance: alt.distance,
-            duration: alt.duration,
-            fuelEstimate: alt.fuelEstimate,
-            tollEstimate: alt.tollEstimate,
-            totalTripCost: alt.totalTripCost,
-            routeScore: alt.routeScore,
-            reason: alt.reason,
-            legs: []
-          };
-        }
-      }
-    }
-
     if (!this.currentRouteData) return;
     const data = this.currentRouteData;
 
@@ -2600,8 +2773,8 @@ class AIRouteEngine {
     }
     setText("ai-res-score", data.routeScore);
     const fullyTrained = Boolean(data.isFullyMlActive);
-    setText("ai-res-duration-label", fullyTrained ? "Fleet AI Travel Time" : "Google Traffic ETA");
-    setText("ai-res-fuel-label", fullyTrained ? "Fleet AI Fuel Prediction" : "Formula Fuel Estimate");
+    setText("ai-res-duration-label", Boolean(data.durationModelVersion) ? "Fleet AI Travel Time" : "Google Traffic ETA");
+    setText("ai-res-fuel-label", Boolean(data.fuelModelVersion) ? "Fleet AI Fuel Prediction" : "Formula Fuel Estimate");
     setText("ai-res-score-label", "Relative Route Score:");
 
     const reasonEl = document.getElementById("ai-res-reason");
@@ -2692,6 +2865,9 @@ class AIRouteEngine {
     if (this.routeSaveInFlight) return this.routeSaveInFlight;
 
     const form = new FormData();
+    form.append("state_csrf", window.TC_ROUTE_CONTEXT?.stateCsrf || "");
+    form.append("route_id", this.appliedRoute?.routeId || "");
+    form.append("route_phase", window.TC_ROUTE_CONTEXT?.routePhase || "outbound");
     form.append("preset_id", presetId);
     form.append("trip_id", window.TC_ROUTE_CONTEXT?.tripId || "");
     form.append("reservation_id", window.TC_ROUTE_CONTEXT?.reservationId || "");
@@ -2718,6 +2894,8 @@ class AIRouteEngine {
     form.append("route_data_json", JSON.stringify({
       destinationLocation: this.getSelectedGoogleRoute()?.legs?.slice(-1)[0]?.end_location?.toJSON(),
       mode: this.currentMode,
+      routeId: this.appliedRoute.routeId,
+      directions: this.currentDirectionsResult,
       route: this.currentRouteData || null,
       selectedCandidate: this.currentEvaluationData?.selectedCandidate || null
     }));
@@ -2763,9 +2941,11 @@ class AIRouteEngine {
     if (!window.TC_ROUTE_CONTEXT?.isDriver) return;
     const button = document.getElementById('btn-start-navigation');
     if (!button || this.isNavigating || this.routeSaveInFlight) return;
-    const allowed = ['Dispatched', 'In Transit', 'Returning to Depot'].includes(window.TC_ROUTE_CONTEXT.tripStatus);
+    const dispatched = ['Dispatched', 'In Transit', 'Returning to Depot'].includes(window.TC_ROUTE_CONTEXT.tripStatus);
+    const applied = Boolean(this.appliedRoute && this.currentRouteData?.routeId===this.appliedRoute.routeId);
+    const allowed = dispatched && applied && !this.arrivalConfirmed;
     button.disabled = !allowed;
-    button.textContent = allowed ? 'START NAVIGATION' : 'Waiting for Dispatch';
+    button.textContent = this.arrivalConfirmed ? 'Destination Reached' : allowed ? 'START NAVIGATION' : (!dispatched ? 'Waiting for Dispatch' : 'Apply Route First');
     button.title = allowed ? '' : 'This trip has not been dispatched yet. Please wait for the Dispatcher/Admin.';
   }
 }

@@ -38,3 +38,5 @@ database/backups/
 /latest.sql
 /tatus --short
 /tmp_verify_next_vehicle.php
+
+/storage/private/fuel-receipts/

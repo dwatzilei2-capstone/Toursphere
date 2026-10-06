@@ -171,7 +171,7 @@ require ROOT_PATH . '/includes/header.php';
       <button type="button" class="btn-close" onclick="App.closeModal('modal-log-fuel')"></button>
     </div>
     <div class="tc-card-body">
-      <form method="post" action="<?= BASE_URL ?>/actions/fuel.php">
+      <form method="post" action="<?= BASE_URL ?>/actions/fuel.php" enctype="multipart/form-data">
         <input type="hidden" name="action" value="create">
         <input type="hidden" name="return" value="<?= e(BASE_URL . '/modules/fuel-management/fuel-transactions.php') ?>">
         <?php if (($current_user['role_code'] ?? '') === 'driver' && !$driver_fuel_trip): ?>
@@ -226,6 +226,16 @@ require ROOT_PATH . '/includes/header.php';
           <div class="col-12">
             <label class="tc-form-label">Fuel Station & Location</label>
             <input type="text" name="station" class="tc-form-control" placeholder="Petron SLEX Northbound Km 36" required>
+          </div>
+          <div class="col-12">
+            <label class="tc-form-label" for="fuel-receipt-upload">Receipt (Optional)</label>
+            <input id="fuel-receipt-upload" type="file" name="receipt" class="tc-form-control" accept=".jpg,.jpeg,.png,.pdf">
+            <div class="small text-muted-custom mt-1">JPG, PNG or PDF, up to 5 MB. You can save without a receipt.</div>
+          </div>
+          <div class="col-12">
+            <label class="tc-form-label" for="fuel-receipt-upload">Receipt (Optional)</label>
+            <input id="fuel-receipt-upload" type="file" name="receipt" class="tc-form-control" accept=".jpg,.jpeg,.png,.pdf">
+            <div class="small text-muted-custom mt-1">JPG, PNG or PDF, up to 5 MB. You can save without a receipt.</div>
           </div>
           <div class="col-12">
             <label class="d-flex gap-2 align-items-start p-2 border rounded bg-light small">

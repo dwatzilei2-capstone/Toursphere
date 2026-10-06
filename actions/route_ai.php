@@ -10,6 +10,7 @@
 
 require_once dirname(__DIR__) . '/includes/bootstrap.php';
 require_once dirname(__DIR__) . '/includes/routethink_engine.php';
+require_once dirname(__DIR__) . '/includes/route_planner_state.php';
 require_login();
 require_permission('ai.view');
 
@@ -32,23 +33,17 @@ try {
     $waypointsRaw    = $_POST['waypoints'] ?? [];
     $candidatesRaw   = $_POST['candidates'] ?? [];
 
-    if (($current_user['role_code'] ?? '') === 'driver') {
+    if (($current_user['role_code'] ?? '') === 'driver' || trim($_POST['trip_id']??'')!=='') {
         $tripId = trim($_POST['trip_id'] ?? '');
-        $contextStmt = db()->prepare(
-            "SELECT t.origin, t.destination, t.waypoints, t.vehicle_id, t.passengers, t.status
-               FROM trips t JOIN drivers d ON d.id = t.driver_id
-              WHERE t.id = ? AND d.user_id = ?
-                AND t.status IN ('Scheduled','Assigned','Dispatched','In Transit','Returning to Depot') LIMIT 1"
-        );
-        $contextStmt->execute([$tripId, $current_user['id']]);
-        $trustedTrip = $contextStmt->fetch();
-        if (!$trustedTrip) {
+        $trustedTrip=route_planner_scope(db(),$tripId,$routePhase)['trip'];
+        if (!$trustedTrip || in_array($trustedTrip['status'],['Completed','Cancelled'],true)) {
             http_response_code(403);
             echo json_encode(['ok' => false, 'error' => 'You may generate routes only for your assigned active trip.']);
             exit;
         }
         $allowedOrigin = $trustedTrip['origin'];
         $allowedDestination = $trustedTrip['destination'];
+        if($routePhase==='return' && $trustedTrip['status']!=='Returning to Depot')throw new DomainException('The return leg is not active.');
         if ($routePhase === 'return' && ($trustedTrip['status'] ?? '') === 'Returning to Depot') {
             $allowedOrigin = $trustedTrip['destination'];
             $allowedDestination = trim((string)(getenv('FLEET_DEPOT_ADDRESS') ?: $trustedTrip['origin']));
@@ -56,7 +51,7 @@ try {
         if (strcasecmp(trim($origin), trim($allowedOrigin)) !== 0 ||
             strcasecmp(trim($destination), trim($allowedDestination)) !== 0) {
             http_response_code(403);
-            echo json_encode(['ok' => false, 'error' => 'Trip origin and destination cannot be changed by the Driver.']);
+            echo json_encode(['ok' => false, 'error' => 'Use the assigned trip origin and destination.']);
             exit;
         }
         $origin = $allowedOrigin;
@@ -110,9 +105,11 @@ try {
 
         $selected = $evaluation['selectedCandidate'];
         $modeSelections = [$mode => $evaluation['selectedIndex']];
+        $modeEvaluations = [$mode => $evaluation];
         foreach (['balanced', 'fastest', 'shortest', 'fuelEfficient'] as $strategy) {
             if ($strategy === $mode) continue;
-            $modeSelections[$strategy] = RouteThinkEngine::evaluateCandidates($candidates, $vehicleSpecs, $strategy, $passengerCount, count($waypoints))['selectedIndex'];
+            $modeEvaluations[$strategy] = RouteThinkEngine::evaluateCandidates($candidates, $vehicleSpecs, $strategy, $passengerCount, count($waypoints));
+            $modeSelections[$strategy] = $modeEvaluations[$strategy]['selectedIndex'];
         }
 
         echo json_encode([
@@ -125,6 +122,7 @@ try {
                 'vehicleSpecs'      => $vehicleSpecs,
                 'selectedIndex'     => $evaluation['selectedIndex'],
                 'modeSelections'    => $modeSelections,
+                'modeEvaluations'   => $modeEvaluations,
                 'selectedCandidate' => $selected,
                 'candidates'        => $evaluation['candidates'],
                 'explanation'       => $evaluation['explanation'],

@@ -4,6 +4,7 @@ require_once dirname(__DIR__) . '/includes/bootstrap.php';
 require_once dirname(__DIR__) . '/includes/routethink_engine.php';
 require_once ROOT_PATH . '/includes/vehicle_compliance.php';
 require_once ROOT_PATH . '/includes/driver_vehicle_assignment.php';
+require_once ROOT_PATH.'/includes/route_planner_state.php';
 require_login();
 header('Content-Type: application/json; charset=UTF-8');
 
@@ -29,6 +30,25 @@ try {
     $mode = in_array($_POST['mode'] ?? '', ['balanced','fastest','fuelEfficient','shortest'], true)
         ? $_POST['mode'] : 'balanced';
 
+    if(!is_string($_POST['state_csrf']??null)||empty($_SESSION['route_state_csrf'])||!hash_equals($_SESSION['route_state_csrf'],$_POST['state_csrf']))throw new RuntimeException('Navigation session expired. Refresh the page.');
+    $phase=(string)($_POST['route_phase']??'outbound');
+    $scope=route_planner_scope($pdo,$tripId,$phase);
+    $pdo->prepare('SELECT pg_advisory_xact_lock(hashtext(?))')->execute([$scope['key']]);
+    $plannerState=route_planner_load($pdo,$scope['key']);
+    $applied=$plannerState['state_data']['applied']??null;
+    if(!$applied || !in_array($plannerState['lifecycle'],['APPLIED','NAVIGATING'],true) || ($applied['routeId']??'')!==($_POST['route_id']??''))throw new RuntimeException('Apply the selected route before starting navigation.');
+    route_planner_validate($plannerState['state_data']);
+    $mode=$applied['mode'];$isReturn=$phase==='return';
+    $chosen=$applied['directions']['routes'][$applied['evaluation']['selectedIndex']];
+    $lastLeg=$chosen['legs'][array_key_last($chosen['legs'])];
+    $routePayload=['mode'=>$mode,'routeId'=>$applied['routeId'],'phase'=>$phase,'directions'=>$applied['directions'],'route'=>$applied['data'],'selectedCandidate'=>$applied['evaluation']['selectedCandidate'],'destinationLocation'=>$lastLeg['end_location']];
+    // Navigation consumes the persisted applied snapshot, never posted/cached preview metrics.
+    $_POST['distance_km']=$applied['data']['distanceKm'];$_POST['duration_mins']=$applied['data']['durationMins'];
+    $_POST['fuel_liters']=$applied['data']['fuelEstimateLiters']??0;$_POST['route_score']=$applied['data']['routeScore'];
+    $_POST['model_version']=$applied['data']['modelVersion'];$_POST['features_json']=json_encode($applied['evaluation']['selectedCandidate']['features']??[]);
+    $_POST['candidates_json']=json_encode($applied['evaluation']['candidates']);$_POST['selected_index']=$applied['evaluation']['selectedIndex'];$_POST['route_data_json']=json_encode($routePayload);
+    $_POST['origin']=$plannerState['state_data']['inputs']['origin'];$_POST['destination']=$plannerState['state_data']['inputs']['destination'];$_POST['waypoints_json']=json_encode($plannerState['state_data']['inputs']['waypoints']);
+
     $trip = null;
     if ($isDriver) {
         $driverStmt = $pdo->prepare('SELECT id FROM drivers WHERE user_id = ?');
@@ -49,6 +69,7 @@ try {
         if (!$trip) throw new RuntimeException('The selected trip could not be found.');
     }
 
+    if($trip && $trip['current_step']==='Arrived')throw new RuntimeException('This navigation leg has already arrived.');
     if ($trip && !in_array($trip['status'], ['Dispatched', 'In Transit', 'Returning to Depot'], true)) {
         throw new RuntimeException('This trip has not been dispatched yet. Please wait for the Dispatcher/Admin.');
     }
@@ -56,6 +77,10 @@ try {
         throw new RuntimeException('An active trip cannot be started again without its saved navigation route.');
     }
     if ($trip) {
+        $inputs=$plannerState['state_data']['inputs'];
+        $expectedOrigin=$isReturn?$trip['destination']:$trip['origin'];
+        $expectedDestination=$isReturn?(getenv('FLEET_DEPOT_ADDRESS')?:$trip['origin']):$trip['destination'];
+        if(strcasecmp(trim($inputs['origin']),trim($expectedOrigin)) || strcasecmp(trim($inputs['destination']),trim($expectedDestination)) || ($inputs['vehicleId']??'')!==$trip['vehicle_id'])throw new RuntimeException('The applied route no longer matches this trip assignment. Generate and apply its updated route.');
         $tripId = $trip['id'];
         $reservationId = $trip['reservation_id'] ?? $reservationId;
         $assignmentCheck = $pdo->prepare('SELECT status,assigned_vehicle_id,assigned_driver_id FROM reservations WHERE id=? FOR UPDATE');
@@ -67,26 +92,26 @@ try {
             throw new RuntimeException('This trip has not been dispatched with its current assignment. Please wait for the Dispatcher/Admin.');
         }
     }
+    if (!$trip) {
+        $resume=$pdo->prepare("SELECT log_id FROM route_history WHERE created_by=? AND route_data_json IS NOT NULL AND NULLIF(route_data_json,'')::jsonb->>'routeId'=? ORDER BY id DESC LIMIT 1");
+        $resume->execute([$current_user['id'],$applied['routeId']]);
+        if($existingLogId=$resume->fetchColumn()){
+            $pdo->prepare("UPDATE route_planner_states SET lifecycle='NAVIGATING',updated_at=clock_timestamp() WHERE scope_key=?")->execute([$scope['key']]);
+            $pdo->commit();echo json_encode(['ok'=>true,'log_id'=>$existingLogId,'already_saved'=>true,'message'=>'Saved route resumed.']);exit;
+        }
+    }
 
      
      
     if ($trip && in_array($trip['status'], ['In Transit','Returning to Depot'], true) && !empty($trip['route_history_id'])) {
-        $activeRouteStmt = $pdo->prepare('SELECT log_id FROM route_history WHERE log_id = ? AND trip_id = ?');
-        $activeRouteStmt->execute([$trip['route_history_id'], $tripId]);
-        if ($activeLogId = $activeRouteStmt->fetchColumn()) {
-            // Refresh the destination on resumed sessions created before automatic arrival.
-            $resumeRoute = json_decode($_POST['route_data_json'] ?? '', true);
-            $resumeDestination = $resumeRoute['destinationLocation'] ?? null;
-            if (is_array($resumeDestination) && isset($resumeDestination['lat'], $resumeDestination['lng'])
-                && is_numeric($resumeDestination['lat']) && is_numeric($resumeDestination['lng'])
-                && abs((float)$resumeDestination['lat']) <= 90 && abs((float)$resumeDestination['lng']) <= 180) {
-                $pdo->prepare("UPDATE route_history SET route_data_json =
-                    jsonb_set(COALESCE(NULLIF(route_data_json,'')::jsonb,'{}'::jsonb),
-                        '{destinationLocation}', ?::jsonb)::text WHERE log_id=?")
-                    ->execute([json_encode($resumeDestination), $activeLogId]);
-            }
-
+        $activeRouteStmt = $pdo->prepare("SELECT log_id,route_data_json FROM route_history WHERE log_id = ? AND trip_id = ? AND COALESCE(NULLIF(route_data_json,'')::jsonb->>'phase','outbound') = ?");
+        $activeRouteStmt->execute([$trip['route_history_id'], $tripId, $phase]);
+        if ($activeRoute = $activeRouteStmt->fetch()) {
+            $activeLogId=$activeRoute['log_id'];$activeData=json_decode((string)$activeRoute['route_data_json'],true);
+            if(!empty($activeData['mode']) && $activeData['mode']!==$mode)throw new RuntimeException('An active navigation session must retain its applied mode.');
+            if(($activeData['routeId']??'')!==$applied['routeId'])$pdo->prepare('UPDATE route_history SET route_data_json=? WHERE log_id=?')->execute([json_encode($routePayload),$activeLogId]);
             $pdo->prepare('UPDATE trips SET navigation_active = 1 WHERE id = ?')->execute([$tripId]);
+            $pdo->prepare("UPDATE route_planner_states SET lifecycle='NAVIGATING',updated_at=clock_timestamp() WHERE scope_key=?")->execute([$scope['key']]);
             $pdo->commit();
             echo json_encode([
                 'ok' => true,
@@ -98,7 +123,7 @@ try {
             exit;
         }
     }
-    if ($trip && $trip['status'] !== 'Dispatched') {
+    if ($trip && $trip['status'] !== 'Dispatched' && !($isReturn && $trip['status']==='Returning to Depot')) {
         throw new RuntimeException('The saved navigation route could not be resumed.');
     }
     $reservation = null;
@@ -107,7 +132,7 @@ try {
         $resStmt->execute([$reservationId]);
         $reservation = $resStmt->fetch();
         if (!$reservation) throw new RuntimeException('The route reservation could not be found.');
-        if ($trip && ($reservation['status'] !== 'Dispatched'
+        if ($trip && (!in_array($reservation['status'], $isReturn?['Returning to Depot']:['Dispatched'],true)
             || $reservation['assigned_vehicle_id'] !== $trip['vehicle_id']
             || $reservation['assigned_driver_id'] !== $trip['driver_id'])) {
             throw new RuntimeException('This trip has not been dispatched with its current assignment. Please wait for the Dispatcher/Admin.');
@@ -115,17 +140,15 @@ try {
     }
 
      
-    $origin = $trip['origin'] ?? $reservation['origin'] ?? trim($_POST['origin'] ?? '');
-    $destination = $trip['destination'] ?? $reservation['destination'] ?? trim($_POST['destination'] ?? '');
+    $origin = $plannerState['state_data']['inputs']['origin'];
+    $destination = $plannerState['state_data']['inputs']['destination'];
     $vehicleId = $trip['vehicle_id'] ?? $reservation['assigned_vehicle_id'] ?? '';
     $driverId = $trip['driver_id'] ?? $reservation['assigned_driver_id'] ?? '';
     if ($tripId !== '' && $vehicleId !== '' && $driverId !== '') {
         $resourceLock = $pdo->prepare("SELECT pg_advisory_xact_lock(hashtext(?)), pg_advisory_xact_lock(hashtext(?))");
         $resourceLock->execute(['dispatch-driver:' . $driverId, 'dispatch-vehicle:' . $vehicleId]);
     }
-    $waypointsJson = ($trip && !empty($trip['waypoints']))
-        ? json_encode(array_values(array_filter(array_map('trim', preg_split('/[;\n]+/', $trip['waypoints']) ?: []))))
-        : ($_POST['waypoints_json'] ?? '[]');
+    $waypointsJson = json_encode($plannerState['state_data']['inputs']['waypoints']);
     if ($origin === '' || $destination === '') throw new RuntimeException('A valid origin and destination are required.');
     if ($trip && ($vehicleId === '' || $driverId === '')) {
         throw new RuntimeException('The trip must have an assigned vehicle and Driver.');
@@ -152,7 +175,7 @@ try {
         }
         $vehicleTitle = trim($vehicle['brand'].' '.$vehicle['model'].' ('.$vehicle['plate_number'].')');
     } else {
-        $specs = RouteThinkEngine::getVehicleSpecs($vehicleInput);
+        $specs = RouteThinkEngine::getVehicleSpecs($plannerState['state_data']['inputs']['vehicleId'] ?: $vehicleInput);
         $vehicleTitle = $specs['name'];
         $vehicleId = $specs['id'] ?? null;
     }
@@ -183,6 +206,7 @@ try {
         $existingStmt = $pdo->prepare('SELECT log_id FROM route_history WHERE trip_id = ? AND navigation_key = ? LIMIT 1');
         $existingStmt->execute([$tripId, $navigationKey]);
         if ($existingLogId = $existingStmt->fetchColumn()) {
+            $pdo->prepare("UPDATE route_planner_states SET lifecycle='NAVIGATING',updated_at=clock_timestamp() WHERE scope_key=?")->execute([$scope['key']]);
             $pdo->commit();
             echo json_encode(['ok'=>true, 'log_id'=>$existingLogId, 'already_saved'=>true,
                 'message'=>"Route already saved for this trip ({$existingLogId})."]);
@@ -233,12 +257,12 @@ try {
         if (driver_has_active_trip($pdo, $driverId, $tripId)) throw new RuntimeException('This driver is already operating another active trip.');
         if (vehicle_has_active_trip($pdo, $vehicleId, $tripId)) throw new RuntimeException('This vehicle is already being used by another active trip.');
         $pdo->prepare(
-            "UPDATE trips SET route_history_id=?, navigation_active=1, status='In Transit', progress_pct=GREATEST(progress_pct,10),
-             current_step='In Transit', actual_departure=COALESCE(actual_departure,NOW()),
+            "UPDATE trips SET route_history_id=?, navigation_active=1, status=CASE WHEN status='Returning to Depot' THEN status ELSE 'In Transit' END, progress_pct=GREATEST(progress_pct,10),
+             current_step=CASE WHEN status='Returning to Depot' THEN 'Returning to Depot' ELSE 'In Transit' END, actual_departure=COALESCE(actual_departure,NOW()),
              distance_km=CASE WHEN CAST(? AS NUMERIC)>0 THEN CAST(? AS NUMERIC) ELSE distance_km END WHERE id=?"
         )->execute([$logId, $distanceKm, $distanceKm, $tripId]);
         if ($reservationId !== '') {
-            $pdo->prepare("UPDATE reservations SET status='In Transit' WHERE id=?")->execute([$reservationId]);
+            $pdo->prepare("UPDATE reservations SET status=CASE WHEN status='Returning to Depot' THEN status ELSE 'In Transit' END WHERE id=?")->execute([$reservationId]);
         }
         $pdo->prepare("UPDATE vehicles SET status='On Trip',location=? WHERE id=?")
             ->execute(['In Transit: '.$origin.' → '.$destination, $vehicleId]);
@@ -256,6 +280,7 @@ try {
 
     }
 
+    $pdo->prepare("UPDATE route_planner_states SET lifecycle='NAVIGATING',updated_at=clock_timestamp() WHERE scope_key=?")->execute([$scope['key']]);
     $pdo->commit();
     echo json_encode(['ok'=>true, 'log_id'=>$logId, 'trip_id'=>$tripId ?: null,
         'message'=>$tripId ? "Route {$logId} saved and trip {$tripId} started." : "Route saved to Route History ({$logId})."]);

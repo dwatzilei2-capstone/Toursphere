@@ -39,7 +39,7 @@ function funding_estimate(PDO $pdo,array $t): array {
  if(!$t['vehicle_id'] || !$t['driver_id'])$issues[]='Assign a vehicle and driver first.';
  if($distance<=0)$issues[]='Route distance unavailable. Prepare the route in the existing AI Route Planner.';
  if($efficiency<=0)$issues[]='Vehicle fuel efficiency data unavailable.';
- if(!$price)$issues[]='Current '.($t['fuel_type'] ?: 'vehicle fuel').' price unavailable. Admin must configure it in Fuel Overview.';
+ if(!$price)$issues[]='Current '.($t['fuel_type'] ?: 'vehicle fuel').' price unavailable. Admin must configure it in Settings → Fuel Prices.';
  $liters=$distance>0 && $efficiency>0 ? $distance/$efficiency : null;
  $fuel=$liters!==null && $price ? round($liters*(float)$price['price_per_liter'],2) : null;
  return ['issues'=>$issues,'distance_km'=>$distance,'distance_source'=>$t['distance_km']>0?'Saved trip route':'Saved reservation route','expected_km_per_liter'=>$efficiency,
@@ -168,4 +168,15 @@ function funding_payload(PDO $pdo,array $t): array {
  return ['trip'=>['id'=>$t['id'],'reservation_id'=>$t['reservation_id'],'driver'=>$t['driver_name'],'vehicle'=>$t['vehicle_id'].' — '.trim($t['brand'].' '.$t['model']),'vehicle_id'=>$t['vehicle_id'],'driver_id'=>$t['driver_id'],'departure'=>$t['scheduled_departure'],'notes'=>$t['notes'],'status'=>$t['status'],'origin'=>$t['origin'],'destination'=>$t['destination']],
  'estimate'=>$e,'request'=>$f,'status'=>$status,'methods'=>$pdo->query('SELECT code,name FROM trip_funding_methods WHERE enabled ORDER BY code')->fetchAll(),'can_manage'=>funding_can_manage(),
  'readiness'=>funding_readiness($pdo,$t),'csrf'=>$_SESSION['funding_csrf']??=bin2hex(random_bytes(32)), 'assignment_csrf'=>$_SESSION['assignment_csrf']??=bin2hex(random_bytes(32))];
+}
+
+/** Read saved preparation values without replacing them with actual expenses. */
+function funding_trip_summary(PDO $pdo,array $trip): array {
+ $request=funding_request($pdo,$trip['id']);
+ $pretrip=in_array($trip['status'],['Scheduled','Assigned','Confirmed'],true);
+ $snapshot=$request && in_array($request['status'],['Pending Finance Approval','Funding Confirmed'],true) && (!$pretrip || funding_matches($request,$trip)) ? $request : null;
+ $distance=(float)($trip['distance_km']??0);
+ if($distance<=0)$distance=(float)($snapshot['distance_km']??$trip['route_distance_km']??0);
+ $fuel=$snapshot && $snapshot['estimated_liters']!==null ? number_format((float)$snapshot['estimated_liters'],2).' L' : trim((string)($trip['fuel_estimate']??''));
+ return ['distance'=>$distance>0?number_format($distance,1).' km':'Not Prepared','fuel'=>$fuel!=='' && $fuel!=='—'?$fuel:'Not Estimated'];
 }

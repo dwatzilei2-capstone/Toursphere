@@ -399,7 +399,7 @@ class RouteThinkEngine {
         $costSpan = max(0.001, $maxCost - $minCost);
 
          
-        $bestScore = -1;
+        $bestScore = -INF;
         $selectedIndex = 0;
 
         foreach ($evaluated as $k => &$item) {
@@ -419,8 +419,8 @@ class RouteThinkEngine {
             $score = max(50, min(99, $score));
             $item['compositeScore'] = $score;
 
-            if ($score > $bestScore) {
-                $bestScore = $score;
+            if (-$penalty > $bestScore) {
+                $bestScore = -$penalty;
                 $selectedIndex = $k;
             }
         }
@@ -512,7 +512,7 @@ class RouteThinkEngine {
             case 'fastest':
                 if ($timeDelta > 0) {
                     $pct = round(($timeDelta / max(1, $runnerUp['durationMins'])) * 100, 1);
-                    return "Selected {$summary}: Saves approximately {$timeDelta} mins ({$pct}% faster) transit time compared to {$runnerUp['summary']} by prioritizing high-capacity expressway corridors.";
+                    return "Selected {$summary}: Has the lowest estimated travel time and saves approximately {$timeDelta} mins ({$pct}% faster) compared to {$runnerUp['summary']}.";
                 }
                 return "Selected {$summary}: Delivers the lowest transit duration ({$winner['durationMins']} mins) among all {$count} evaluated road corridors.";
 
