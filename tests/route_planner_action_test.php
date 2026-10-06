@@ -1,6 +1,6 @@
 <?php
 if(PHP_SAPI!=='cli'){http_response_code(404);exit;}
-$cases=['generated','applied','read_only','view_preview','other_driver','stale_revision','navigation_replace','navigation_progress','reroute_mode','reroute_same_mode','free_reroute_same_mode','changed_inputs','start_admin','start_dispatcher','start_driver','start_no_apply','start_resume','start_changed_assignment','start_free_resume','start_return','prepare_applied','prepare_no_apply'];
+$cases=['generated','applied','read_only','view_preview','other_driver','stale_revision','navigation_replace','navigation_progress','reroute_mode','reroute_same_mode','free_reroute_same_mode','changed_inputs','start_admin','start_dispatcher','start_driver','start_no_apply','start_resume','start_changed_assignment','start_free_resume','start_return','custom_role_write','prepare_applied','prepare_no_apply'];
 if(!isset($argv[1])){
  foreach($cases as $case){$output=[];exec(escapeshellarg(PHP_BINARY).' '.escapeshellarg(__FILE__).' '.escapeshellarg($case),$output,$code);if($code!==0)throw new RuntimeException($case.': '.implode("\n",$output));}
  echo count($cases)." route persistence and navigation action cases passed using isolated temporary tables.\n";exit;
@@ -23,6 +23,8 @@ $_SESSION['route_state_csrf']='test-csrf';$_SERVER['REQUEST_METHOD']='POST';$_GE
 $key='trip:TEST-T:outbound';$life='APPLIED';$tripId='TEST-T';$phase='outbound';$existing=!in_array($case,['generated','applied'],true);
 if($case==='read_only'){$current_user['role_code']='fleet_manager';$current_permissions=['ai.view'];}
 if(in_array($case,['start_driver','other_driver'],true)){$current_user['role_code']='driver';$current_permissions=['ai.view','ai.navigate'];if($case==='other_driver')$current_user['id']=2;}
+if(!in_array($case,['start_admin','start_dispatcher','start_free_resume','changed_inputs','free_reroute_same_mode','read_only','view_preview','custom_role_write','prepare_applied','prepare_no_apply'],true))$current_user['role_code']='driver';
+if($case==='custom_role_write'){$current_user['role_code']='custom_route_viewer';$current_permissions=['dispatch.view','ai.view','ai.manage','ai.navigate'];}
 if($case==='start_dispatcher')$current_user['role_code']='dispatcher';
 if(in_array($case,['changed_inputs','start_free_resume','free_reroute_same_mode'],true)){$tripId='';$key='account:1:outbound';}
 if(in_array($case,['navigation_replace','navigation_progress','reroute_mode','reroute_same_mode','free_reroute_same_mode','start_resume','start_free_resume'],true))$life='NAVIGATING';
@@ -53,7 +55,7 @@ if(str_starts_with($case,'prepare_')){
  $pdo->exec("UPDATE trips SET status='Assigned'; UPDATE reservations SET status='Assigned'; CREATE TEMP TABLE trip_funding_requests (LIKE public.trip_funding_requests INCLUDING DEFAULTS INCLUDING IDENTITY)");
  $_SESSION['route_prepare_csrf']='test-csrf';$_POST=['trip_id'=>'TEST-T','csrf'=>'test-csrf','vehicle_id'=>'TEST-V','origin'=>'Origin','destination'=>'Destination','route_id'=>$route['routeId'],'distance_km'=>'9999','strategy'=>'shortest'];
 }
-$reject=in_array($case,['read_only','other_driver','stale_revision','navigation_replace','reroute_mode','start_no_apply','start_changed_assignment','prepare_no_apply'],true);
+$reject=in_array($case,['read_only','view_preview','custom_role_write','start_admin','start_dispatcher','other_driver','stale_revision','navigation_replace','reroute_mode','start_no_apply','start_changed_assignment','prepare_no_apply'],true);
 ob_start();register_shutdown_function(function()use($pdo,$case,$reject,$key,$isStart,$route){
  $body=ob_get_clean();$result=json_decode($body,true);
  try{

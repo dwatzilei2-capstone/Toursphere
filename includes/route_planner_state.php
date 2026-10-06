@@ -1,6 +1,7 @@
 <?php
 function route_planner_scope(PDO $pdo,string $tripId,string $phase): array {
  if(!can('ai.view'))throw new DomainException('Route Planner access denied.');
+ if($tripId!=='' && !has_role('driver') && !can('dispatch.view'))throw new DomainException('Trip route access denied.');
  if(!in_array($phase,['outbound','return'],true))throw new DomainException('Invalid route phase.');
  $trip=null;
  if($tripId!==''){

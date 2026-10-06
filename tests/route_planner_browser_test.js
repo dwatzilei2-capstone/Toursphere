@@ -60,11 +60,11 @@ const fixture=JSON.parse(fs.readFileSync(`${__dirname}/../tmp/route-planner-eval
      check(await page.locator('#ai-res-distance').textContent()===(await page.evaluate(()=>aiRouteEngine.currentRouteData.distance)),`${role} ${comparison}: results update`);
     }
     await page.locator(`.opt-option-card[data-mode="${mode}"]`).click();await page.locator('#btn-generate-ai-route').click();
-    await page.waitForFunction(()=>document.getElementById('btn-generate-ai-route').textContent==='Applied');
+    await page.waitForFunction(()=>document.getElementById('btn-generate-ai-route').textContent.endsWith('Applied'));
     const applied=await page.evaluate(()=>aiRouteEngine.appliedRoute.routeId);
     check(await page.locator('#btn-generate-ai-route').isDisabled(),`${role} ${mode}: applied disabled`);
     await page.goto('http://localhost/fleet/modules/fuel-management/fuel-overview.php',{waitUntil:'domcontentloaded'});await openPlanner();
-    check(await page.evaluate(id=>aiRouteEngine.appliedRoute.routeId===id&&document.getElementById('btn-generate-ai-route').textContent==='Applied',applied),`${role} ${mode}: same applied route after another module`);
+    check(await page.evaluate(id=>aiRouteEngine.appliedRoute.routeId===id&&document.getElementById('btn-generate-ai-route').textContent.endsWith('Applied'),applied),`${role} ${mode}: same applied route after another module`);
     check(await page.evaluate(()=>!window.testDirectionsCalls),`${role} ${mode}: restore without directions request`);
     await page.locator('#btn-start-navigation').click();await page.waitForFunction(()=>aiRouteEngine.isNavigating);await page.evaluate(()=>aiRouteEngine.persistQueue);
     check(await page.evaluate(({id,mode})=>aiRouteEngine.currentRouteData.routeId===id&&aiRouteEngine.currentMode===mode,{id:applied,mode}),`${role} ${mode}: navigation consumes applied route`);

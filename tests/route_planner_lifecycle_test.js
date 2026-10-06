@@ -49,7 +49,14 @@ function makePage(role,store){
    check(page.ids['ai-res-distance'].textContent===e.currentRouteData.distance,`${role} ${mode}: displayed distance`);
    check(e.currentRouteData.durationMins===fixture.modeEvaluations[mode].selectedCandidate.durationMins,`${role} ${mode}: own ETA`);
    check(e.currentRouteData.fuelEstimateLiters===fixture.modeEvaluations[mode].selectedCandidate.fuelEstimateLiters,`${role} ${mode}: own fuel`);
-   await e.applySelectedRoute();check(page.ids['btn-generate-ai-route'].textContent==='Applied'&&page.ids['btn-generate-ai-route'].disabled,`${role} ${mode}: applied button`);
+   if(role==='driver'){
+    check(page.ids['btn-start-navigation'].style.display==='none',`${mode}: navigation hidden before selection and apply`);
+    await e.applySelectedRoute();check(!e.appliedRoute,`${mode}: explicit route selection required`);
+    e.selectMode(mode);await e.persistQueue;
+    check(page.ids['btn-generate-ai-route'].textContent===`Apply ${e.getRouteModeLabel(mode)}`,`${mode}: selected route Apply label`);
+   }
+   await e.applySelectedRoute();check(page.ids['btn-generate-ai-route'].textContent===(role==='driver'?`${e.getRouteModeLabel(mode)} — Applied`:'Applied')&&page.ids['btn-generate-ai-route'].disabled,`${role} ${mode}: applied button`);
+   check(page.ids['btn-start-navigation'].style.display==='block',`${role} ${mode}: navigation appears after successful apply`);
    const appliedId=e.appliedRoute.routeId;await e.applySelectedRoute();check(e.appliedRoute.routeId===appliedId,`${role} ${mode}: duplicate apply prevented`);
    const restored=makePage(role,store);await restored.engine.restorePlannerState();
    check(restored.engine.appliedRoute.routeId===appliedId&&restored.engine.currentMode===mode,`${role} ${mode}: page restoration`);
@@ -66,11 +73,31 @@ function makePage(role,store){
    check(resumed.engine.appliedRoute.routeId!==appliedId&&store.record.lifecycle==='NAVIGATING',`${role} ${mode}: reroute snapshot persists`);
    check(resumed.engine.currentEvaluationData.selectedIndex===winner,`${role} ${mode}: reroute optimizes its own candidates`);
   }
-  const store={record:null,active:0,starts:0},page=makePage(role,store);page.engine.processGoogleDirectionsResult(fixture.directions);await page.engine.evaluationPromise;await page.engine.applySelectedRoute();
+  const store={record:null,active:0,starts:0},page=makePage(role,store);page.engine.processGoogleDirectionsResult(fixture.directions);await page.engine.evaluationPromise;if(role==='driver')page.engine.selectMode('balanced');await page.engine.applySelectedRoute();
   const firstId=page.engine.appliedRoute.routeId;page.engine.selectMode('shortest');await page.engine.applySelectedRoute();
   check(page.engine.appliedRoute.routeId!==firstId&&store.record.state_data.applied.mode==='shortest',`${role}: another applied strategy allowed before navigation`);
  }
  const store={record:null,active:0,starts:0},viewer=makePage('fleet_manager',store);viewer.engine.processGoogleDirectionsResult(fixture.directions);await viewer.engine.evaluationPromise;await viewer.engine.applySelectedRoute();
  check(!viewer.engine.appliedRoute&&viewer.ids['btn-generate-ai-route'].disabled,'Read-only role cannot apply routes');
+ const driverStore={record:null,active:0,starts:0},driver=makePage('driver',driverStore),engine=driver.engine;
+ engine.updateApplyButton();check(driver.ids['btn-generate-ai-route'].textContent==='Generate ROUTETHINK Route','Empty planner is not incorrectly marked Applied');
+ engine.processGoogleDirectionsResult(fixture.directions);await engine.evaluationPromise;await engine.persistQueue;
+ engine.selectMode('balanced');await engine.persistQueue;
+ const persist=engine.persistPlannerState.bind(engine);let release;
+ engine.persistPlannerState=()=>new Promise(resolve=>{release=resolve;});
+ const applying=engine.applySelectedRoute();await new Promise(resolve=>setImmediate(resolve));
+ check(driver.ids['btn-start-navigation'].style.display==='none','Navigation remains hidden while Apply is saving');
+ engine.selectMode('shortest');check(engine.currentMode==='balanced','Selection cannot change during Apply');
+ release();await applying;engine.persistPlannerState=persist;await persist();
+ check(driver.ids['btn-generate-ai-route'].textContent==='Balance — Applied','Confirmed Balance status');
+ const confirmedId=engine.appliedRoute.routeId;
+ engine.selectMode('shortest');await engine.persistQueue;
+ check(driver.ids['btn-start-navigation'].style.display==='none','Unapplied preview cannot start navigation');
+ const returned=makePage('driver',driverStore);await returned.engine.restorePlannerState();
+ check(returned.engine.currentMode==='balanced'&&returned.engine.currentRouteData.routeId===confirmedId,'Returning from another module restores applied route instead of unapplied preview');
+ engine.persistPlannerState=async()=>{throw new Error('Simulated save failure');};
+ await engine.applySelectedRoute();
+ check(engine.appliedRoute.routeId===confirmedId,'Failed Apply preserves previously confirmed route');
+ check(driver.ids['btn-start-navigation'].style.display==='none','Failed Apply does not enable navigation for preview');
  console.log(`${checks} lifecycle checks passed across Admin, Dispatcher, Driver and read-only access. Routing-provider responses are controlled fixtures; no real trips are changed.`);
 })().catch(error=>{console.error(error);process.exitCode=1;});

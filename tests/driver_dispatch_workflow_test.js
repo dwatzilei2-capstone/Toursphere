@@ -9,6 +9,7 @@ const end = source.indexOf('\n  }', start) + 4;
 const button = {};
 const context = {window: {TC_ROUTE_CONTEXT: {isDriver: true}}, document: {getElementById: () => button}};
 const engine = vm.runInNewContext('({' + source.slice(start, end) + '})', context);
+engine.updateApplyButton=()=>{}; // Apply visibility is covered by the complete planner lifecycle test.
 engine.appliedRoute={routeId:'test'};
 engine.currentRouteData={routeId:'test'};
 for (const status of ['Scheduled','Assigned','Ready for Dispatch','Confirmed','Cancelled','Rejected','Completed',null]) {

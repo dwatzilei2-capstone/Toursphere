@@ -9,6 +9,7 @@ try{
   echo json_encode(['ok'=>true,'state'=>$row,'trip_status'=>$scope['trip']['status']??null,'navigation_active'=>$scope['trip']['navigation_active']??0,'current_step'=>$scope['trip']['current_step']??null]);exit;
  }
  if($_SERVER['REQUEST_METHOD']!=='POST'){http_response_code(405);exit;}
+ if($scope['trip'] && !has_role('driver')){http_response_code(403);echo json_encode(['ok'=>false,'error'=>'Trip routes are read-only for non-Driver users.']);exit;}
  if(!is_string($_POST['csrf']??null)||empty($_SESSION['route_state_csrf'])||!hash_equals($_SESSION['route_state_csrf'],$_POST['csrf']))throw new DomainException('Route Planner session expired.');
  $json=(string)($_POST['state']??'');if(strlen($json)>3000000)throw new DomainException('Route state exceeds the permitted size.');
  $state=json_decode($json,true,128,JSON_THROW_ON_ERROR);route_planner_validate($state);

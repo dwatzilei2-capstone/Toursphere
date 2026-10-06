@@ -7,6 +7,11 @@ require_once ROOT_PATH . '/includes/driver_vehicle_assignment.php';
 require_once ROOT_PATH.'/includes/route_planner_state.php';
 require_login();
 header('Content-Type: application/json; charset=UTF-8');
+if (!has_role('driver') && (!empty($_POST['trip_id']) || !empty($_POST['reservation_id']))) {
+    http_response_code(403);
+    echo json_encode(['ok'=>false,'error'=>'Trip routes are read-only for non-Driver users.']);
+    exit;
+}
 
 if (!can('ai.manage') && !can('ai.navigate')) {
     http_response_code(403);

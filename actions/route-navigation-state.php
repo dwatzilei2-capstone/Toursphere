@@ -30,6 +30,11 @@ if (!can('ai.manage') && !can('ai.navigate')) {
 }
 
 $tripId = trim($_POST['trip_id'] ?? '');
+if (!has_role('driver')) {
+    http_response_code(403);
+    echo json_encode(['ok'=>false,'error'=>'Trip navigation is controlled by the assigned Driver.']);
+    exit;
+}
 if ($tripId === '') {
     http_response_code(422);
     echo json_encode(['ok' => false, 'error' => 'A trip is required.']);

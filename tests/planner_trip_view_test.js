@@ -1,0 +1,45 @@
+const assert = require('node:assert/strict');
+const fs = require('node:fs');
+const vm = require('node:vm');
+const source = fs.readFileSync(`${__dirname}/../js/map-route.js`, 'utf8');
+const elements = {};
+const element = () => ({style:{}, textContent:'', disabled:false, replaceChildren(){}, appendChild(){}});
+const document = {getElementById:id=>elements[id] ||= element(),querySelectorAll:()=>[elements.input ||= element()],createElement:element,addEventListener(){}};
+const path = [{lat:14,lng:120},{lat:15,lng:121},{lat:16,lng:122}];
+const saved = {mode:'fastest',sampleSelectedRoute:true,data:{distanceKm:50,durationMins:60,reason:'Saved recommendation'},evaluation:{selectedIndex:1},directions:{routes:[{overview_path:[{lat:0,lng:0}]},{overview_path:path,legs:[{start_address:'A',end_address:'B',start_location:path[0],end_location:path[2]}]}]}};
+const lines = [],markers = [];
+const sandbox = {window:{TC_ROUTE_CONTEXT:{readOnly:true,canApply:false,savedRoute:saved,tripStatus:'Completed'},addEventListener(){}},document,
+  google:{maps:{Polyline:class {constructor(opts){lines.push(opts);this.path=opts.path;}getPath(){return this.path;}setMap(){}},Marker:class {constructor(opts){markers.push(opts);}setMap(){}},LatLngBounds:class {constructor(){this.points=[];}extend(point){this.points.push(point);}},LatLng:class {}}},
+  fetch(){throw Error('Read-only restoration must not call a route service or persistence endpoint.');}};
+vm.createContext(sandbox);
+vm.runInContext(source.slice(0,source.indexOf('window.aiRouteEngine ='))+'\nthis.Engine=AIRouteEngine;',sandbox);
+(async()=>{
+  const engine = new sandbox.Engine();let lastBounds;engine.map={fitBounds(bounds){lastBounds=bounds;}};
+  await engine.restorePlannerState();
+  assert.equal(lines.length,1);
+  assert.deepEqual(lines[0].path,path,'restores selected index rather than first candidate');
+  assert.deepEqual(markers.map(m=>m.position),[path[0],path[2]]);
+  assert.equal(elements['ai-res-distance'].textContent,'50 km');
+  assert.equal(elements['ai-res-reason'].textContent,'Saved recommendation');
+  assert.equal(elements.input.disabled,true);
+  assert.equal(elements['btn-start-navigation'].style.display,'none');
+  assert.equal(elements['map-btn-locate'].style.display,'none');
+  engine.fitMapBounds();
+  assert.deepEqual(lastBounds.points,path,'Center Route fits the persisted polyline');
+  engine.useCurrentLocationAsOrigin();engine.locateUser();
+  assert.equal(engine.isNavigating,false);
+  engine.generateRoute();engine.selectMode('shortest');await engine.persistPlannerState();
+  assert.equal(engine.currentMode,'fastest');
+  saved.directions.routes[1].legs[0].steps=[{path}];
+  saved.directions.routes[1].overview_path=[path[0],path[2]];
+  engine.restoreViewedTripRoute();
+  assert.deepEqual(lines[1].path,path,'uses saved step geometry instead of drawing across a simplified overview');
+  sandbox.window.TC_ROUTE_CONTEXT.savedRoute=null;
+  engine.restoreViewedTripRoute();
+  assert.match(elements['ai-res-title'].textContent,/Historical route is unavailable/);
+  sandbox.window.TC_ROUTE_CONTEXT.tripStatus='Dispatched';
+  engine.restoreViewedTripRoute();
+  assert.equal(elements['ai-res-title'].textContent,'Waiting for Driver to select a route.');
+  assert.equal(lines.length,2,'no geometry fabricated for missing route');
+  console.log('Existing planner read-only route restoration checks passed.');
+})().catch(error=>{console.error(error);process.exit(1);});

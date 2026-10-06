@@ -6,6 +6,8 @@
 require_once dirname(__DIR__, 2) . '/includes/bootstrap.php';
 require_login();
 require_permission('ai.view');
+$is_route_viewer = !has_role('driver') && (!empty($_GET['trip_id']) || !empty($_GET['reservation_id']));
+if ($is_route_viewer) require_permission('dispatch.view');
 require_once ROOT_PATH.'/includes/trip_funding.php';
 $_SESSION['route_prepare_csrf']??=bin2hex(random_bytes(32));
 $_SESSION['route_state_csrf']??=bin2hex(random_bytes(32));
@@ -57,18 +59,18 @@ if ($is_driver_user) {
     $route_context = $contextStmt->fetch() ?: null;
 } elseif ($requested_reservation_id !== '') {
     $contextStmt = $pdo->prepare(
-        "SELECT t.id AS trip_id, r.id AS reservation_id, r.origin, r.destination,
-                COALESCE(t.waypoints, '') AS waypoints, r.assigned_vehicle_id AS vehicle_id,
-                r.assigned_driver_id AS driver_id, COALESCE(t.status, r.status) AS trip_status,
+        "SELECT t.id AS trip_id, r.id AS reservation_id, COALESCE(t.origin,r.origin) AS origin, COALESCE(t.destination,r.destination) AS destination,
+                COALESCE(t.waypoints, '') AS waypoints, COALESCE(t.vehicle_id,r.assigned_vehicle_id) AS vehicle_id,
+                COALESCE(t.driver_id,r.assigned_driver_id) AS driver_id, COALESCE(t.status, r.status) AS trip_status,
                 t.route_history_id, t.navigation_active, r.passenger_count, r.departure_date, r.departure_time
            FROM reservations r LEFT JOIN trips t ON t.reservation_id = r.id
-          WHERE r.id = ? LIMIT 1"
+          WHERE r.id = ? ORDER BY t.created_at DESC NULLS LAST,t.id DESC LIMIT 1"
     );
     $contextStmt->execute([$requested_reservation_id]);
     $route_context = $contextStmt->fetch() ?: null;
 }
 
-$is_return_mode = $return_mode_requested && ($route_context['trip_status'] ?? '') === 'Returning to Depot';
+$is_return_mode = !$is_route_viewer && $return_mode_requested && ($route_context['trip_status'] ?? '') === 'Returning to Depot';
 $configured_depot_address = trim((string)(getenv('FLEET_DEPOT_ADDRESS') ?: ''));
 $return_destination = $configured_depot_address !== '' ? $configured_depot_address : ($route_context['origin'] ?? '');
 $context_origin = $is_return_mode ? ($route_context['destination'] ?? '') : ($route_context['origin'] ?? ($_GET['origin'] ?? ''));
@@ -79,6 +81,19 @@ $context_waypoints = $is_return_mode
     : array_values(array_filter(array_map('trim', preg_split('/[;\n]+/', $route_context['waypoints'] ?? '') ?: [])));
 $driver_has_active_trip = !$is_driver_user || $route_context !== null;
 $context_request_failed = ($requested_trip_id !== '' || $requested_reservation_id !== '') && $route_context === null;
+$viewer_route = null;
+if ($is_route_viewer) {
+    require_once ROOT_PATH . '/includes/trip_route_snapshot.php';
+    $viewer_route = trip_route_snapshot($pdo, $route_context);
+    if ($route_context) {
+        $assignmentStmt = $pdo->prepare('SELECT (SELECT name FROM drivers WHERE id=?) AS driver_name,(SELECT plate_number FROM vehicles WHERE id=?) AS plate_number');
+        $assignmentStmt->execute([$route_context['driver_id'], $route_context['vehicle_id']]);
+        $viewer_assignment = ['driver_name'=>null,'plate_number'=>null];
+        foreach ($assignmentStmt->fetchAll() as $assignment) {
+            foreach ($assignment as $key=>$value) if ($value !== null) $viewer_assignment[$key]=$value;
+        }
+    }
+}
 
 $saved_route_mode = null;
 if (!empty($route_context['route_history_id'])) {
@@ -265,11 +280,12 @@ $tourist_destinations = [
     ]
 ];
 
-$route_mode_is_locked = $route_context !== null && (int)($route_context['navigation_active'] ?? 0) === 1;
+$route_mode_is_locked = $is_route_viewer || ($route_context !== null && (int)($route_context['navigation_active'] ?? 0) === 1);
 $requested_mode = ($route_mode_is_locked)
     ? $saved_route_mode
     : ($_GET['mode'] ?? 'balanced');
 $initial_mode   = in_array($requested_mode, ['balanced', 'fastest', 'fuelEfficient', 'shortest'], true) ? $requested_mode : 'balanced';
+if ($is_route_viewer && !empty($viewer_route['mode'])) $initial_mode = $viewer_route['mode'];
 $route_mode_labels = [
     'balanced' => 'Balanced (ROUTETHINK Recommended)',
     'fuelEfficient' => 'Fuel Efficient (Eco)',
@@ -349,6 +365,17 @@ require ROOT_PATH . '/includes/header.php';
 </div>
 <?php endif; ?>
 
+<?php if ($is_route_viewer && $route_context): ?>
+<div class="alert alert-info py-2 px-3 mb-3 small" role="status">
+  <strong>Read-only trip route: <?= e($route_context['trip_id'] ?: $route_context['reservation_id']) ?></strong>
+  · <?= e($route_context['trip_status']) ?>
+  · Driver: <?= e($viewer_assignment['driver_name'] ?: 'Unassigned') ?>
+  · Vehicle: <?= e($viewer_assignment['plate_number'] ?: ($route_context['vehicle_id'] ?: 'Unassigned')) ?>
+  <?php if (!empty($viewer_route['sampleSelectedRoute'])): ?><br>DEMO saved road route for map testing; not a historical Driver GPS track.<?php endif; ?>
+  <?php if (in_array($route_context['trip_status'], ['In Transit','On Trip','Returning to Depot'], true)): ?><br>Live vehicle coordinates are unavailable from the current tracking system.<?php endif; ?>
+</div>
+<?php endif; ?>
+
  
 <div class="ai-workspace-container">
    
@@ -365,7 +392,7 @@ require ROOT_PATH . '/includes/header.php';
             <span>Tour Preset / Template</span>
             <span class="text-muted-custom" style="font-size: 10px;">Optional</span>
           </label>
-          <select class="tc-form-select" id="route-preset-select" onchange="aiRouteEngine.setPreset(this.value)" <?= $is_driver_user ? 'disabled' : '' ?>>
+          <select class="tc-form-select" id="route-preset-select" onchange="aiRouteEngine.setPreset(this.value)" <?= ($is_driver_user || $is_route_viewer) ? 'disabled' : '' ?>>
             <option value="" <?= empty($initial_preset) ? 'selected' : '' ?>>-- Select Preset Template (Optional) --</option>
             <?php foreach ($route_data as $rd): ?>
               <option value="<?= e($rd['id']) ?>" <?= $rd['id'] === $initial_preset ? 'selected' : '' ?>><?= e($rd['name']) ?></option>
@@ -380,7 +407,7 @@ require ROOT_PATH . '/includes/header.php';
             <span><i class="bi bi-geo-alt-fill text-danger me-1"></i>Tourist Destination Quick-Pick</span>
             <span class="badge bg-secondary-subtle text-dark" style="font-size: 9px;"><?= count($tourist_destinations) ?> Spots</span>
           </label>
-          <select class="tc-form-select tc-form-select-sm" id="tourist-destination-quickpick" onchange="aiRouteEngine.selectTouristDestination(this.value)" <?= $is_driver_user ? 'disabled' : '' ?>>
+          <select class="tc-form-select tc-form-select-sm" id="tourist-destination-quickpick" onchange="aiRouteEngine.selectTouristDestination(this.value)" <?= ($is_driver_user || $is_route_viewer) ? 'disabled' : '' ?>>
             <option value="">-- Choose a Popular Destination (Optional) --</option>
             <?php foreach ($tourist_destinations as $td): ?>
               <option value="<?= e($td['id']) ?>"><?= e($td['name']) ?> (<?= e($td['category']) ?>)</option>
@@ -392,13 +419,13 @@ require ROOT_PATH . '/includes/header.php';
         <div class="mb-2">
           <label class="tc-form-label d-flex justify-content-between align-items-center">
             <span>Origin Departure Point <span class="text-danger">*</span></span>
-            <button type="button" class="btn btn-link btn-sm p-0 text-decoration-none small text-success" title="Detect GPS Location" onclick="aiRouteEngine.useCurrentLocationAsOrigin()" <?= $is_driver_user ? 'disabled' : '' ?>>
+            <button type="button" class="btn btn-link btn-sm p-0 text-decoration-none small text-success" title="Detect GPS Location" onclick="aiRouteEngine.useCurrentLocationAsOrigin()" <?= ($is_driver_user || $is_route_viewer) ? 'disabled' : '' ?>>
               <i class="bi bi-crosshair me-1"></i>My Location
             </button>
           </label>
           <div class="input-group input-group-sm">
             <span class="input-group-text bg-light text-success"><i class="bi bi-geo-alt-fill"></i></span>
-            <input type="text" class="form-control" id="route-origin-input" placeholder="Enter departure point or address..." value="<?= e($context_origin) ?>" autocomplete="off" <?= $is_driver_user ? 'readonly' : '' ?>>
+            <input type="text" class="form-control" id="route-origin-input" placeholder="Enter departure point or address..." value="<?= e($context_origin) ?>" autocomplete="off" <?= ($is_driver_user || $is_route_viewer) ? 'readonly' : '' ?>>
           </div>
         </div>
 
@@ -406,7 +433,7 @@ require ROOT_PATH . '/includes/header.php';
         <div class="mb-2">
           <div class="d-flex justify-content-between align-items-center mb-1">
             <label class="tc-form-label mb-0">Waypoints & Intermediate Stops</label>
-            <button type="button" class="btn btn-outline-primary btn-sm py-0 px-2" style="font-size: 11px;" onclick="aiRouteEngine.addWaypointField()" <?= $is_driver_user ? 'disabled' : '' ?>>
+            <button type="button" class="btn btn-outline-primary btn-sm py-0 px-2" style="font-size: 11px;" onclick="aiRouteEngine.addWaypointField()" <?= ($is_driver_user || $is_route_viewer) ? 'disabled' : '' ?>>
               <i class="bi bi-plus-lg me-1"></i>Add Stop
             </button>
           </div>
@@ -420,14 +447,14 @@ require ROOT_PATH . '/includes/header.php';
           <label class="tc-form-label">Final Destination Point <span class="text-danger">*</span></label>
           <div class="input-group input-group-sm">
             <span class="input-group-text bg-light text-danger"><i class="bi bi-geo-fill"></i></span>
-            <input type="text" class="form-control" id="route-dest-input" placeholder="Enter destination or address..." value="<?= e($context_destination) ?>" autocomplete="off" <?= $is_driver_user ? 'readonly' : '' ?>>
+            <input type="text" class="form-control" id="route-dest-input" placeholder="Enter destination or address..." value="<?= e($context_destination) ?>" autocomplete="off" <?= ($is_driver_user || $is_route_viewer) ? 'readonly' : '' ?>>
           </div>
         </div>
 
          
         <div class="mb-3">
           <label class="tc-form-label">Assigned Vehicle Class <span class="text-danger">*</span></label>
-          <select class="tc-form-select" id="route-vehicle-select" onchange="aiRouteEngine.onVehicleChange(this.value)" <?= $is_driver_user ? 'disabled' : '' ?>>
+          <select class="tc-form-select" id="route-vehicle-select" onchange="aiRouteEngine.onVehicleChange(this.value)" <?= ($is_driver_user || $is_route_viewer) ? 'disabled' : '' ?>>
             <option value="">-- Select Assigned Vehicle Class --</option>
             <?php if (!empty($fleet_vehicles)): ?>
               <?php foreach ($fleet_vehicles as $v):
@@ -509,7 +536,7 @@ require ROOT_PATH . '/includes/header.php';
     </div>
 
     <div class="p-3 border-top bg-light">
-      <button id="btn-generate-ai-route" class="tc-btn tc-btn-primary w-100 py-2 fw-semibold" onclick="aiRouteEngine.generateRoute()" <?= !$driver_has_active_trip ? 'disabled' : '' ?>>
+      <button id="btn-generate-ai-route" class="tc-btn tc-btn-primary w-100 py-2 fw-semibold" onclick="aiRouteEngine.generateRoute()" <?= (!$driver_has_active_trip || $is_route_viewer) ? 'disabled' : '' ?>>
         <i class="bi bi-stars me-1"></i> Generate ROUTETHINK Route
       </button>
     </div>
@@ -710,7 +737,7 @@ require ROOT_PATH . '/includes/header.php';
       <button type="button" id="btn-start-navigation" class="btn w-100 py-2 fw-semibold text-white" style="display: none;" onclick="aiRouteEngine.startNavigation()">
         <i class="bi bi-compass-fill me-2 fs-6"></i> START NAVIGATION
       </button>
-      <?php if(funding_can_manage() && !empty($route_context['trip_id']) && in_array($route_context['trip_status'],['Assigned','Confirmed','Scheduled'],true)): ?>
+      <?php if(!$is_route_viewer && funding_can_manage() && !empty($route_context['trip_id']) && in_array($route_context['trip_status'],['Assigned','Confirmed','Scheduled'],true)): ?>
       <button type="button" id="btn-save-funding-route" class="tc-btn tc-btn-secondary w-100" onclick="aiRouteEngine.saveFundingRoute(this)">Save Route for Trip Funding</button><span id="funding-route-message" class="small" role="status"></span>
       <?php endif; ?>
     </div>
@@ -731,7 +758,9 @@ require ROOT_PATH . '/includes/header.php';
     'isDriver' => $is_driver_user,
     'userId' => (int)$current_user['id'],
     'stateCsrf' => $_SESSION['route_state_csrf'],
-    'canApply' => can('ai.manage') || can('ai.navigate'),
+    'readOnly' => $is_route_viewer,
+    'savedRoute' => $viewer_route,
+    'canApply' => !$is_route_viewer && (can('ai.manage') || can('ai.navigate')),
     'tripStatus' => $route_context['trip_status'] ?? null,
     'tripId' => $route_context['trip_id'] ?? null,
     'reservationId' => $route_context['reservation_id'] ?? null,
@@ -745,7 +774,7 @@ require ROOT_PATH . '/includes/header.php';
     'routePhase' => $is_return_mode ? 'return' : 'outbound',
     'resumeNavigation' => in_array($route_context['trip_status'] ?? '', ['In Transit', 'Returning to Depot'], true)
         && (int)($route_context['navigation_active'] ?? 0) === 1,
-  ], JSON_UNESCAPED_UNICODE) ?>;
+  ], JSON_UNESCAPED_UNICODE | JSON_HEX_TAG | JSON_HEX_AMP | JSON_HEX_APOS | JSON_HEX_QUOT) ?>;
 
   if (window.TC_ROUTE_CONTEXT.isDriver) {
     const refreshDispatchState = async () => {
