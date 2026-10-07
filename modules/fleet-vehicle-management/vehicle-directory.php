@@ -32,6 +32,7 @@ $sql .= ' ORDER BY v.created_at DESC NULLS LAST, v.id DESC';
 $stmt = $pdo->prepare($sql);
 $stmt->execute($params);
 $vehicles = $stmt->fetchAll();
+$directory_vehicle_count = (int)$pdo->query("SELECT COUNT(*) FROM vehicles WHERE NOT is_archived AND status <> 'Retired'")->fetchColumn();
 $photos = vehicle_photo_records($pdo, array_column($vehicles, 'id'));
 
 $documents_by_vehicle = [];
@@ -141,6 +142,15 @@ require ROOT_PATH . '/includes/header.php';
 </div>
 
 <div class="tc-card mb-4">
+  <div class="p-3 border-bottom d-flex flex-wrap align-items-center justify-content-between gap-2">
+    <div class="d-flex align-items-center gap-2">
+      <h2 class="fs-6 fw-semibold mb-0">Vehicle Directory</h2>
+      <span class="badge bg-primary-subtle text-primary rounded-pill px-3 py-2 fs-4"><?= number_format($directory_vehicle_count) ?> vehicles</span>
+    </div>
+    <?php if (count($vehicles) !== $directory_vehicle_count): ?>
+      <span class="small text-muted-custom"><?= number_format(count($vehicles)) ?> matching current filters</span>
+    <?php endif; ?>
+  </div>
   <div class="p-3 border-bottom d-flex flex-wrap justify-content-between align-items-center gap-2 bg-light">
     <div class="d-flex gap-2 align-items-center flex-wrap">
       <span class="text-muted-custom small fw-semibold">Filter Status:</span>

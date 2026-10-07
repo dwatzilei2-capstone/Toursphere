@@ -838,17 +838,21 @@ const App = {
     const options = form.querySelector('[data-vehicle-options]');
     let selected = null, snapshot = null, request = 0;
     const updateDriver = (v) => {
+      const unavailableDrivers = (v.unavailable_drivers || []);
+      const unavailableDriverDetails = unavailableDrivers.length ? `<details class="eligible-driver-panel mt-3"><summary>Unavailable drivers (${unavailableDrivers.length}) · View reasons</summary><ul class="small ps-3 mt-2 mb-0">${unavailableDrivers.map(d => `<li class="mb-2"><strong>${esc(d.name)}</strong><br><span class="text-danger">${esc(d.reason)}</span></li>`).join('')}</ul></details>` : '';
       driverInput.value = ""; confirmation.value = ""; submit.disabled = true;
       if (v.driver) {
         driverInput.value = v.driver.id;
         info.classList.remove('needs-driver', 'has-driver-selection');
         info.innerHTML = `<div class="assignment-driver-heading"><strong>${esc(v.driver.name)}</strong><span class="assignment-status ${v.driver.reason ? 'is-unavailable' : 'is-available'}">${v.driver.reason ? "Unavailable" : "Available"}</span></div><p>${esc(v.driver.reason || "Automatically assigned from " + v.id)}</p>`;
         submit.disabled = !v.eligible || (locked && v.driver.id !== currentDriver);
+        info.insertAdjacentHTML('beforeend', unavailableDriverDetails);
         return;
       }
       info.classList.remove('has-driver-selection');
       info.classList.add('needs-driver');
       info.innerHTML = `<div class="assignment-driver-prompt"><i class="bi bi-exclamation-circle-fill" aria-hidden="true"></i><div><strong>No driver assigned</strong><p>Select an eligible driver for this vehicle.</p></div></div><details class="eligible-driver-panel"><summary><i class="bi bi-person-plus" aria-hidden="true"></i> Select Driver</summary><div class="eligible-driver-list">${v.drivers.map(d => `<button type="button" class="eligible-driver-option" data-driver-id="${esc(d.id)}"><strong>${esc(d.name)}</strong><span>Available · Compatible</span><span>Current Vehicle: ${esc(d.current_vehicles.map(x=>x.id+" ("+x.plate+")").join(", ") || "None")}</span>${d.reassignment ? '<span class="text-warning">Reassignment Required</span>' : ''}</button>`).join("")}</div></details><div data-reassignment-review></div>`;
+      info.insertAdjacentHTML('beforeend', unavailableDriverDetails);
       info.querySelectorAll('[data-driver-id]').forEach(button => button.addEventListener('click', () => {
         const d = v.drivers.find(x=>x.id===button.dataset.driverId);
         driverInput.value = ""; confirmation.value = ""; submit.disabled = true;

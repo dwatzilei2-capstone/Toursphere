@@ -402,3 +402,17 @@
  #modal-dispatch .assignment-form-footer { padding:12px 14px; }
  #modal-dispatch .assignment-form-footer .tc-btn { min-height:44px; flex:1; white-space:normal; }
 }
+.reservation-available-drivers {
+  column-count: 1;
+  column-gap: 2rem;
+}
+
+.reservation-available-drivers > li {
+  break-inside: avoid;
+}
+
+@media (min-width: 992px) {
+  .reservation-available-drivers {
+    column-count: 2;
+  }
+}

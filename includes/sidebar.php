@@ -85,7 +85,7 @@ if (!function_exists('nav_active')) {
         <?php endif; ?>
 
         <?php if (can('ai.view')): 
-          $is_driver_ai_active = in_array($active_page, ['ai-route-planner','route-comparison','route-history']);
+          $is_driver_ai_active = in_array($active_page, ['ai-route-planner','route-history']);
         ?>
         <li class="nav-item-custom">
           <a class="nav-link-custom nav-has-sub <?= $is_driver_ai_active ? 'active expanded open' : '' ?>" href="javascript:void(0);">
@@ -207,7 +207,7 @@ if (!function_exists('nav_active')) {
         <?php endif; ?>
 
         <?php if (can('ai.view')): 
-          $is_m6_active = in_array($active_page, ['ai-route-planner','route-comparison','route-history']);
+          $is_m6_active = in_array($active_page, ['ai-route-planner','route-history']);
         ?>
         <li class="nav-item-custom">
           <a class="nav-link-custom nav-has-sub <?= $is_m6_active ? 'active expanded open' : '' ?>" href="javascript:void(0);">
@@ -218,7 +218,6 @@ if (!function_exists('nav_active')) {
           </a>
           <ul class="nav-submenu <?= $is_m6_active ? 'open' : '' ?>">
             <li><a class="nav-sublink <?= nav_active('ai-route-planner') ?>" href="<?= BASE_URL ?>/modules/ai-route-optimization/ai-route-planner.php">AI Route Planner</a></li>
-            <li><a class="nav-sublink <?= nav_active('route-comparison') ?>" href="<?= BASE_URL ?>/modules/ai-route-optimization/route-comparison.php">Route Comparison</a></li>
             <li><a class="nav-sublink <?= nav_active('route-history') ?>" href="<?= BASE_URL ?>/modules/ai-route-optimization/route-history.php">Route History</a></li>
           </ul>
         </li>

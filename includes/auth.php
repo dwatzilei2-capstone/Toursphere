@@ -122,6 +122,10 @@ function can(string $permission): bool
     if (!$current_user) {
         return false;
     }
+    // Only drivers may record actual fuel refills, including when an admin has full access.
+    if ($permission === 'fuel.manage' && $current_user['role_code'] !== 'driver') {
+        return false;
+    }
     if ($current_user['role_code'] === 'fleet_admin') {
         return true;
     }

@@ -131,16 +131,6 @@
     min-width: 860px;
   }
 
-  .ai-route-optimization-module.route-comparison-page .tc-card > .d-flex {
-    align-items: stretch !important;
-    flex-direction: column;
-  }
-
-  .ai-route-optimization-module.route-comparison-page .tc-card form,
-  .ai-route-optimization-module.route-comparison-page .tc-card select {
-    width: 100%;
-    max-width: none !important;
-  }
 }
 
 @media (prefers-reduced-motion: reduce) {

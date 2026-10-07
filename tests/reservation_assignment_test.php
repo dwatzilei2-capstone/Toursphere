@@ -21,6 +21,10 @@ try {
     assignment_check($find('VNONE')['drivers'][0]['id']==='D2','Unassigned driver ranks ahead of reassignment');
     assignment_check(!assignment_driver_class_matches(['type'=>'Bus','capacity'=>45],['license_class'=>'Class 2']),'Class 2 driver blocked from bus');
     assignment_check(assignment_driver_class_matches(['type'=>'Van','capacity'=>14],['license_class'=>'Class 3']),'Class 3 includes lighter vehicles');
+    assignment_check(assignment_driver_class_matches(['type'=>'Bus','capacity'=>45],['license_class'=>'Professional (Class 2, 3)']),'Combined Class 2, 3 qualifies for bus');
+    assignment_check(assignment_driver_class_matches(['type'=>'Van','capacity'=>14],['license_class'=>'Professional (Class 1, 2)']),'Combined Class 1, 2 qualifies for van');
+    assignment_check(!assignment_driver_class_matches(['type'=>'Bus','capacity'=>45],['license_class'=>'Professional (Class 1, 2)']),'Combined Class 1, 2 remains blocked for bus');
+    assignment_check(!assignment_driver_class_matches(['type'=>'Van','capacity'=>14],['license_class'=>'Class 23']),'Multi-digit class does not match separate codes');
     $pdo->exec("UPDATE drivers SET status='Off Duty' WHERE id='D2'");
     assignment_check($find('VNONE')['status']==='Reassignment Required','Fallback requires controlled reassignment');
     assignment_check($find('VNONE')['drivers'][0]['reassignment'],'Previous designation supplied for confirmation');
@@ -36,9 +40,9 @@ try {
     $pdo->exec("UPDATE vehicles SET status='Inactive' WHERE id='V14'");
     assignment_check(!$find('V14')['eligible'],'Inactive visible but blocked');
     $pdo->exec("UPDATE vehicles SET status='Available',capacity=12 WHERE id='V14'");
-    assignment_check(in_array('Insufficient capacity',$find('V14')['reasons'],true),'Minimum capacity enforced beyond passenger count');
+    assignment_check(in_array('Not enough seats: 12 available; 14 required',$find('V14')['reasons'],true),'Minimum capacity enforced with seat counts explained');
     $pdo->exec("UPDATE vehicles SET capacity=14,type='Bus' WHERE id='V14'");
-    assignment_check(in_array('Vehicle type incompatible',$find('V14')['reasons'],true),'Required type enforced');
+    assignment_check(in_array('Booking requires Van; this vehicle is Bus',$find('V14')['reasons'],true),'Required type enforced and explained');
     $pdo->exec("UPDATE vehicles SET type='Van' WHERE id='V14'; DELETE FROM vehicle_documents WHERE vehicle_id='V14' AND document_type='insurance'");
     assignment_check(!$find('V14')['eligible'],'Missing document enforced');
     $doc->execute(['V14','insurance',json_encode(['vehicle_match_status'=>'MATCHED','document_type_status'=>'MATCHED','expiration_date'=>'2029-01-01'])]);

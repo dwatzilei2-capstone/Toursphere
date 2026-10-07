@@ -221,12 +221,12 @@ try {
         'vehicles' => [
             'matched_count' => $capacityMatchCount,
             'available_count' => count($availableVehicles),
-            'available_items' => array_slice($availableVehicles, 0, 5),
+            'available_items' => $availableVehicles,
             'blockers' => $formattedVehicleBlockers,
         ],
         'drivers' => [
             'available_count' => count($availableDrivers),
-            'available_items' => array_slice($availableDrivers, 0, 5),
+            'available_items' => $availableDrivers,
             'blockers' => $formatBlockers($driverBlockers),
         ],
     ];

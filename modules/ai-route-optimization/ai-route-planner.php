@@ -323,7 +323,6 @@ require ROOT_PATH . '/includes/header.php';
     <?php if (has_role('fleet_admin')): ?>
     <a class="tc-btn tc-btn-secondary tc-btn-sm" href="<?= BASE_URL ?>/settings.php?tab=ai-model-training"><i class="bi bi-cpu"></i> AI Model Training</a>
     <?php endif; ?>
-    <a class="tc-btn tc-btn-secondary tc-btn-sm" href="<?= BASE_URL ?>/modules/ai-route-optimization/route-comparison.php"><i class="bi bi-table"></i> Compare Routes</a>
     <?php endif; ?>
     <a class="tc-btn tc-btn-secondary tc-btn-sm" href="<?= BASE_URL ?>/modules/ai-route-optimization/route-history.php"><i class="bi bi-clock-history"></i> Route History</a>
   </div>

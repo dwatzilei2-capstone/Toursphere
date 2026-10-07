@@ -59,7 +59,7 @@ try {
         redirect_with_toast($return, 'This driver is currently assigned to another vehicle. Unassign that vehicle first before continuing.', 'danger');
     }
 
-    if (!assignment_driver_class_matches($v,$d)) throw new RuntimeException('Driver qualification incompatible with this vehicle.');
+    if (!assignment_driver_class_matches($v,$d)) throw new RuntimeException('Driver is not available for this vehicle.');
     if (!in_array($d['status'], ['Active','Assigned'],true)) throw new RuntimeException('Driver unavailable.');
     if (!in_array($v['status'], ['Available','Assigned'],true)) throw new RuntimeException('Vehicle unavailable.');
     if (!empty($d['license_expiration']) && $d['license_expiration'] < date('Y-m-d')) throw new RuntimeException('Driver license expired.');

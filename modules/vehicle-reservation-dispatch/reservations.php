@@ -388,6 +388,7 @@ function appendAvailabilityGroup(parent, title, resource) {
     section.append(availableHeading);
     const availableList = document.createElement('ul');
     availableList.className = 'small ps-3 mb-2';
+    if (title === 'Driver') availableList.classList.add('reservation-available-drivers');
     resource.available_items.forEach((entry) => {
       const item = document.createElement('li');
       item.textContent = entry;
