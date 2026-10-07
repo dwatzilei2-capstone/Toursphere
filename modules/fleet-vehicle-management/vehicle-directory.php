@@ -221,7 +221,7 @@ require ROOT_PATH . '/includes/header.php';
             <td class="text-end">
               <div class="btn-group">
                 <?php if (archive_can_retire()): ?>
-                <button type="button" class="tc-btn tc-btn-light tc-btn-sm" data-retire-vehicle="<?= e($v['id']) ?>"><i class="bi bi-archive"></i> Retire</button>
+                <button type="button" class="tc-btn tc-btn-outline-danger tc-btn-sm" data-retire-vehicle="<?= e($v['id']) ?>"><i class="bi bi-archive"></i> Retire</button>
                 <?php endif; ?>
                 <button class="tc-btn tc-btn-secondary tc-btn-sm" onclick="App.viewVehicleDetails('<?= e($v['id']) ?>')">
                   <i class="bi bi-eye"></i> Details

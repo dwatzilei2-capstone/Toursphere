@@ -359,10 +359,12 @@
 #modal-dispatch .assignment-driver-heading { display:flex; align-items:center; justify-content:space-between; gap:8px; }
 #modal-dispatch .assigned-driver-info strong { font-weight:600; }
 #modal-dispatch .assigned-driver-info p { color:#6B7280; font-size:10.5px; margin:2px 0 0; }
-#modal-dispatch .assignment-driver-prompt { display:flex; align-items:center; gap:9px; padding-right:125px; }
+#modal-dispatch .assignment-driver-prompt { display:flex; align-items:center; gap:9px; }
 #modal-dispatch .assignment-driver-prompt > i { font-size:20px; color:#b57313; }
 #modal-dispatch .eligible-driver-panel { margin:0; }
-#modal-dispatch .eligible-driver-panel > summary { position:absolute; right:12px; top:10px; cursor:pointer; padding:7px 9px; border:1px solid #bfd8fa; border-radius:5px; color:#2F80ED; background:#fff; font-size:10.5px; list-style:none; min-height:32px; }
+#modal-dispatch .eligible-driver-panel > summary { display:inline-flex; align-items:center; gap:5px; margin-top:10px; cursor:pointer; padding:7px 9px; border:1px solid #bfd8fa; border-radius:5px; color:#2F80ED; background:#fff; font-size:10.5px; list-style:none; min-height:32px; }
+#modal-dispatch .unavailable-driver-panel { border-top:1px solid #f0dfbd; padding-top:10px; }
+#modal-dispatch .unavailable-driver-panel > summary { position:static; cursor:pointer; color:#6B7280; font-size:11px; }
 #modal-dispatch .eligible-driver-panel > summary::-webkit-details-marker { display:none; }
 #modal-dispatch .eligible-driver-list { max-height:220px; overflow:auto; display:grid; gap:6px; margin-top:10px; }
 #modal-dispatch .eligible-driver-option { display:flex; flex-direction:column; gap:3px; padding:10px; background:white; border:1px solid #EEF2F7; border-radius:6px; text-align:left; font:inherit; font-size:11px; min-height:44px; }

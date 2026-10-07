@@ -839,7 +839,7 @@ const App = {
     let selected = null, snapshot = null, request = 0;
     const updateDriver = (v) => {
       const unavailableDrivers = (v.unavailable_drivers || []);
-      const unavailableDriverDetails = unavailableDrivers.length ? `<details class="eligible-driver-panel mt-3"><summary>Unavailable drivers (${unavailableDrivers.length}) · View reasons</summary><ul class="small ps-3 mt-2 mb-0">${unavailableDrivers.map(d => `<li class="mb-2"><strong>${esc(d.name)}</strong><br><span class="text-danger">${esc(d.reason)}</span></li>`).join('')}</ul></details>` : '';
+      const unavailableDriverDetails = unavailableDrivers.length ? `<details class="unavailable-driver-panel mt-3"><summary>Unavailable drivers (${unavailableDrivers.length}) · View reasons</summary><ul class="small ps-3 mt-2 mb-0">${unavailableDrivers.map(d => `<li class="mb-2"><strong>${esc(d.name)}</strong><br><span class="text-danger">${esc(d.reason)}</span></li>`).join('')}</ul></details>` : '';
       driverInput.value = ""; confirmation.value = ""; submit.disabled = true;
       if (v.driver) {
         driverInput.value = v.driver.id;
@@ -851,7 +851,7 @@ const App = {
       }
       info.classList.remove('has-driver-selection');
       info.classList.add('needs-driver');
-      info.innerHTML = `<div class="assignment-driver-prompt"><i class="bi bi-exclamation-circle-fill" aria-hidden="true"></i><div><strong>No driver assigned</strong><p>Select an eligible driver for this vehicle.</p></div></div><details class="eligible-driver-panel"><summary><i class="bi bi-person-plus" aria-hidden="true"></i> Select Driver</summary><div class="eligible-driver-list">${v.drivers.map(d => `<button type="button" class="eligible-driver-option" data-driver-id="${esc(d.id)}"><strong>${esc(d.name)}</strong><span>Available · Compatible</span><span>Current Vehicle: ${esc(d.current_vehicles.map(x=>x.id+" ("+x.plate+")").join(", ") || "None")}</span>${d.reassignment ? '<span class="text-warning">Reassignment Required</span>' : ''}</button>`).join("")}</div></details><div data-reassignment-review></div>`;
+      info.innerHTML = `<div class="assignment-driver-prompt"><i class="bi bi-exclamation-circle-fill" aria-hidden="true"></i><div><strong>No driver assigned</strong><p>Select an eligible driver for this vehicle.</p></div></div><details class="eligible-driver-panel" open><summary><i class="bi bi-person-plus" aria-hidden="true"></i> Select Driver · ${v.drivers.length} available</summary><div class="eligible-driver-list">${v.drivers.map(d => `<button type="button" class="eligible-driver-option" data-driver-id="${esc(d.id)}"><strong>${esc(d.name)}</strong><span>Available · Compatible</span><span>Current Vehicle: ${esc(d.current_vehicles.map(x=>x.id+" ("+x.plate+")").join(", ") || "None")}</span>${d.reassignment ? '<span class="text-warning">Reassignment Required</span>' : ''}</button>`).join("")}</div></details><div data-reassignment-review></div>`;
       info.insertAdjacentHTML('beforeend', unavailableDriverDetails);
       info.querySelectorAll('[data-driver-id]').forEach(button => button.addEventListener('click', () => {
         const d = v.drivers.find(x=>x.id===button.dataset.driverId);
@@ -863,7 +863,7 @@ const App = {
           info.classList.remove('needs-driver');
           info.classList.add('has-driver-selection');
           info.querySelector('.assignment-driver-prompt').innerHTML = `<i class="bi bi-person-check-fill" aria-hidden="true"></i><div><strong>${esc(d.name)}</strong><p>Selected for ${esc(v.id)} · Pending confirmation</p></div>`;
-          info.querySelector('.eligible-driver-panel > summary').innerHTML = '<i class="bi bi-person-plus" aria-hidden="true"></i> Change Driver';
+          info.querySelector('.eligible-driver-panel > summary').innerHTML = `<i class="bi bi-person-plus" aria-hidden="true"></i> Change Driver · ${v.drivers.length} available`;
           review.innerHTML = `<p class="assignment-driver-selection-status"><i class="bi bi-check-circle" aria-hidden="true"></i> Available · Compatible${d.reassignment ? ' · Reassignment confirmed' : ''}</p>`;
           info.querySelector('details').open = false; submit.disabled = locked || !v.eligible;
         };

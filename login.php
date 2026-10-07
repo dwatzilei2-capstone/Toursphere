@@ -104,11 +104,7 @@ unset($_SESSION['login_success']);
           </div>
 
            
-          <div class="options-row">
-            <label class="remember-label" for="remember-me">
-              <input type="checkbox" id="remember-me" name="remember" class="remember-checkbox" checked>
-              <span>Remember Me</span>
-            </label>
+          <div class="options-row justify-content-end">
             <a href="forgot-password.php" class="forgot-link">Forgot Password?</a>
           </div>
 
