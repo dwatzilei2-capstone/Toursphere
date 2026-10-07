@@ -8,11 +8,14 @@
 
 
 
+if (!defined('TOURSPHERE_JSON_REQUEST')) define('TOURSPHERE_JSON_REQUEST', true);
 require_once dirname(__DIR__) . '/includes/bootstrap.php';
 require_once dirname(__DIR__) . '/includes/routethink_engine.php';
 require_once dirname(__DIR__) . '/includes/route_planner_state.php';
 require_login();
 require_permission('ai.view');
+// Evaluation must not block Apply/state requests from the same driver session.
+if (session_status() === PHP_SESSION_ACTIVE) session_write_close();
 
 header('Content-Type: application/json; charset=UTF-8');
 header('X-Content-Type-Options: nosniff');

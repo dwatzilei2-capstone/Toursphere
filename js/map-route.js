@@ -159,6 +159,7 @@ class AIRouteEngine {
   }
 
   invalidatePreparedRoute() {
+    if (this.applyingRoute || this.navigationStarting || this.isNavigating) return;
     this.routeSelectionConfirmed=false;
     this.cachedDirectionsResponse=null;this.currentRouteData=null;this.currentEvaluationData=null;
     this.currentDirectionsResult=null;this.currentRouteSummary=null;this.appliedRoute=null;
@@ -453,7 +454,7 @@ class AIRouteEngine {
    
   selectMode(mode, el) {
     if (window.TC_ROUTE_CONTEXT?.readOnly) return;
-    if (this.applyingRoute) return;
+    if (this.applyingRoute || this.navigationStarting) return;
     if (this.isNavigating || !['balanced','fastest','fuelEfficient','shortest'].includes(mode) || !this.cachedDirectionsResponse) return;
     this.currentMode = mode;
     this.routeSelectionConfirmed = true;
@@ -932,6 +933,7 @@ class AIRouteEngine {
   }
 
   computeDriverToPickupPath(lat, lng) {
+    if (this.appliedRoute || this.applyingRoute || this.navigationStarting || this.isNavigating) return;
     const pickup = document.getElementById("route-origin-input")?.value.trim();
     if (!pickup || !this.directionsService) return;
 
@@ -949,6 +951,7 @@ class AIRouteEngine {
     }
 
     this.directionsService.route(request, (response, status) => {
+      if (this.appliedRoute || this.applyingRoute || this.navigationStarting || this.isNavigating) return;
       if (status !== google.maps.DirectionsStatus.OK || !response?.routes?.[0]?.overview_path) return;
       this.prePickupRoutes = response.routes;
       this.updatePrePickupPathForMode();
@@ -956,6 +959,7 @@ class AIRouteEngine {
   }
 
   updatePrePickupPathForMode() {
+    if (this.applyingRoute || this.navigationStarting || this.isNavigating || (this.appliedRoute && this.appliedRoute.routeId === this.currentRouteData?.routeId)) return;
     if (!this.prePickupRoutes.length) return;
 
     const routeMetrics = this.prePickupRoutes.map((route, index) => {
@@ -1019,6 +1023,9 @@ class AIRouteEngine {
   }
 
   getDriverPlanningPath(route) {
+    if (this.appliedRoute?.geometry?.length && this.currentRouteData?.routeId === this.appliedRoute.routeId && this.currentMode === this.appliedRoute.mode) {
+      return this.hydrateDirections(this.appliedRoute.geometry);
+    }
     const tripPath = this.getRouteRoadPath(route);
     if (!this.prePickupPath.length) return tripPath;
      
@@ -1227,7 +1234,7 @@ class AIRouteEngine {
       return;
     }
 
-    if (this.isNavigating || this.isGenerating || this.plannerRestorePending) return;
+    if (this.isNavigating || this.navigationStarting || this.applyingRoute || this.isGenerating || this.plannerRestorePending) return;
     if (this.cachedDirectionsResponse && JSON.stringify(this.plannerInputs()) === JSON.stringify(this.generatedInputs)) {
       return this.applySelectedRoute();
     }
@@ -1704,10 +1711,10 @@ class AIRouteEngine {
     form.append("waypoints", JSON.stringify(waypointsList));
     form.append("candidates", JSON.stringify(candidatePayload));
 
-    this.evaluationPromise = fetch(`${window.TC_BASE_URL}/actions/route_ai.php`, { method: "POST", body: form })
-      .then((res) => res.json())
+    this.evaluationPromise = this.routeJsonRequest(`${window.TC_BASE_URL}/actions/route_ai.php`, { method: "POST", body: form })
+      .then(({data}) => data)
       .then((resData) => {
-        if (requestId !== this.evaluationRequestId || requestedGeneration!==this.generationId || !this.cachedDirectionsResponse || (this.isNavigating && !this.rerouting) || this.applyingRoute) return;
+        if (requestId !== this.evaluationRequestId || requestedGeneration!==this.generationId || !this.cachedDirectionsResponse || ((this.isNavigating || this.appliedRoute) && !this.rerouting) || this.applyingRoute) return;
         if (!resData.ok || !resData.data) throw new Error(resData.error || 'Route evaluation unavailable.');
         if (resData.ok && resData.data) {
           this.updateStrategyRouteNotes(candidatePayload, resData.data.modeSelections);
@@ -1763,9 +1770,9 @@ class AIRouteEngine {
       window.showAppToast?.('Apply Route First','Apply the selected route before starting navigation.','warning');
       return;
     }
+    this.navigationStarting=true;
     this.restoreRouteSnapshot(this.appliedRoute);
     const isResume = options && options.resume === true && window.TC_ROUTE_CONTEXT?.resumeNavigation;
-    this.navigationStarting=true;
     await this.persistQueue.catch(()=>{});
     const routeSaved = await this.saveSelectedRouteToHistory();
     this.navigationStarting=false;
@@ -2098,7 +2105,7 @@ class AIRouteEngine {
         }
         const shouldShowOffRoute = this.offRouteConsecutiveCount >= 3;
         if (shouldShowOffRoute && !this.liveNavigationPolyline && !this.liveNavigationRoutePending) {
-          this.renderLiveNavigationRoute(lat, lng);
+          this.renderLiveNavigationRoute(lat, lng, {confirmedOffRoute:true});
         } else if (isOnRoute && (this.liveNavigationPolyline || this.liveNavigationRoutePending)) {
           // Ignore an in-flight connector response after returning to the route.
           this.liveNavigationRequestId += 1;
@@ -2319,7 +2326,9 @@ class AIRouteEngine {
     );
   }
 
-  renderLiveNavigationRoute(lat, lng) {
+  renderLiveNavigationRoute(lat, lng, options = {}) {
+    // GPS acquisition/recentering is not evidence that a driver has left the route.
+    if (!options.confirmedOffRoute || this.offRouteConsecutiveCount < 3 || !this.appliedRoute) return;
     if (!this.isNavigating || !this.directionsService || !this.currentDirectionsResult || this.liveNavigationRoutePending) return;
 
     const now = Date.now();
@@ -2459,15 +2468,8 @@ class AIRouteEngine {
         if (focusCamera === true || autoFocus) {
           this.focusNavigationCamera({ lat, lng }, true);
         }
-        if (this.isNavigating && !isNearAssignedRoute) {
-           
-           
-          this.renderLiveNavigationRoute(lat, lng);
-        } else if (this.liveNavigationPolyline) {
-          this.liveNavigationPolyline.setMap(null);
-          this.liveNavigationPolyline = null;
-          if (this.selectedRoutePolyline) this.selectedRoutePolyline.setMap(this.map);
-        }
+        // Only the GPS watch's confirmed off-route checks may request rerouting.
+        // Initial fixes and camera recentering must leave the applied route intact.
         if (recenterBtn) {
           recenterBtn.disabled = false;
           recenterBtn.innerHTML = originalContent;
@@ -2626,7 +2628,8 @@ class AIRouteEngine {
     if (!this.currentRouteData || !this.currentEvaluationData) return null;
     return JSON.parse(JSON.stringify({routeId:this.currentRouteData.routeId,mode:this.currentMode,
       data:this.currentRouteData,summary:this.currentRouteSummary,evaluation:{...this.currentEvaluationData,mode:this.currentMode},
-      directions:this.currentDirectionsResult}));
+      directions:this.currentDirectionsResult,geometry:this.getDriverPlanningPath(this.getSelectedGoogleRoute()),
+      prePickupPath:this.prePickupPath}));
   }
 
   hydrateDirections(value) {
@@ -2644,10 +2647,14 @@ class AIRouteEngine {
   restoreRouteSnapshot(route) {
     if (!route) return;
     this.currentMode = route.mode;
+    this.prePickupPath = this.hydrateDirections(route.prePickupPath || []);
     const directions = this.hydrateDirections(route.directions || this.cachedDirectionsResponse);
     this.applyEvaluationResult(route.evaluation,directions,this.candidatePayload || []);
     this.currentRouteData = route.data;
     this.currentRouteSummary = route.summary;
+    if (route.geometry?.length && this.selectedRoutePolyline) {
+      this.selectedRoutePolyline.setPath(this.hydrateDirections(route.geometry));
+    }
     document.querySelectorAll('.opt-option-card').forEach(card => card.classList.toggle('selected',card.dataset.mode === route.mode));
     this.updateResultsUI();this.updateApplyButton();
   }
@@ -2656,14 +2663,15 @@ class AIRouteEngine {
     const button = document.getElementById('btn-generate-ai-route');
     if (!button || this.isGenerating) return;
     const context = window.TC_ROUTE_CONTEXT || {};
-    const applied = Boolean(this.appliedRoute && this.currentRouteData && this.appliedRoute.routeId === this.currentRouteData.routeId && !this.applyingRoute);
+    const applied = Boolean(this.appliedRoute && this.currentRouteData && this.appliedRoute.routeId === this.currentRouteData.routeId && !this.applyingRoute && !this.routeSaveUncertain);
     const needsSelection = context.isDriver && this.currentRouteData && !this.routeSelectionConfirmed;
-    button.disabled = this.isNavigating || this.applyingRoute || applied || needsSelection || context.readOnly || (context.isDriver && context.hasActiveTrip===false) || (Boolean(this.currentRouteData) && context.canApply === false);
+    button.disabled = this.routeSaveUncertain || this.isNavigating || this.navigationStarting || this.applyingRoute || applied || needsSelection || context.readOnly || (context.isDriver && context.hasActiveTrip===false) || (Boolean(this.currentRouteData) && context.canApply === false);
     button.textContent = this.isNavigating ? 'Navigation Active' : this.applyingRoute ? 'Applying Route…' : applied ? (context.isDriver ? `${this.getRouteModeLabel(this.currentMode)} — Applied` : 'Applied') : needsSelection ? 'Select a Route' : this.currentRouteData ? this.getModeButtonLabel(this.currentMode) : 'Generate ROUTETHINK Route';
+    if(this.routeSaveUncertain)button.textContent='Reload Planner to Confirm Save';
     const navigation = document.getElementById('btn-start-navigation');
     if(navigation) {
       navigation.style.display = applied && !this.isNavigating && context.canApply!==false && !context.readOnly ? 'block' : 'none';
-      navigation.disabled = !applied || this.isNavigating || context.canApply===false;
+      navigation.disabled = !applied || this.navigationStarting || this.isNavigating || context.canApply===false;
       navigation.textContent = applied ? 'START NAVIGATION' : 'Apply Route First';
       if(this.arrivalConfirmed){navigation.disabled=true;navigation.textContent='Destination Reached';}
       if(window.TC_ROUTE_CONTEXT?.tripId && !['Dispatched','In Transit','Returning to Depot'].includes(window.TC_ROUTE_CONTEXT.tripStatus)) {
@@ -2676,18 +2684,50 @@ class AIRouteEngine {
     }
   }
 
+  traceRouteTiming(stage, values) {
+    if(window.TC_ROUTE_TIMING===true)console.debug('[Route Planner timing]',stage,values);
+  }
+
+  async routeJsonRequest(url, options = {}, timeoutMs = this.routeRequestTimeoutMs || 15000) {
+    const controller=new AbortController();const started=Date.now();let timeout;
+    const isSave=options.method==='POST' && url.includes('route-planner-state.php');
+    try {
+      return await Promise.race([(async()=>{
+        const response=await fetch(url,{...options,signal:controller.signal});
+        if(response.status===413)throw new Error('The server rejected the route save because its upload limit is too low.');
+        if(!(response.headers?.get('content-type') || 'application/json').includes('application/json'))throw new Error(`The server returned HTTP ${response.status || 'unknown'} instead of a route response. Check your login and server logs.`);
+        const data=await response.json();
+        this.traceRouteTiming('request',{ms:Date.now()-started,endpoint:url.split('/').pop(),server:response.headers?.get('server-timing') || null});
+        if(!response.ok || !data.ok)throw new Error(data.error || `Route request failed (HTTP ${response.status || 'unknown'}).`);
+        return {response,data};
+      })(),new Promise((_,reject)=>{
+        timeout=setTimeout(()=>{if(isSave)this.routeSaveUncertain=true;controller.abort();reject(new Error(isSave?'Route save timed out. Reload the planner to confirm whether it saved before retrying.':'Route request timed out. Please retry.'));},Math.max(1,timeoutMs));
+      })]);
+    } catch(error) {
+      if(isSave && (error.name==='AbortError' || error instanceof TypeError))this.routeSaveUncertain=true;
+      throw error;
+    } finally {clearTimeout(timeout);}
+  }
+
   persistPlannerState(reroute = false) {
     if (window.TC_ROUTE_CONTEXT?.readOnly) return Promise.resolve();
     if (!this.currentRouteData || this.restoringPlanner) return Promise.resolve();
+    const queuedAt=Date.now();
+    const saveId=this.latestPlannerSaveId=(this.latestPlannerSaveId || 0)+1;
+    const deadline=queuedAt+(this.routeApplyTimeoutMs || 20000);
     const state = JSON.parse(JSON.stringify({version:1,generationId:this.generationId,inputs:this.generatedInputs || this.plannerInputs(),
       directions:this.cachedDirectionsResponse,modeEvaluations:this.modeEvaluations,candidates:this.candidatePayload,
       selected:this.captureRouteSnapshot(),applied:this.appliedRoute,routeSelectionConfirmed:this.routeSelectionConfirmed,
       navigation:{startedAt:this.navigationStartedAt,step:this.currentStepIndex,leg:this.currentLegIndex,hasReachedPickup:this.hasReachedPickup}}));
     const lifecycle=this.plannerLifecycle;
     this.persistQueue=this.persistQueue.catch(() => {}).then(async () => {
+      if ((lifecycle==='GENERATED' && saveId!==this.latestPlannerSaveId) || saveId===this.cancelledPlannerSaveId) return {skipped:true};
+      if(Date.now()>=deadline)throw new Error('Route save timed out while waiting for an earlier request. Reload the planner before retrying.');
+      this.traceRouteTiming('queue',{ms:Date.now()-queuedAt,lifecycle});
       const context=window.TC_ROUTE_CONTEXT || {};
       const form=new URLSearchParams({csrf:context.stateCsrf || '',trip_id:context.tripId || '',phase:context.routePhase || 'outbound',
         lifecycle,revision:String(this.plannerRevision),state:JSON.stringify(state),reroute:reroute?'1':''});
+      const compressStarted=Date.now();
       // Compress the complete snapshot without discarding navigation geometry.
       if (typeof CompressionStream !== 'undefined') {
         const compressed = new Blob([form.get('state')]).stream().pipeThrough(new CompressionStream('gzip'));
@@ -2699,12 +2739,9 @@ class AIRouteEngine {
         form.set('state', btoa(binary));
         form.set('state_encoding', 'gzip-base64');
       }
-      const response=await fetch(`${window.TC_BASE_URL}/actions/route-planner-state.php`,{method:'POST',body:form});
-      if (response.status === 413) throw new Error('The hosting server rejected the route save because its upload limit is too low.');
-      if (!(response.headers?.get('content-type') || 'application/json').includes('application/json')) {
-        throw new Error('The hosting server could not save the route. Please retry.');
-      }
-      const data=await response.json();if(!response.ok || !data.ok)throw new Error(data.error || 'Route state could not be saved.');
+      this.traceRouteTiming('serialize_compress',{ms:Date.now()-compressStarted,bytes:form.get('state').length});
+      if(saveId===this.cancelledPlannerSaveId || Date.now()>=deadline)throw new Error('Route save timed out before submission. Please retry.');
+      const {data}=await this.routeJsonRequest(`${window.TC_BASE_URL}/actions/route-planner-state.php`,{method:'POST',body:form},Math.min(this.routeRequestTimeoutMs || 15000,deadline-Date.now()));
       this.plannerRevision=data.revision;
       return data;
     });
@@ -2712,22 +2749,27 @@ class AIRouteEngine {
   }
 
   async applySelectedRoute() {
-    if (this.applyingRoute || this.isNavigating || window.TC_ROUTE_CONTEXT?.canApply === false) return;
+    if (this.routeSaveUncertain) { window.showAppToast?.('Reload Route Planner','The previous save could not be confirmed. Reload the planner before retrying.','warning'); return; }
+    if (this.applyingRoute || this.navigationStarting || this.isNavigating || window.TC_ROUTE_CONTEXT?.canApply === false) return;
     if (window.TC_ROUTE_CONTEXT?.isDriver && !this.routeSelectionConfirmed) return;
-    await this.evaluationPromise;
     if (!this.currentRouteData || this.appliedRoute?.routeId===this.currentRouteData.routeId) return;
     this.applyingRoute=true;this.updateApplyButton();
     const previous=this.appliedRoute;
+    const started=Date.now();let timeout;
     try {
       this.appliedRoute=this.captureRouteSnapshot();this.plannerLifecycle='APPLIED';
-      await this.persistPlannerState();
+      // The generated snapshot already contains its calculated mode and geometry.
+      // Do not wait for optional background model evaluation or regenerate routes.
+      await Promise.race([this.persistPlannerState(),new Promise((_,reject)=>{
+        timeout=setTimeout(()=>{this.cancelledPlannerSaveId=this.latestPlannerSaveId;this.routeSaveUncertain=true;reject(new Error('Apply Route timed out. Reload the planner to confirm the saved route before retrying.'));},this.routeApplyTimeoutMs || 20000);
+      })]);
       this.restoreRouteSnapshot(this.appliedRoute);
       this.savedRouteSignature=null;
       window.showAppToast?.('Route Applied',`${this.getModeTitle(this.currentMode)} is saved for navigation.`,'success');
     } catch(error) {
       this.appliedRoute=previous;this.plannerLifecycle=previous?'APPLIED':'GENERATED';
       window.showAppToast?.('Apply Failed',error.message,'danger');
-    } finally {this.applyingRoute=false;this.updateApplyButton();}
+    } finally {clearTimeout(timeout);this.traceRouteTiming('apply_total',{ms:Date.now()-started});this.applyingRoute=false;this.updateApplyButton();}
   }
 
   async restorePlannerState() {
@@ -2740,8 +2782,7 @@ class AIRouteEngine {
     const context=window.TC_ROUTE_CONTEXT || {};
     try {
       const params=new URLSearchParams({trip_id:context.tripId || '',phase:context.routePhase || 'outbound'});
-      const response=await fetch(`${window.TC_BASE_URL}/actions/route-planner-state.php?${params}`);
-      const result=await response.json();if(!response.ok || !result.ok)throw new Error(result.error || 'Route restoration failed.');
+      const {data:result}=await this.routeJsonRequest(`${window.TC_BASE_URL}/actions/route-planner-state.php?${params}`);
       const record=result.state;if(!record)return;
       this.plannerRevision=Number(record.revision);
       const state=record.state_data;

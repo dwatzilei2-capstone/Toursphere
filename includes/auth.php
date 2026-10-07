@@ -87,6 +87,7 @@ function load_current_user(): void
 
          
         $customerOnly = $user['role_code'] === 'customer';
+        if (defined('TOURSPHERE_JSON_REQUEST') && TOURSPHERE_JSON_REQUEST) return;
         $notifCount = $pdo->prepare($customerOnly ? 'SELECT COUNT(*) FROM notifications WHERE is_read = 0 AND user_id = ?' : 'SELECT COUNT(*) FROM notifications WHERE is_read = 0 AND user_id = ?');
         $notifCount->execute([$user['id']]);
         $unread_count = (int)$notifCount->fetchColumn();
