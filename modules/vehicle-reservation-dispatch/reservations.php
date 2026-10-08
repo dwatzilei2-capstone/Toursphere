@@ -312,7 +312,7 @@ function renderReservationDetails(data) {
   if (!availability.applicable) {
     const notice = document.createElement('div');
     notice.className = 'alert alert-secondary py-2 mb-0';
-    notice.textContent = 'Live availability checking is shown only while a reservation is Pending Approval.';
+    notice.textContent = 'Availability is checked while the reservation is Pending Approval.';
     body.append(notice);
     return;
   }
@@ -321,8 +321,8 @@ function renderReservationDetails(data) {
   const summary = document.createElement('div');
   summary.className = 'alert ' + (ready ? 'alert-success' : 'alert-warning') + ' py-2';
   summary.textContent = ready
-    ? 'A matching vehicle and driver are currently available, using a ' + availability.buffer_hours + '-hour dispatch buffer.'
-    : 'A suitable vehicle or driver is unavailable, or there is a schedule conflict. Review the breakdown before deciding.';
+    ? 'A vehicle with enough passenger seats and a driver are available for this schedule. Their assignment still needs to be confirmed before dispatch.'
+    : 'An available vehicle and driver could not be confirmed for this schedule. Review the reasons below before approving the reservation.';
   body.append(summary);
 
   const resourceGrid = document.createElement('div');
@@ -333,7 +333,7 @@ function renderReservationDetails(data) {
 
   const note = document.createElement('p');
   note.className = 'small text-muted-custom mt-3 mb-0';
-  note.textContent = 'This is an availability snapshot for vehicles, drivers, and schedules using a ' + availability.buffer_hours + '-hour dispatch buffer. Route coverage and customer details are not checked. Resources will be rechecked at dispatch. The reservation is not automatically approved or rejected.';
+  note.textContent = 'How the schedule is checked: the system allows ' + availability.buffer_hours + ' extra hours around the schedule to avoid overlapping or closely spaced vehicle and driver bookings. This does not add time to your trip or require you to wait. This is a preliminary check; the reservation is still awaiting approval, and no assignment is confirmed yet. Availability will be checked again before dispatch. This check does not verify route coverage or customer details.';
   body.append(note);
 
   if (reservation.status === 'Pending Approval' && data.can_review) {

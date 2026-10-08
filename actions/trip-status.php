@@ -119,7 +119,7 @@ try {
             $pdo->prepare("UPDATE trips SET status = 'In Transit', progress_pct = 45, current_step = 'In Transit', actual_departure = NOW() WHERE id = ?")
                 ->execute([$trip['id']]);
         } elseif ($new_status === 'Returning to Depot') {
-            $pdo->prepare("UPDATE trips SET status='Returning to Depot', progress_pct=90, current_step='Returning to Depot' WHERE id=?")
+            $pdo->prepare("UPDATE trips SET status='Returning to Depot', navigation_active=0, progress_pct=90, current_step='Returning to Depot' WHERE id=?")
                 ->execute([$trip['id']]);
             if (!empty($trip['route_history_id']) && !empty($trip['actual_departure'])) {
                 $pdo->prepare(

@@ -24,10 +24,14 @@ function makePage(role,store){
   }
   if(url.includes('route-start.php')){
    if(store.blockStart)return new Promise(()=>{});
+   if(store.startFault==='gateway')return {ok:false,status:504,headers:{get:()=> 'text/html'}};
+   if(store.startFault==='incomplete')return {ok:true,status:200,json:async()=>{throw new SyntaxError('Truncated JSON');}};
+   if(store.slowStart)await new Promise(resolve=>setTimeout(resolve,store.slowStart));
    check(!options.body.has('route_data_json') && !options.body.has('candidates_json'),'Start Navigation sends route identity without uploading saved geometry again');
    assert.equal(options.body.get('route_id'),store.record.state_data.applied.routeId);
    assert.equal(options.body.get('mode'),store.record.state_data.applied.mode);
    store.record.lifecycle='NAVIGATING';store.active=1;store.starts++;
+   if(store.startFault==='lostResponse')throw new TypeError('Connection lost after commit');
    return {ok:true,json:async()=>({ok:true,log_id:'TEST-LOG',already_saved:store.starts>1})};
   }
   assert.ok(url.includes('route-planner-state.php'));
@@ -234,18 +238,33 @@ function makePage(role,store){
   await late(fixture.directions,'OK');
   check(!e.currentRouteData,'Late Maps response after timeout cannot replace planner state');
  }
- for(const fault of ['blockStart','startQueue']){
+ for(const fault of ['blockStart','startQueue','gateway','incomplete','lostResponse']){
   const store={record:null,active:0,starts:0},page=makePage('driver',store),e=page.engine;
   e.processGoogleDirectionsResult(fixture.directions);await e.evaluationPromise;await e.persistQueue;
   e.selectMode('fastest');await e.applySelectedRoute();await e.persistQueue;
   const identity=e.appliedRoute.routeId,geometry=JSON.stringify(e.selectedRoutePolyline.path);
   e.routeRequestTimeoutMs=10;
-  if(fault==='blockStart')store.blockStart=true;else e.persistQueue=new Promise(()=>{});
+  if(fault==='blockStart')store.blockStart=true;else if(fault==='startQueue')e.persistQueue=new Promise(()=>{});else store.startFault=fault;
   await e.startNavigation();
   check(!e.navigationStarting && !e.isNavigating,`${fault}: no stuck loading or false navigation success`);
   check(e.routeSaveUncertain && page.ids['btn-start-navigation'].disabled,`${fault}: reload required to reconcile uncertain save`);
   check(e.appliedRoute.routeId===identity && JSON.stringify(e.selectedRoutePolyline.path)===geometry,`${fault}: exact applied route preserved on timeout`);
-  check(store.starts===0,`${fault}: no unconfirmed start or automatic retry`);
+  check(store.starts===(fault==='lostResponse'?1:0),`${fault}: no duplicate start or automatic retry`);
+  if(fault==='lostResponse'){
+   await e.startNavigation();check(store.starts===1,'Lost response cannot submit a second start before reconciliation');
+   delete store.startFault;
+   const reloaded=makePage('driver',store);await reloaded.engine.restorePlannerState();
+   check(reloaded.engine.isNavigating,'Reload resumes the navigation committed before the connection failed');
+  }
+ }
+ {
+  const store={record:null,active:0,starts:0,slowStart:25},page=makePage('driver',store),e=page.engine;
+  e.processGoogleDirectionsResult(fixture.directions);await e.evaluationPromise;await e.persistQueue;
+  e.selectMode('fastest');await e.applySelectedRoute();await e.persistQueue;
+  e.routeRequestTimeoutMs=100;
+  const starting=e.startNavigation();await new Promise(resolve=>setTimeout(resolve,5));await e.startNavigation();await starting;
+  check(e.isNavigating && !e.navigationStarting,'Slow successful response finishes navigation without stuck loading');
+  check(store.starts===1,'Repeated click during a slow start submits only one request');
  }
  for(const fault of ['blockSave','failSave','queue']){
   const store={record:null,active:0,starts:0},page=makePage('driver',store),e=page.engine;

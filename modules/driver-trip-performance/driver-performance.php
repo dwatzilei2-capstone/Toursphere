@@ -53,14 +53,14 @@ $drivers = $pdo->query(
 
 $active_page = 'drivers';
 $body_class = trim(($body_class ?? '') . ' driver-trip-monitoring-module driver-performance-page');
-$page_title  = 'Driver and Trip Performance Monitoring';
+$page_title  = 'Driver & Trip Performance Monitoring';
 require ROOT_PATH . '/includes/header.php';
 ?>
 
 <div class="driver-trip-page-shell">
 <div class="d-flex flex-wrap justify-content-between align-items-center mb-4 gap-2">
   <div>
-    <h1 class="mb-1">Driver and Trip Performance Monitoring</h1>
+    <h1 class="mb-1">Driver &amp; Trip Performance Monitoring</h1>
     <p class="text-muted-custom mb-0">Driver credential tracking, safety scores, on-time delivery rates, and Toursphere HRMS integration.</p>
   </div>
   <div class="d-flex gap-2">

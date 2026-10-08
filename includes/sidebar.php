@@ -161,7 +161,7 @@ if (!function_exists('nav_active')) {
         <li class="nav-item-custom">
           <a class="nav-link-custom nav-has-sub <?= $is_m3_active ? 'active expanded open' : '' ?>" href="javascript:void(0);">
             <i class="bi bi-person-badge"></i>
-            <span class="nav-label">Driver & Trip Monitoring</span>
+            <span class="nav-label nav-label-performance"><span>Driver &amp; Trip Performance</span><span>Monitoring</span></span>
             <i class="bi bi-chevron-down ms-auto nav-chevron small"></i>
           </a>
           <ul class="nav-submenu <?= $is_m3_active ? 'open' : '' ?>">

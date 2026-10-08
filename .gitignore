@@ -28,6 +28,7 @@ _archive_unused/
 database/backups/
 *.dump
 *.backup
+/clean_databse.sql.gz
 
 /storage/private/vehicle-photos/
 

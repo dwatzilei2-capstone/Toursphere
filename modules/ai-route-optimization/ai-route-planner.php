@@ -9,6 +9,7 @@ require_permission('ai.view');
 $is_route_viewer = !has_role('driver') && (!empty($_GET['trip_id']) || !empty($_GET['reservation_id']));
 if ($is_route_viewer) require_permission('dispatch.view');
 require_once ROOT_PATH.'/includes/trip_funding.php';
+require_once ROOT_PATH.'/includes/route_planner_state.php';
 $_SESSION['route_prepare_csrf']??=bin2hex(random_bytes(32));
 $_SESSION['route_state_csrf']??=bin2hex(random_bytes(32));
 
@@ -96,6 +97,7 @@ if ($is_route_viewer) {
 }
 
 $saved_route_mode = null;
+$savedRouteData = null;
 if (!empty($route_context['route_history_id'])) {
     $savedRouteStmt = $pdo->prepare(
         'SELECT selected_mode, route_data_json FROM route_history WHERE log_id = ? LIMIT 1'
@@ -280,7 +282,8 @@ $tourist_destinations = [
     ]
 ];
 
-$route_mode_is_locked = $is_route_viewer || ($route_context !== null && (int)($route_context['navigation_active'] ?? 0) === 1);
+$navigation_matches_phase = route_planner_navigation_matches_phase($route_context, is_array($savedRouteData) ? $savedRouteData : null, $is_return_mode ? 'return' : 'outbound');
+$route_mode_is_locked = $is_route_viewer || $navigation_matches_phase;
 $requested_mode = ($route_mode_is_locked)
     ? $saved_route_mode
     : ($_GET['mode'] ?? 'balanced');
@@ -366,10 +369,11 @@ require ROOT_PATH . '/includes/header.php';
 
 <?php if ($is_route_viewer && $route_context): ?>
 <div class="alert alert-info py-2 px-3 mb-3 small" role="status">
-  <strong>Read-only trip route: <?= e($route_context['trip_id'] ?: $route_context['reservation_id']) ?></strong>
+  <strong>Driver-selected outbound route: <?= e($route_context['trip_id'] ?: $route_context['reservation_id']) ?></strong>
   · <?= e($route_context['trip_status']) ?>
   · Driver: <?= e($viewer_assignment['driver_name'] ?: 'Unassigned') ?>
   · Vehicle: <?= e($viewer_assignment['plate_number'] ?: ($route_context['vehicle_id'] ?: 'Unassigned')) ?>
+  <br>This view shows the saved route from <?= e($route_context['origin']) ?> to <?= e($route_context['destination']) ?>. It does not generate a new route or display the return-to-depot route.
   <?php if (!empty($viewer_route['sampleSelectedRoute'])): ?><br>DEMO saved road route for map testing; not a historical Driver GPS track.<?php endif; ?>
   <?php if (in_array($route_context['trip_status'], ['In Transit','On Trip','Returning to Depot'], true)): ?><br>Live vehicle coordinates are unavailable from the current tracking system.<?php endif; ?>
 </div>
@@ -772,7 +776,7 @@ require ROOT_PATH . '/includes/header.php';
     'selectedModeLabel' => $selected_route_mode_label,
     'routePhase' => $is_return_mode ? 'return' : 'outbound',
     'resumeNavigation' => in_array($route_context['trip_status'] ?? '', ['In Transit', 'Returning to Depot'], true)
-        && (int)($route_context['navigation_active'] ?? 0) === 1,
+        && $navigation_matches_phase,
   ], JSON_UNESCAPED_UNICODE | JSON_HEX_TAG | JSON_HEX_AMP | JSON_HEX_APOS | JSON_HEX_QUOT) ?>;
 
   if (window.TC_ROUTE_CONTEXT.isDriver) {

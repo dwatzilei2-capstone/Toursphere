@@ -1825,7 +1825,7 @@ class AIRouteEngine {
     let queueTimer;
     try {
       await Promise.race([this.persistQueue.catch(()=>{}),new Promise((_,reject)=>{
-        queueTimer=setTimeout(()=>reject(new Error('Route saving is still pending. Reload the planner to confirm the saved route.')),this.routeRequestTimeoutMs || 15000);
+        queueTimer=setTimeout(()=>reject(new Error('Route saving is still pending. Reload the planner to confirm the saved route.')),this.routeRequestTimeoutMs || 30000);
       })]);
     } catch(error) {
       this.navigationStarting=false;this.routeSaveUncertain=true;this.updateApplyButton();
@@ -2769,15 +2769,23 @@ class AIRouteEngine {
     if(window.TC_ROUTE_TIMING===true)console.debug('[Route Planner timing]',stage,values);
   }
 
-  async routeJsonRequest(url, options = {}, timeoutMs = this.routeRequestTimeoutMs || 15000) {
+  async routeJsonRequest(url, options = {}, timeoutMs = this.routeRequestTimeoutMs || 30000) {
     const controller=new AbortController();const started=Date.now();let timeout;
     const isSave=options.method==='POST' && /route-(planner-state|start)\.php/.test(url);
     try {
       return await Promise.race([(async()=>{
         const response=await fetch(url,{...options,signal:controller.signal});
+        // A proxy error or unreadable response can arrive after the server committed.
+        // Require reconciliation rather than treating an uncertain save as safe to repeat.
+        if(isSave && response.status>=500)this.routeSaveUncertain=true;
         if(response.status===413)throw new Error('The server rejected the route save because its upload limit is too low.');
-        if(!(response.headers?.get('content-type') || 'application/json').includes('application/json'))throw new Error(`The server returned HTTP ${response.status || 'unknown'} instead of a route response. Check your login and server logs.`);
-        const data=await response.json();
+        if(!(response.headers?.get('content-type') || 'application/json').includes('application/json')){
+          if(isSave && response.ok)this.routeSaveUncertain=true;
+          throw new Error(`The server returned HTTP ${response.status || 'unknown'} instead of a route response. Reload the planner to check its saved state.`);
+        }
+        let data;
+        try { data=await response.json(); }
+        catch(error) { if(isSave)this.routeSaveUncertain=true;throw new Error('The route response was incomplete. Reload the planner to check whether the route saved.'); }
         this.traceRouteTiming('request',{ms:Date.now()-started,endpoint:url.split('/').pop(),server:response.headers?.get('server-timing') || null});
         if(!response.ok || !data.ok){const error=new Error(data.error || `Route request failed (HTTP ${response.status || 'unknown'}).`);error.code=data.error_code;throw error;}
         return {response,data};
@@ -2785,7 +2793,7 @@ class AIRouteEngine {
         timeout=setTimeout(()=>{if(isSave)this.routeSaveUncertain=true;controller.abort();reject(new Error(isSave?'Route save timed out. Reload the planner to confirm whether it saved before retrying.':'Route request timed out. Please retry.'));},Math.max(1,timeoutMs));
       })]);
     } catch(error) {
-      if(isSave && (error.name==='AbortError' || error instanceof TypeError))this.routeSaveUncertain=true;
+      if(isSave && (error.name==='AbortError' || error.name==='TypeError'))this.routeSaveUncertain=true;
       throw error;
     } finally {clearTimeout(timeout);}
   }
@@ -2811,7 +2819,7 @@ class AIRouteEngine {
     if (!this.currentRouteData || this.restoringPlanner) return Promise.resolve();
     const queuedAt=Date.now();
     const saveId=this.latestPlannerSaveId=(this.latestPlannerSaveId || 0)+1;
-    const deadline=queuedAt+(this.routeApplyTimeoutMs || 20000);
+    const deadline=queuedAt+(this.routeApplyTimeoutMs || 45000);
     const state = this.compactPlannerState(JSON.parse(JSON.stringify({version:1,generationId:this.generationId,inputs:this.generatedInputs || this.plannerInputs(),
       directions:this.cachedDirectionsResponse,approachDirections:this.prePickupRoutes,modeEvaluations:this.modeEvaluations,candidates:this.candidatePayload,
       selected:this.captureRouteSnapshot(),applied:this.appliedRoute,routeSelectionConfirmed:this.routeSelectionConfirmed,
@@ -2839,18 +2847,18 @@ class AIRouteEngine {
       this.traceRouteTiming('serialize_compress',{ms:Date.now()-compressStarted,bytes:form.get('state').length});
       if(saveId===this.cancelledPlannerSaveId || Date.now()>=deadline)throw new Error('Route save timed out before submission. Please retry.');
       let data;
-      try { ({data}=await this.routeJsonRequest(`${window.TC_BASE_URL}/actions/route-planner-state.php`,{method:'POST',body:form},Math.min(this.routeRequestTimeoutMs || 15000,deadline-Date.now()))); }
+      try { ({data}=await this.routeJsonRequest(`${window.TC_BASE_URL}/actions/route-planner-state.php`,{method:'POST',body:form},Math.min(this.routeRequestTimeoutMs || 30000,deadline-Date.now()))); }
       catch(error) {
         if(error.code!=='ROUTE_REVISION_CONFLICT' || lifecycle!=='APPLIED' || expectedAppliedRouteId===undefined)throw error;
         const params=new URLSearchParams({trip_id:context.tripId || '',phase:context.routePhase || 'outbound'});
-        const latest=await this.routeJsonRequest(`${window.TC_BASE_URL}/actions/route-planner-state.php?${params}`,{},Math.min(this.routeRequestTimeoutMs || 15000,Math.max(1,deadline-Date.now())));
+        const latest=await this.routeJsonRequest(`${window.TC_BASE_URL}/actions/route-planner-state.php?${params}`,{},Math.min(this.routeRequestTimeoutMs || 30000,Math.max(1,deadline-Date.now())));
         const record=latest.data.state;
         const sameInputs=record && Object.keys(state.inputs).every(key=>JSON.stringify(record.state_data.inputs[key])===JSON.stringify(state.inputs[key]));
         if(!sameInputs || record.lifecycle==='NAVIGATING' || (record.state_data.applied?.routeId || null)!==expectedAppliedRouteId)throw error;
         // A preview save may advance the revision; it cannot change this explicit selection.
         if(saveId===this.cancelledPlannerSaveId || Date.now()>=deadline)throw error;
         form.set('revision',String(record.revision));
-        ({data}=await this.routeJsonRequest(`${window.TC_BASE_URL}/actions/route-planner-state.php`,{method:'POST',body:form},Math.min(this.routeRequestTimeoutMs || 15000,deadline-Date.now())));
+        ({data}=await this.routeJsonRequest(`${window.TC_BASE_URL}/actions/route-planner-state.php`,{method:'POST',body:form},Math.min(this.routeRequestTimeoutMs || 30000,deadline-Date.now())));
       }
       this.plannerRevision=data.revision;
       return data;
@@ -2871,7 +2879,7 @@ class AIRouteEngine {
       // The generated snapshot already contains its calculated mode and geometry.
       // Do not wait for optional background model evaluation or regenerate routes.
       await Promise.race([this.persistPlannerState(false,previous?.routeId || null),new Promise((_,reject)=>{
-        timeout=setTimeout(()=>{this.cancelledPlannerSaveId=this.latestPlannerSaveId;this.routeSaveUncertain=true;reject(new Error('Apply Route timed out. Reload the planner to confirm the saved route before retrying.'));},this.routeApplyTimeoutMs || 20000);
+        timeout=setTimeout(()=>{this.cancelledPlannerSaveId=this.latestPlannerSaveId;this.routeSaveUncertain=true;reject(new Error('Apply Route timed out. Reload the planner to confirm the saved route before retrying.'));},this.routeApplyTimeoutMs || 45000);
       })]);
       this.restoreRouteSnapshot(this.appliedRoute);
       this.savedRouteSignature=null;
@@ -2983,9 +2991,9 @@ class AIRouteEngine {
     setText('ai-res-score', data.routeScore || 'Unavailable');
     const scoreLabel = document.getElementById('ai-res-score');
     if (scoreLabel && !data.routeScore) scoreLabel.className = 'badge bg-secondary';
-    setText('ai-res-badge', saved.sampleSelectedRoute ? 'DEMO' : 'Saved route');
+    setText('ai-res-badge', saved.sampleSelectedRoute ? 'DEMO' : 'Saved outbound route');
     setText('ai-res-reason', data.reason || saved.evaluation?.explanation || 'No saved recommendation available.');
-    setText('route-strategy-locked', `Read-only selected route: ${this.getModeTitle(saved.mode)}`);
+    setText('route-strategy-locked', `Driver-selected outbound route: ${this.getModeTitle(saved.mode)} (read-only)`);
     const revenueDate = document.getElementById('route-revenue-date');
     if (revenueDate) revenueDate.disabled = true;
     const scoreBar = document.getElementById('ai-res-score-bar');

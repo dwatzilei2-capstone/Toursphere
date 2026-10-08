@@ -536,6 +536,30 @@ p { margin-bottom: 0.5rem; }
   color: var(--tc-text-main);
 }
 
+.nav-link-custom:has(.nav-label-performance) > i:first-child {
+  flex: 0 0 18px;
+  width: 18px;
+  margin-right: 6px;
+}
+
+.nav-label-performance {
+  flex: 1;
+  min-width: 0;
+  font-size: 11.5px;
+  line-height: 1.5;
+}
+
+.nav-label-performance > span {
+  display: block;
+  white-space: nowrap;
+}
+
+.nav-link-custom:has(.nav-label-performance) > .nav-chevron {
+  flex: 0 0 12px;
+  width: 12px;
+  margin-right: 0;
+}
+
 .nav-link-custom:hover i {
   color: var(--tc-primary);
 }

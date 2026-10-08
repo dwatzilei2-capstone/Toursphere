@@ -14,11 +14,20 @@ if($groupVehicles){
 <section class="tc-card funding-comparison mb-3"><div class="tc-card-header"><div><h2 class="fs-6 fw-bold mb-1"><?= $groupVehicles?'Funding & Recorded Costs by Vehicle':'Estimated vs Funded vs Actual' ?></h2><p class="small text-muted-custom mb-0">Approved funding is a limit, not money spent. Actual costs include only recorded fuel, completed maintenance and recorded tolls. Above estimate means spending is higher than the prediction; it does not necessarily exceed approved funding. <?= $groupVehicles?'All matching trips in the selected period.':'Up to 100 recent trips in the selected period.' ?></p></div></div><div class="tc-table-container"><table class="tc-table"><thead><tr><th><?= $groupVehicles?'Vehicle':'Trip / Route' ?></th><?php if($groupVehicles): ?><th>Trips</th><?php endif; ?><th>Estimated Cost</th><th>Approved Funding</th><th>Actual Recorded Cost</th><th>Difference from Estimate</th></tr></thead><tbody>
 <?php if(!$comparisonRows): ?><tr><td colspan="<?= $groupVehicles?6:5 ?>" class="text-center text-muted-custom">No trips in the selected period.</td></tr><?php endif; ?>
 <?php foreach($comparisonRows as $row):$variance=$row['actual_recorded_cost']!==null && $row['estimated_total_cost']!==null?(float)$row['actual_recorded_cost']-(float)$row['estimated_total_cost']:null; ?><tr><td><?php if($groupVehicles): ?><strong><?= e($row['id']) ?></strong><?php else: ?><a href="<?= BASE_URL ?>/trip-details.php?id=<?= urlencode($row['id']) ?>"><?= e($row['id']) ?></a><div class="small text-muted-custom"><?= e($row['origin'].' â†’ '.$row['destination']) ?></div><?php endif; ?></td><?php if($groupVehicles): ?><td><?= $row['count'] ?></td><?php endif; ?><td><?= funding_money($row['estimated_total_cost'],'Not Available') ?></td><td><?= funding_money($row['approved_amount'],'Not Funded') ?></td><td><?= funding_money($row['actual_recorded_cost']) ?></td><td>
-  <div class="fw-semibold"><?= $variance===null?'Not Available':money(abs($variance)).($variance>0?' above estimate':($variance<0?' below estimate':' — matches estimate')) ?></div>
+  <div class="fw-semibold"><?= $variance===null?'Comparison unavailable':($variance>0?'Recorded costs exceed the estimate by '.money(abs($variance)).'.':($variance<0?'Recorded costs are '.money(abs($variance)).' below the estimate.':'Recorded costs match the estimate.')) ?></div>
+  <div class="small text-muted-custom mt-1">
+    <?php if($variance!==null): ?>
+      Estimated cost: <?= money($row['estimated_total_cost']) ?>. Actual recorded cost: <?= money($row['actual_recorded_cost']) ?>.
+    <?php elseif($row['estimated_total_cost']===null): ?>
+      No estimated cost is available for this comparison.
+    <?php else: ?>
+      No actual cost has been recorded yet.
+    <?php endif; ?>
+  </div>
   <?php if(!$groupVehicles && $row['actual_recorded_cost']!==null && $row['approved_amount']!==null):
     $fundingRemaining=(float)$row['approved_amount']-(float)$row['actual_recorded_cost']; ?>
     <div class="small mt-1 <?= $fundingRemaining<0?'text-danger':'text-success' ?>">
-      <?= $fundingRemaining<0?'Exceeds approved funding by '.money(abs($fundingRemaining)):'Within approved funding · '.money($fundingRemaining).' remaining' ?>
+      <?= $fundingRemaining<0?'Recorded costs exceed the approved budget by '.money(abs($fundingRemaining)).'.':($fundingRemaining>0?'Recorded costs are still within the approved budget, with '.money($fundingRemaining).' remaining.':'Recorded costs have used the full approved budget. No budget remains.') ?>
     </div>
   <?php elseif(!$groupVehicles && $row['actual_recorded_cost']!==null): ?>
     <div class="small text-muted-custom mt-1">No confirmed funding to compare against.</div>

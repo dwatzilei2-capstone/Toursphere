@@ -1,4 +1,9 @@
 <?php
+/** Navigation only locks the route strategy for the leg that is actually active. */
+function route_planner_navigation_matches_phase(?array $trip, ?array $savedRoute, string $phase): bool {
+ return (int)($trip['navigation_active'] ?? 0) === 1
+  && $savedRoute !== null && ($savedRoute['phase'] ?? 'outbound') === $phase;
+}
 /** Expand shared snapshot references without recalculating or discarding geometry. */
 function route_planner_expand_state(array $state): array {
  foreach(['selected','applied'] as $key){
