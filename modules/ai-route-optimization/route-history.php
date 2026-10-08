@@ -51,10 +51,18 @@ require ROOT_PATH . '/includes/header.php';
       <tbody>
         <?php if (empty($history)): ?>
           <tr><td colspan="9" class="text-center text-muted-custom py-4">No route generation logs recorded yet.</td></tr>
-        <?php else: foreach ($history as $h): ?>
+        <?php else: foreach ($history as $h):
+          $savedRoute = json_decode((string)($h['route_data_json'] ?? ''), true);
+          $isDepotRoute = is_array($savedRoute) && ($savedRoute['phase'] ?? '') === 'return';
+        ?>
           <tr>
             <td><strong><?= e($h['log_id']) ?></strong></td>
-            <td><?= e($h['route_title']) ?></td>
+            <td>
+              <?= e($h['route_title']) ?>
+              <?php if ($isDepotRoute): ?>
+                <div class="mt-1"><span class="badge bg-info-subtle text-info-emphasis border">Return to Depot</span></div>
+              <?php endif; ?>
+            </td>
             <td><?= e($h['vehicle'] ?? '—') ?></td>
             <td><?= e(date('Y-m-d H:i', strtotime($h['generated_date']))) ?></td>
             <td><span class="badge bg-primary"><?= e($h['selected_mode']) ?></span></td>
