@@ -3,6 +3,7 @@
 require_once dirname(__DIR__) . '/includes/bootstrap.php';
 require_once ROOT_PATH . '/includes/vehicle_document.php';
 require_once ROOT_PATH . '/includes/vehicle_photo.php';
+require_once ROOT_PATH . '/includes/vehicle_efficiency.php';
 require_login();
 require_permission('vehicles.manage');
 
@@ -227,7 +228,7 @@ try {
     $vehicle->execute([
         $vid, $plate, $selection['type_name'], $selection['brand_name'],
         trim($modelName . ' ' . ($variantName ?? '')), $year, $capacity,
-        'Available', $fuelType, $fuelCapacity, 'Healthy', 'Central Depot', '—', '—',
+        'Available', $fuelType, $fuelCapacity, 'Healthy', 'Central Depot', vehicle_efficiency_default($selection['type_name']), '—',
         $variantId, $current_user['id'], $documentIds['registration'],
     ]);
 

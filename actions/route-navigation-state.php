@@ -1,7 +1,9 @@
 <?php
 
+if(!defined('TOURSPHERE_JSON_REQUEST'))define('TOURSPHERE_JSON_REQUEST',true);
 require_once dirname(__DIR__) . '/includes/bootstrap.php';
 require_login();
+if(session_status()===PHP_SESSION_ACTIVE)session_write_close();
 header('Content-Type: application/json; charset=UTF-8');
 header('Cache-Control: no-store');
 
@@ -55,6 +57,7 @@ try {
         throw new RuntimeException('A recent, precise GPS location is required to record arrival.');
     }
     $pdo->beginTransaction();
+    $pdo->exec("SET LOCAL lock_timeout='5s'; SET LOCAL statement_timeout='10s'");
     $stmt = $pdo->prepare("SELECT t.*, h.route_data_json FROM trips t
         LEFT JOIN route_history h ON h.log_id=t.route_history_id
         WHERE t.id=?" . ($isDriver ? " AND t.driver_id IN (SELECT id FROM drivers WHERE user_id=?)" : '') . " FOR UPDATE OF t");

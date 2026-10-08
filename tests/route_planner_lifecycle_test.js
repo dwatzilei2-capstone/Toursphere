@@ -18,10 +18,13 @@ function makePage(role,store){
  const fetch=async(url,options={})=>{
   requests.push({url,body:options.body});
   if(url.includes('route_ai.php')){
+   if(store.evaluationGate)await store.evaluationGate;
    const current=options.body.get('mode');const evaluation=fixture.modeEvaluations[current];
    return {ok:true,json:async()=>({ok:true,data:{...evaluation,vehicleSpecs:fixture.vehicleSpecs,modeEvaluations:fixture.modeEvaluations,modeSelections:Object.fromEntries(Object.entries(fixture.modeEvaluations).map(([key,result])=>[key,result.selectedIndex]))}})};
   }
   if(url.includes('route-start.php')){
+   if(store.blockStart)return new Promise(()=>{});
+   check(!options.body.has('route_data_json') && !options.body.has('candidates_json'),'Start Navigation sends route identity without uploading saved geometry again');
    assert.equal(options.body.get('route_id'),store.record.state_data.applied.routeId);
    assert.equal(options.body.get('mode'),store.record.state_data.applied.mode);
    store.record.lifecycle='NAVIGATING';store.active=1;store.starts++;
@@ -30,8 +33,16 @@ function makePage(role,store){
   assert.ok(url.includes('route-planner-state.php'));
   if(options.body && store.blockSave)return new Promise((resolve,reject)=>{options.signal.addEventListener('abort',()=>{const error=new Error('Request aborted');error.name='AbortError';reject(error);});});
   if(options.body && store.failSave)return {ok:false,status:503,json:async()=>({ok:false,error:'Database unavailable for test save'})};
-  if(!options.body)return {ok:true,json:async()=>({ok:true,state:store.record,trip_status:'In Transit',navigation_active:store.active})};
-  assert.equal(Number(options.body.get('revision')),store.record?.revision||0);
+  if(!options.body)return {ok:true,json:async()=>{
+   const record=store.record?JSON.parse(JSON.stringify(store.record)):null;
+   if(record)for(const key of ['selected','applied']){
+    const route=record.state_data[key];if(!route)continue;
+    if(route.directionsRef==='generated'){route.directions=record.state_data.directions;delete route.directionsRef;}
+    for(const field of ['geometry','prePickupPath'])if(route[field+'Ref']==='selected'){route[field]=record.state_data.selected[field];delete route[field+'Ref'];}
+   }
+   return {ok:true,state:record,trip_status:'In Transit',navigation_active:store.active};
+  }};
+  if(Number(options.body.get('revision'))!==(store.record?.revision||0))return {ok:false,status:409,json:async()=>({ok:false,error:'Route state changed in another page. Reload before applying.',error_code:'ROUTE_REVISION_CONFLICT'})};
   store.record={revision:(store.record?.revision||0)+1,lifecycle:options.body.get('lifecycle'),state_data:JSON.parse(options.body.get('state'))};
   return {ok:true,json:async()=>({ok:true,revision:store.record.revision})};
  };
@@ -135,6 +146,106 @@ function makePage(role,store){
   const sent=page.requests.filter(r=>r.body && r.url.includes('route-planner-state.php')).length-before;
   check(sent===1,'Three superseded previews collapse into one applied save');
   check(e.appliedRoute.mode==='fuelEfficient','Coalescing preserves the last selected route');
+ }
+ {
+  let release;const store={record:null,active:0,starts:0,evaluationGate:new Promise(resolve=>{release=resolve;})};
+  const page=makePage('driver',store),e=page.engine;
+  e.processGoogleDirectionsResult(fixture.directions);e.selectMode('fastest');
+  const id=e.currentRouteData.routeId,geometry=JSON.stringify(e.selectedRoutePolyline.path),evaluations=JSON.stringify(e.modeEvaluations);
+  release();await e.evaluationPromise;
+  check(e.currentRouteData.routeId===id && JSON.stringify(e.selectedRoutePolyline.path)===geometry,'Late AI response cannot replace explicitly selected preview');
+  check(JSON.stringify(e.modeEvaluations)===evaluations,'Late AI response cannot remap route choices after selection');
+  await e.applySelectedRoute();check(e.appliedRoute.routeId===id,'Apply saves exact pre-evaluation selection');
+ }
+ {
+  const store={record:null,active:0,starts:0},page=makePage('driver',store),e=page.engine;let approachCallback;
+  e.updateUserLocationMarker=()=>{};e.directionsRenderer={setDirections(){},setOptions(){},setRouteIndex(){}};
+  e.directionsService={route:(request,callback)=>{if(typeof request.origin==='object')approachCallback=callback;else callback(fixture.directions,'OK');}};
+  e.generateRoute();await new Promise(resolve=>setImmediate(resolve));
+  check(e.isGenerating && !e.currentRouteData,'Generate waits for current GPS-to-terminal routing before showing choices');
+  e.selectMode('shortest');check(!e.routeSelectionConfirmed,'Incomplete generation cannot accept an early route choice');
+  approachCallback({routes:[fixture.directions.routes[0]]},'OK');await new Promise(resolve=>setImmediate(resolve));
+  check(!e.isGenerating && e.prePickupPath.length>0 && e.currentRouteData,'Generation includes pickup leg before route selection');
+  e.selectMode('fastest');await e.applySelectedRoute();
+  check(e.appliedRoute.geometry.length>fixture.directions.routes[0].overview_path.length,'Applied geometry includes Driver-to-A and A-to-B');
+ }
+ for(const conflict of ['preview','applied','navigation']){
+  const store={record:null,active:0,starts:0},page=makePage('driver',store),e=page.engine;
+  e.processGoogleDirectionsResult(fixture.directions);await e.evaluationPromise;e.selectMode('fastest');await e.persistQueue;
+  store.record.revision++;
+  if(conflict==='applied'){store.record.state_data.applied={routeId:'other-applied-route'};store.record.lifecycle='APPLIED';}
+  if(conflict==='navigation')store.record.lifecycle='NAVIGATING';
+  await e.applySelectedRoute();
+  check(conflict==='preview'?e.appliedRoute?.mode==='fastest':!e.appliedRoute,`${conflict}: stale Apply retries only unchanged unapplied preview`);
+  if(conflict==='applied')check(store.record.state_data.applied.routeId==='other-applied-route','Conflict recovery never overwrites another applied route');
+ }
+ {
+  const store={record:null,active:0,starts:0},page=makePage('driver',store),e=page.engine;
+  e.processGoogleDirectionsResult(fixture.directions);await e.evaluationPromise;e.selectMode('fastest');await e.persistQueue;
+  // PostgreSQL jsonb returns key order different from plannerInputs().
+  store.record.state_data.inputs=Object.fromEntries(Object.entries(store.record.state_data.inputs).sort(([a],[b])=>a.localeCompare(b)));
+  const restored=makePage('driver',store);await restored.engine.restorePlannerState();restored.engine.selectMode('fuelEfficient');
+  const selectedId=restored.engine.currentRouteData.routeId;let generations=0;
+  restored.engine.directionsService={route:()=>{generations++;}};
+  await restored.engine.generateRoute();
+  check(generations===0,'Apply after jsonb restoration never treats reordered keys as changed inputs');
+  check(restored.engine.appliedRoute?.routeId===selectedId,'Real Apply button handler saves restored selection without regenerating');
+  check(!restored.engine.plannerInputsMatch({...restored.engine.plannerInputs(),destination:'Changed'},restored.engine.generatedInputs),'Actual changed input still requires generation');
+ }
+ {
+  const store={record:null,active:0,starts:0},page=makePage('driver',store),e=page.engine;
+  e.processGoogleDirectionsResult(fixture.directions);await e.evaluationPromise;e.prePickupRoutes=fixture.directions.routes;
+  e.selectMode('fastest');await e.applySelectedRoute();
+  const restored=makePage('driver',store);await restored.engine.restorePlannerState();restored.engine.selectMode('shortest');
+  check(restored.engine.prePickupRoutes.length===3,'GPS pickup alternatives persist across module changes');
+  check(restored.engine.prePickupSelectedIndex===1,'Restored pickup leg switches with shortest mode before Apply');
+ }
+ {
+  const store={record:null,active:0,starts:0},page=makePage('driver',store),e=page.engine;
+  e.processGoogleDirectionsResult(fixture.directions);await e.evaluationPromise;e.selectMode('fuelEfficient');await e.applySelectedRoute();
+  const restored=makePage('driver',store);let markerUpdates=0,routeRequests=0,cameraFocus=0;
+  restored.engine.updateUserLocationMarker=()=>{markerUpdates++;};restored.engine.focusNavigationCamera=()=>{cameraFocus++;};
+  restored.engine.directionsService={route:()=>{routeRequests++;}};restored.engine.acquireNavigationPosition=restored.acquireGps;
+  await restored.engine.restorePlannerState();
+  check(markerUpdates===1 && restored.engine.hasLiveGpsFix,'Refresh automatically restores blue dot from a fresh GPS fix');
+  check(routeRequests===0 && cameraFocus===0,'Restored GPS marker does not regenerate route or zoom away from its bounds');
+  check(restored.engine.appliedRoute.routeId===e.appliedRoute.routeId && JSON.stringify(restored.engine.selectedRoutePolyline.path)===JSON.stringify(e.selectedRoutePolyline.path),'GPS restoration preserves exact applied identity and geometry');
+ }
+ {
+  const store={record:null,active:0,starts:0},page=makePage('driver',store),e=page.engine;
+  e.processGoogleDirectionsResult(fixture.directions);await e.evaluationPromise;e.prePickupRoutes=fixture.directions.routes;
+  for(const [mode,winner] of Object.entries({fastest:0,shortest:1,fuelEfficient:2,balanced:2})){
+   e.selectMode(mode);
+   check(e.prePickupSelectedIndex===winner,`${mode}: Driver-to-A uses matching optimization objective`);
+   check(e.currentEvaluationData.selectedIndex===winner,`${mode}: A-to-B uses matching optimization objective`);
+   const expected=[...fixture.directions.routes[winner].overview_path,...fixture.directions.routes[winner].overview_path.slice(1)];
+   check(JSON.stringify(e.selectedRoutePolyline.path)===JSON.stringify(expected),`${mode}: both selected road segments draw together immediately`);
+   check(page.ids['route-origin-input'].value==='Origin' && page.ids['route-dest-input'].value==='Destination',`${mode}: terminal locations remain assigned locations`);
+  }
+  await e.persistQueue;
+ }
+ {
+  const store={record:null,active:0,starts:0},page=makePage('driver',store),e=page.engine;let late;
+  e.acquireDriverPlanningPosition=()=>Promise.resolve();e.directionsRequestTimeoutMs=10;
+  e.directionsRenderer={setDirections(){},setOptions(){},setRouteIndex(){}};
+  e.directionsService={route:(request,callback)=>{late=callback;}};
+  e.generateRoute();await new Promise(resolve=>setTimeout(resolve,25));
+  check(!e.isGenerating && !page.ids['btn-generate-ai-route'].disabled,'Unresponsive Maps provider releases Generate loading state');
+  await late(fixture.directions,'OK');
+  check(!e.currentRouteData,'Late Maps response after timeout cannot replace planner state');
+ }
+ for(const fault of ['blockStart','startQueue']){
+  const store={record:null,active:0,starts:0},page=makePage('driver',store),e=page.engine;
+  e.processGoogleDirectionsResult(fixture.directions);await e.evaluationPromise;await e.persistQueue;
+  e.selectMode('fastest');await e.applySelectedRoute();await e.persistQueue;
+  const identity=e.appliedRoute.routeId,geometry=JSON.stringify(e.selectedRoutePolyline.path);
+  e.routeRequestTimeoutMs=10;
+  if(fault==='blockStart')store.blockStart=true;else e.persistQueue=new Promise(()=>{});
+  await e.startNavigation();
+  check(!e.navigationStarting && !e.isNavigating,`${fault}: no stuck loading or false navigation success`);
+  check(e.routeSaveUncertain && page.ids['btn-start-navigation'].disabled,`${fault}: reload required to reconcile uncertain save`);
+  check(e.appliedRoute.routeId===identity && JSON.stringify(e.selectedRoutePolyline.path)===geometry,`${fault}: exact applied route preserved on timeout`);
+  check(store.starts===0,`${fault}: no unconfirmed start or automatic retry`);
  }
  for(const fault of ['blockSave','failSave','queue']){
   const store={record:null,active:0,starts:0},page=makePage('driver',store),e=page.engine;

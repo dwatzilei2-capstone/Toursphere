@@ -147,14 +147,14 @@ class AIRouteEngine {
         el.addEventListener("input", () => el.classList.remove("is-invalid"));
         el.addEventListener("change", () => {
           el.classList.remove("is-invalid");
-          if(!this.restoringPlanner && !this.isNavigating && this.generatedInputs && JSON.stringify(this.plannerInputs())!==JSON.stringify(this.generatedInputs)){
+          if(!this.restoringPlanner && !this.isNavigating && this.generatedInputs && !this.plannerInputsMatch(this.plannerInputs(),this.generatedInputs)){
             this.invalidatePreparedRoute();
           }
         });
       }
     });
     document.getElementById('waypoints-container')?.addEventListener('input',()=>{
-      if(!this.restoringPlanner && !this.isNavigating && this.generatedInputs && JSON.stringify(this.plannerInputs())!==JSON.stringify(this.generatedInputs))this.invalidatePreparedRoute();
+      if(!this.restoringPlanner && !this.isNavigating && this.generatedInputs && !this.plannerInputsMatch(this.plannerInputs(),this.generatedInputs))this.invalidatePreparedRoute();
     });
   }
 
@@ -164,9 +164,16 @@ class AIRouteEngine {
     this.cachedDirectionsResponse=null;this.currentRouteData=null;this.currentEvaluationData=null;
     this.currentDirectionsResult=null;this.currentRouteSummary=null;this.appliedRoute=null;
     this.modeEvaluations={};this.plannerLifecycle='INITIAL';this.savedRouteSignature=null;
+    this.generationId=null;this.isGenerating=false;this.activeDirectionsRequestSignature=null;
+    this.prePickupPath=[];this.prePickupRoutes=[];this.planningGpsRequested=false;
     this.evaluationRequestId++;
     this.selectedRoutePolyline?.setMap(null);this.clearCandidatePolylines();
     this.directionsRenderer?.setDirections({routes:[]});
+    const strategies=document.getElementById('route-strategy-options');
+    strategies?.classList.remove('is-visible');strategies?.setAttribute('aria-hidden','true');
+    document.getElementById('route-strategy-locked')?.classList.remove('is-hidden');
+    const badge=document.getElementById('ai-res-badge');if(badge)badge.textContent='Generate a Route';
+    document.getElementById('ai-itinerary-list')?.replaceChildren();
     for(const id of ['ai-res-title','ai-res-distance','ai-res-duration','ai-res-fuel','ai-res-toll','ai-res-cost','ai-res-score','ai-res-reason']){
       if(id==='ai-res-cost' && ['driver','admin'].includes(window.TC_ROUTE_REVENUE?.role))continue;
       const element=document.getElementById(id);if(element)element.textContent=id==='ai-res-title'?'Generate a route for the updated inputs.':'—';
@@ -228,14 +235,12 @@ class AIRouteEngine {
     value.textContent = "…";
     context.textContent = scopeLabel;
     try {
-      const response = await fetch(`${config.endpoint}?${params.toString()}`, {
+      const {data} = await this.routeJsonRequest(`${config.endpoint}?${params.toString()}`, {
         credentials: "same-origin",
         cache: "no-store",
         headers: { Accept: "application/json" },
       });
-      const data = await response.json();
       if (requestId !== this.revenueRequestId) return;
-      if (!response.ok || !data.ok) throw new Error(data.error || "Revenue is unavailable.");
 
       if (!data.hasRevenue) {
         value.textContent = "—";
@@ -454,7 +459,7 @@ class AIRouteEngine {
    
   selectMode(mode, el) {
     if (window.TC_ROUTE_CONTEXT?.readOnly) return;
-    if (this.applyingRoute || this.navigationStarting) return;
+    if (this.applyingRoute || this.navigationStarting || this.isGenerating) return;
     if (this.isNavigating || !['balanced','fastest','fuelEfficient','shortest'].includes(mode) || !this.cachedDirectionsResponse) return;
     this.currentMode = mode;
     this.routeSelectionConfirmed = true;
@@ -549,7 +554,7 @@ class AIRouteEngine {
 
   onVehicleChange(vehicleName) {
     if (window.TC_ROUTE_CONTEXT?.readOnly) return;
-    if(!this.isNavigating && this.generatedInputs && JSON.stringify(this.plannerInputs())!==JSON.stringify(this.generatedInputs))this.invalidatePreparedRoute();
+    if(!this.isNavigating && this.generatedInputs && !this.plannerInputsMatch(this.plannerInputs(),this.generatedInputs))this.invalidatePreparedRoute();
   }
 
   toggleTrafficAwareness(enabled) {
@@ -669,7 +674,7 @@ class AIRouteEngine {
       this.map.fitBounds(bounds, {top:90,right:60,bottom:80,left:60});
       return;
     }
-    if (this.selectedRoutePolyline && this.prePickupPath.length && this.map) {
+    if (this.selectedRoutePolyline && (this.prePickupPath.length || (window.TC_ROUTE_CONTEXT?.isDriver && this.lastUserPosition)) && this.map) {
       const bounds = new google.maps.LatLngBounds();
       this.selectedRoutePolyline.getPath().forEach((point) => bounds.extend(point));
       if (this.lastUserPosition) bounds.extend(this.lastUserPosition);
@@ -905,21 +910,34 @@ class AIRouteEngine {
   }
 
   acquireDriverPlanningPosition() {
-    if (!window.TC_ROUTE_CONTEXT?.isDriver || this.planningGpsRequested || !navigator.geolocation) return;
+    if (!window.TC_ROUTE_CONTEXT?.isDriver) return Promise.resolve();
+    if (this.planningGpsRequested) return this.planningPositionPromise;
+    if (!navigator.geolocation) {
+      window.showAppToast?.('Driver Location Unavailable','GPS is unavailable in this browser. Only the assigned A-to-B route can be generated.','warning');
+      return Promise.resolve();
+    }
     this.planningGpsRequested = true;
-
+    const generation = this.generationId;
+    this.planningPositionPromise = new Promise(resolve => {
+    let finished = false;
+    const finish = () => { if (finished) return; finished = true; clearTimeout(timer); if(generation===this.generationId)this.planningGpsRequested = false; resolve(); };
+    const timer = setTimeout(() => {
+      window.showAppToast?.('Driver Location Unavailable','The GPS pickup request timed out. The assigned A-to-B route remains available; retry My Location before applying.','warning');
+      finish();
+    }, 15000);
     navigator.geolocation.getCurrentPosition(
       (pos) => {
-        this.planningGpsRequested = false;
+        if (finished || generation !== this.generationId) { finish(); return; }
         const lat = pos.coords.latitude;
         const lng = pos.coords.longitude;
         this.lastUserPosition = { lat, lng };
         this.hasLiveGpsFix = true;
         this.updateUserLocationMarker(lat, lng, pos.coords.accuracy || 0, pos.coords.heading);
-        this.computeDriverToPickupPath(lat, lng);
+        Promise.resolve(this.computeDriverToPickupPath(lat, lng, {isCurrent:()=>!finished})).catch(()=>{}).finally(finish);
       },
       () => {
-        this.planningGpsRequested = false;
+        if (finished) return;
+        finish();
         if (window.showAppToast) {
           window.showAppToast(
             "Driver Location Unavailable",
@@ -930,9 +948,11 @@ class AIRouteEngine {
       },
       { enableHighAccuracy: true, timeout: 12000, maximumAge: 15000 }
     );
+    });
+    return this.planningPositionPromise;
   }
 
-  computeDriverToPickupPath(lat, lng) {
+  computeDriverToPickupPath(lat, lng, options = {}) {
     if (this.appliedRoute || this.applyingRoute || this.navigationStarting || this.isNavigating) return;
     const pickup = document.getElementById("route-origin-input")?.value.trim();
     if (!pickup || !this.directionsService) return;
@@ -950,16 +970,25 @@ class AIRouteEngine {
       };
     }
 
+    const generation = this.generationId;
+    return new Promise(resolve => {
+    let finished = false;
+    const warn = () => window.showAppToast?.('Pickup Route Unavailable','Your GPS marker is shown, but the road to Terminal A could not be loaded. Retry My Location before applying.','warning');
+    const timer = setTimeout(() => { finished = true; warn(); resolve(); }, 12000);
     this.directionsService.route(request, (response, status) => {
-      if (this.appliedRoute || this.applyingRoute || this.navigationStarting || this.isNavigating) return;
-      if (status !== google.maps.DirectionsStatus.OK || !response?.routes?.[0]?.overview_path) return;
+      if (finished) return;
+      finished = true; clearTimeout(timer);
+      if (options.isCurrent?.()===false || generation !== this.generationId || this.appliedRoute || this.applyingRoute || this.navigationStarting || this.isNavigating) { resolve(); return; }
+      if (status !== google.maps.DirectionsStatus.OK || !response?.routes?.[0]?.overview_path) { warn(); resolve(); return; }
       this.prePickupRoutes = response.routes;
       this.updatePrePickupPathForMode();
+      resolve();
+    });
     });
   }
 
   updatePrePickupPathForMode() {
-    if (this.applyingRoute || this.navigationStarting || this.isNavigating || (this.appliedRoute && this.appliedRoute.routeId === this.currentRouteData?.routeId)) return;
+    if (this.applyingRoute || this.navigationStarting || this.isNavigating || (this.appliedRoute && this.appliedRoute.routeId === this.currentRouteData?.routeId && this.appliedRoute.mode === this.currentMode)) return;
     if (!this.prePickupRoutes.length) return;
 
     const routeMetrics = this.prePickupRoutes.map((route, index) => {
@@ -971,24 +1000,21 @@ class AIRouteEngine {
         durationSeconds += leg.duration_in_traffic?.value || leg.duration?.value || 0;
         baseDurationSeconds += leg.duration?.value || 0;
       });
-      const trafficRatio = baseDurationSeconds > 0 ? Math.max(1, durationSeconds / baseDurationSeconds) : 1;
       return {
         index,
         distanceMeters,
-        durationSeconds,
-         
-        fuelScore: distanceMeters * (1 + 0.40 * (trafficRatio - 1))
+        distanceKm: distanceMeters / 1000,
+        durationSecs: durationSeconds,
+        durationMins: durationSeconds / 60,
+        baseDurationMins: baseDurationSeconds / 60,
+        trafficDelayRatio: baseDurationSeconds > 0 ? Math.max(1, durationSeconds / baseDurationSeconds) : 1,
+        legs: route.legs,
+        summary: route.summary || 'Driver to Terminal A'
       };
     });
-
-    let selected = routeMetrics[0];
-    if (this.currentMode === "fastest") {
-      selected = routeMetrics.reduce((best, item) => item.durationSeconds < best.durationSeconds ? item : best);
-    } else if (this.currentMode === "shortest") {
-      selected = routeMetrics.reduce((best, item) => item.distanceMeters < best.distanceMeters ? item : best);
-    } else if (this.currentMode === "fuelEfficient") {
-      selected = routeMetrics.reduce((best, item) => item.fuelScore < best.fuelScore ? item : best);
-    }
+    // Apply the same objective to the approach and the assigned terminal-to-terminal leg.
+    // Balanced must be scored too, rather than always taking Google's first approach.
+    const selected = routeMetrics[this.evaluateCandidatesLocally(routeMetrics).selectedIndex];
 
     this.prePickupPath = this.getRouteRoadPath(this.prePickupRoutes[selected.index]);
     this.prePickupSelectedIndex = selected.index;
@@ -1048,7 +1074,8 @@ class AIRouteEngine {
     } else if (window.TC_ROUTE_CONTEXT?.isDriver) {
        
        
-      this.acquireNavigationPosition(true);
+      if (this.appliedRoute) this.acquireNavigationPosition(true);
+      else this.acquireDriverPlanningPosition().then(() => this.fitMapBounds());
     } else {
       this.useCurrentLocationAsOrigin();
     }
@@ -1235,7 +1262,7 @@ class AIRouteEngine {
     }
 
     if (this.isNavigating || this.navigationStarting || this.applyingRoute || this.isGenerating || this.plannerRestorePending) return;
-    if (this.cachedDirectionsResponse && JSON.stringify(this.plannerInputs()) === JSON.stringify(this.generatedInputs)) {
+    if (this.cachedDirectionsResponse && this.plannerInputsMatch(this.plannerInputs(),this.generatedInputs)) {
       return this.applySelectedRoute();
     }
     this.appliedRoute = null;
@@ -1265,7 +1292,10 @@ class AIRouteEngine {
 
      
      
-    this.acquireDriverPlanningPosition();
+    this.prePickupPath = []; this.prePickupRoutes = [];
+    this.preserveViewportOnRouteSwitch = false;
+    const planningPosition = this.acquireDriverPlanningPosition();
+    const generation = this.generationId;
 
      
     this.savedRouteSignature = null;
@@ -1310,7 +1340,17 @@ class AIRouteEngine {
       }
 
       let retriedWithoutTrafficTime = false;
-      const handleDirectionsResponse = (response, status) => {
+      let directionsFinished = false;
+      const directionsTimer = setTimeout(() => {
+        if (generation !== this.generationId || directionsFinished) return;
+        directionsFinished = true;
+        this.isGenerating = false;
+        this.activeDirectionsRequestSignature = null;
+        if (btn) { btn.textContent = 'Generate ROUTETHINK Route'; btn.disabled = false; }
+        window.showAppToast?.('Route Calculation Timed Out', 'Google Maps did not respond in time. Check your connection and generate again.', 'warning');
+      }, this.directionsRequestTimeoutMs || 30000);
+      const handleDirectionsResponse = async (response, status) => {
+        if (generation !== this.generationId || directionsFinished) { clearTimeout(directionsTimer); return; }
          
          
          
@@ -1326,6 +1366,13 @@ class AIRouteEngine {
           return;
         }
 
+        if (status === google.maps.DirectionsStatus.OK && window.TC_ROUTE_CONTEXT?.isDriver) {
+          if (btn) btn.textContent = 'Including Driver Location…';
+          await planningPosition;
+          if (generation !== this.generationId || directionsFinished) { clearTimeout(directionsTimer); return; }
+        }
+        directionsFinished = true;
+        clearTimeout(directionsTimer);
         this.isGenerating = false;
         this.activeDirectionsRequestSignature = null;
         this.lastDirectionsRequestSignature = requestSignature;
@@ -1363,7 +1410,8 @@ class AIRouteEngine {
           }
         }
       };
-      this.directionsService.route(request, handleDirectionsResponse);
+      try { this.directionsService.route(request, handleDirectionsResponse); }
+      catch (error) { handleDirectionsResponse(null, 'REQUEST_FAILED'); }
     } else {
       this.isGenerating = false;
       this.activeDirectionsRequestSignature = null;
@@ -1714,7 +1762,7 @@ class AIRouteEngine {
     this.evaluationPromise = this.routeJsonRequest(`${window.TC_BASE_URL}/actions/route_ai.php`, { method: "POST", body: form })
       .then(({data}) => data)
       .then((resData) => {
-        if (requestId !== this.evaluationRequestId || requestedGeneration!==this.generationId || !this.cachedDirectionsResponse || ((this.isNavigating || this.appliedRoute) && !this.rerouting) || this.applyingRoute) return;
+        if (requestId !== this.evaluationRequestId || requestedGeneration!==this.generationId || !this.cachedDirectionsResponse || ((this.isNavigating || this.appliedRoute || this.routeSelectionConfirmed) && !this.rerouting) || this.applyingRoute) return;
         if (!resData.ok || !resData.data) throw new Error(resData.error || 'Route evaluation unavailable.');
         if (resData.ok && resData.data) {
           this.updateStrategyRouteNotes(candidatePayload, resData.data.modeSelections);
@@ -1766,6 +1814,7 @@ class AIRouteEngine {
     }
 
     if(this.applyingRoute || this.navigationStarting || this.arrivalConfirmed)return;
+    if(this.routeSaveUncertain){window.showAppToast?.('Reload Route Planner','Reload to confirm the previous save before starting navigation.','warning');return;}
     if (!this.appliedRoute || (window.TC_ROUTE_CONTEXT?.isDriver && this.currentRouteData?.routeId !== this.appliedRoute.routeId)) {
       window.showAppToast?.('Apply Route First','Apply the selected route before starting navigation.','warning');
       return;
@@ -1773,7 +1822,15 @@ class AIRouteEngine {
     this.navigationStarting=true;
     this.restoreRouteSnapshot(this.appliedRoute);
     const isResume = options && options.resume === true && window.TC_ROUTE_CONTEXT?.resumeNavigation;
-    await this.persistQueue.catch(()=>{});
+    let queueTimer;
+    try {
+      await Promise.race([this.persistQueue.catch(()=>{}),new Promise((_,reject)=>{
+        queueTimer=setTimeout(()=>reject(new Error('Route saving is still pending. Reload the planner to confirm the saved route.')),this.routeRequestTimeoutMs || 15000);
+      })]);
+    } catch(error) {
+      this.navigationStarting=false;this.routeSaveUncertain=true;this.updateApplyButton();
+      window.showAppToast?.('Navigation Start Failed',error.message,'warning');return;
+    } finally {clearTimeout(queueTimer);}
     const routeSaved = await this.saveSelectedRouteToHistory();
     this.navigationStarting=false;
     if (!routeSaved) return;
@@ -2390,7 +2447,15 @@ class AIRouteEngine {
     }
 
     let retriedWithoutTrafficTime = false;
+    let liveRequestFinished = false;
+    const liveRequestTimer = setTimeout(() => {
+      if (liveRequestFinished || requestId !== this.liveNavigationRequestId) return;
+      liveRequestFinished = true;
+      this.liveNavigationRoutePending = false;
+      window.showAppToast?.('Reroute Timed Out', 'Keeping your saved route. Check your connection before rerouting.', 'warning');
+    }, this.directionsRequestTimeoutMs || 30000);
     const handleLiveRouteResponse = (response, status) => {
+      if (liveRequestFinished || !this.isNavigating || requestId !== this.liveNavigationRequestId) { clearTimeout(liveRequestTimer); return; }
       if (
         status === google.maps.DirectionsStatus.INVALID_REQUEST &&
         request.drivingOptions &&
@@ -2402,7 +2467,8 @@ class AIRouteEngine {
         return;
       }
 
-      if (!this.isNavigating || requestId !== this.liveNavigationRequestId) return;
+      liveRequestFinished = true;
+      clearTimeout(liveRequestTimer);
       this.liveNavigationRoutePending = false;
       if (status !== google.maps.DirectionsStatus.OK || !response?.routes?.[0]?.overview_path) return;
       if(this.hasReachedPickup){
@@ -2437,7 +2503,8 @@ class AIRouteEngine {
         zIndex: 45
       });
     };
-    this.directionsService.route(request, handleLiveRouteResponse);
+    try { this.directionsService.route(request, handleLiveRouteResponse); }
+    catch (error) { handleLiveRouteResponse(null, 'REQUEST_FAILED'); }
   }
 
   acquireNavigationPosition(focusCamera = false) {
@@ -2452,7 +2519,8 @@ class AIRouteEngine {
       recenterBtn.innerHTML = `<span class="spinner-border spinner-border-sm me-1" aria-hidden="true"></span> Locating`;
     }
     const silentResume = focusCamera === "resume";
-    if (window.showAppToast && !silentResume) window.showAppToast("Acquiring GPS", "Locating the Driver's current position...", "info");
+    const silentLocation = silentResume || focusCamera === 'restore';
+    if (window.showAppToast && !silentLocation) window.showAppToast("Acquiring GPS", "Locating the Driver's current position...", "info");
     navigator.geolocation.getCurrentPosition(
       (pos) => {
         const lat = pos.coords.latitude;
@@ -2468,13 +2536,14 @@ class AIRouteEngine {
         if (focusCamera === true || autoFocus) {
           this.focusNavigationCamera({ lat, lng }, true);
         }
+        if (focusCamera === 'restore') this.fitMapBounds();
         // Only the GPS watch's confirmed off-route checks may request rerouting.
         // Initial fixes and camera recentering must leave the applied route intact.
         if (recenterBtn) {
           recenterBtn.disabled = false;
           recenterBtn.innerHTML = originalContent;
         }
-        if (window.showAppToast && !silentResume) {
+        if (window.showAppToast && !silentLocation) {
           window.showAppToast(
             (focusCamera === true || autoFocus) ? "GPS Re-centered" : "GPS Connected",
             (focusCamera === true || autoFocus)
@@ -2528,11 +2597,9 @@ class AIRouteEngine {
         form.append("longitude", pos.coords.longitude);
         form.append("accuracy", pos.coords.accuracy);
         form.append("timestamp", pos.timestamp);
-        const response = await fetch(`${window.TC_BASE_URL}/actions/route-navigation-state.php`, {
+        const {data} = await this.routeJsonRequest(`${window.TC_BASE_URL}/actions/route-navigation-state.php`, {
           method: "POST", body: form
         });
-        const data = await response.json();
-        if (!response.ok || !data.ok) throw new Error(data.error || "Unable to record arrival.");
         window.TC_ROUTE_CONTEXT.resumeNavigation = false;
       }
       this.arrivalConfirmed = true;
@@ -2619,6 +2686,13 @@ class AIRouteEngine {
       waypoints:this.getWaypointsList(),trafficAware:this.trafficAware};
   }
 
+  plannerInputsMatch(left, right) {
+    if(!left || !right)return false;
+    // PostgreSQL jsonb reorders keys; object serialization order is not input identity.
+    return ['origin','destination','vehicle','vehicleId','trafficAware'].every(key=>left[key]===right[key])
+      && JSON.stringify(left.waypoints || [])===JSON.stringify(right.waypoints || []);
+  }
+
   loadPresetInputs(id) {
     this.loadingPreset = true;
     try { this.setPreset(id); } finally { this.loadingPreset = false; }
@@ -2664,6 +2738,13 @@ class AIRouteEngine {
     if (!button || this.isGenerating) return;
     const context = window.TC_ROUTE_CONTEXT || {};
     const applied = Boolean(this.appliedRoute && this.currentRouteData && this.appliedRoute.routeId === this.currentRouteData.routeId && !this.applyingRoute && !this.routeSaveUncertain);
+    document.querySelectorAll('.opt-option-card').forEach(card => {
+      card.style.display = applied && card.dataset.mode !== this.appliedRoute.mode ? 'none' : '';
+      card.style.pointerEvents = applied || this.isNavigating ? 'none' : '';
+      card.setAttribute('aria-disabled', applied || this.isNavigating ? 'true' : 'false');
+    });
+    const strategyLabel = document.getElementById('route-strategy-options')?.querySelector('.tc-form-label');
+    if (strategyLabel) strategyLabel.textContent = applied ? 'Applied Route' : 'Choose a Generated Route Strategy';
     const needsSelection = context.isDriver && this.currentRouteData && !this.routeSelectionConfirmed;
     button.disabled = this.routeSaveUncertain || this.isNavigating || this.navigationStarting || this.applyingRoute || applied || needsSelection || context.readOnly || (context.isDriver && context.hasActiveTrip===false) || (Boolean(this.currentRouteData) && context.canApply === false);
     button.textContent = this.isNavigating ? 'Navigation Active' : this.applyingRoute ? 'Applying Route…' : applied ? (context.isDriver ? `${this.getRouteModeLabel(this.currentMode)} — Applied` : 'Applied') : needsSelection ? 'Select a Route' : this.currentRouteData ? this.getModeButtonLabel(this.currentMode) : 'Generate ROUTETHINK Route';
@@ -2690,7 +2771,7 @@ class AIRouteEngine {
 
   async routeJsonRequest(url, options = {}, timeoutMs = this.routeRequestTimeoutMs || 15000) {
     const controller=new AbortController();const started=Date.now();let timeout;
-    const isSave=options.method==='POST' && url.includes('route-planner-state.php');
+    const isSave=options.method==='POST' && /route-(planner-state|start)\.php/.test(url);
     try {
       return await Promise.race([(async()=>{
         const response=await fetch(url,{...options,signal:controller.signal});
@@ -2698,7 +2779,7 @@ class AIRouteEngine {
         if(!(response.headers?.get('content-type') || 'application/json').includes('application/json'))throw new Error(`The server returned HTTP ${response.status || 'unknown'} instead of a route response. Check your login and server logs.`);
         const data=await response.json();
         this.traceRouteTiming('request',{ms:Date.now()-started,endpoint:url.split('/').pop(),server:response.headers?.get('server-timing') || null});
-        if(!response.ok || !data.ok)throw new Error(data.error || `Route request failed (HTTP ${response.status || 'unknown'}).`);
+        if(!response.ok || !data.ok){const error=new Error(data.error || `Route request failed (HTTP ${response.status || 'unknown'}).`);error.code=data.error_code;throw error;}
         return {response,data};
       })(),new Promise((_,reject)=>{
         timeout=setTimeout(()=>{if(isSave)this.routeSaveUncertain=true;controller.abort();reject(new Error(isSave?'Route save timed out. Reload the planner to confirm whether it saved before retrying.':'Route request timed out. Please retry.'));},Math.max(1,timeoutMs));
@@ -2709,16 +2790,32 @@ class AIRouteEngine {
     } finally {clearTimeout(timeout);}
   }
 
-  persistPlannerState(reroute = false) {
+  compactPlannerState(state) {
+    state.version=2;
+    const directions=JSON.stringify(state.directions);
+    for(const key of ['selected','applied']){
+      if(state[key]?.directions && JSON.stringify(state[key].directions)===directions){
+        delete state[key].directions;state[key].directionsRef='generated';
+      }
+    }
+    for(const field of ['geometry','prePickupPath']){
+      if(state.applied?.[field] && state.selected?.[field] && JSON.stringify(state.applied[field])===JSON.stringify(state.selected[field])){
+        delete state.applied[field];state.applied[field+'Ref']='selected';
+      }
+    }
+    return state;
+  }
+
+  persistPlannerState(reroute = false, expectedAppliedRouteId = undefined) {
     if (window.TC_ROUTE_CONTEXT?.readOnly) return Promise.resolve();
     if (!this.currentRouteData || this.restoringPlanner) return Promise.resolve();
     const queuedAt=Date.now();
     const saveId=this.latestPlannerSaveId=(this.latestPlannerSaveId || 0)+1;
     const deadline=queuedAt+(this.routeApplyTimeoutMs || 20000);
-    const state = JSON.parse(JSON.stringify({version:1,generationId:this.generationId,inputs:this.generatedInputs || this.plannerInputs(),
-      directions:this.cachedDirectionsResponse,modeEvaluations:this.modeEvaluations,candidates:this.candidatePayload,
+    const state = this.compactPlannerState(JSON.parse(JSON.stringify({version:1,generationId:this.generationId,inputs:this.generatedInputs || this.plannerInputs(),
+      directions:this.cachedDirectionsResponse,approachDirections:this.prePickupRoutes,modeEvaluations:this.modeEvaluations,candidates:this.candidatePayload,
       selected:this.captureRouteSnapshot(),applied:this.appliedRoute,routeSelectionConfirmed:this.routeSelectionConfirmed,
-      navigation:{startedAt:this.navigationStartedAt,step:this.currentStepIndex,leg:this.currentLegIndex,hasReachedPickup:this.hasReachedPickup}}));
+      navigation:{startedAt:this.navigationStartedAt,step:this.currentStepIndex,leg:this.currentLegIndex,hasReachedPickup:this.hasReachedPickup}})));
     const lifecycle=this.plannerLifecycle;
     this.persistQueue=this.persistQueue.catch(() => {}).then(async () => {
       if ((lifecycle==='GENERATED' && saveId!==this.latestPlannerSaveId) || saveId===this.cancelledPlannerSaveId) return {skipped:true};
@@ -2741,7 +2838,20 @@ class AIRouteEngine {
       }
       this.traceRouteTiming('serialize_compress',{ms:Date.now()-compressStarted,bytes:form.get('state').length});
       if(saveId===this.cancelledPlannerSaveId || Date.now()>=deadline)throw new Error('Route save timed out before submission. Please retry.');
-      const {data}=await this.routeJsonRequest(`${window.TC_BASE_URL}/actions/route-planner-state.php`,{method:'POST',body:form},Math.min(this.routeRequestTimeoutMs || 15000,deadline-Date.now()));
+      let data;
+      try { ({data}=await this.routeJsonRequest(`${window.TC_BASE_URL}/actions/route-planner-state.php`,{method:'POST',body:form},Math.min(this.routeRequestTimeoutMs || 15000,deadline-Date.now()))); }
+      catch(error) {
+        if(error.code!=='ROUTE_REVISION_CONFLICT' || lifecycle!=='APPLIED' || expectedAppliedRouteId===undefined)throw error;
+        const params=new URLSearchParams({trip_id:context.tripId || '',phase:context.routePhase || 'outbound'});
+        const latest=await this.routeJsonRequest(`${window.TC_BASE_URL}/actions/route-planner-state.php?${params}`,{},Math.min(this.routeRequestTimeoutMs || 15000,Math.max(1,deadline-Date.now())));
+        const record=latest.data.state;
+        const sameInputs=record && Object.keys(state.inputs).every(key=>JSON.stringify(record.state_data.inputs[key])===JSON.stringify(state.inputs[key]));
+        if(!sameInputs || record.lifecycle==='NAVIGATING' || (record.state_data.applied?.routeId || null)!==expectedAppliedRouteId)throw error;
+        // A preview save may advance the revision; it cannot change this explicit selection.
+        if(saveId===this.cancelledPlannerSaveId || Date.now()>=deadline)throw error;
+        form.set('revision',String(record.revision));
+        ({data}=await this.routeJsonRequest(`${window.TC_BASE_URL}/actions/route-planner-state.php`,{method:'POST',body:form},Math.min(this.routeRequestTimeoutMs || 15000,deadline-Date.now())));
+      }
       this.plannerRevision=data.revision;
       return data;
     });
@@ -2760,7 +2870,7 @@ class AIRouteEngine {
       this.appliedRoute=this.captureRouteSnapshot();this.plannerLifecycle='APPLIED';
       // The generated snapshot already contains its calculated mode and geometry.
       // Do not wait for optional background model evaluation or regenerate routes.
-      await Promise.race([this.persistPlannerState(),new Promise((_,reject)=>{
+      await Promise.race([this.persistPlannerState(false,previous?.routeId || null),new Promise((_,reject)=>{
         timeout=setTimeout(()=>{this.cancelledPlannerSaveId=this.latestPlannerSaveId;this.routeSaveUncertain=true;reject(new Error('Apply Route timed out. Reload the planner to confirm the saved route before retrying.'));},this.routeApplyTimeoutMs || 20000);
       })]);
       this.restoreRouteSnapshot(this.appliedRoute);
@@ -2783,7 +2893,7 @@ class AIRouteEngine {
     try {
       const params=new URLSearchParams({trip_id:context.tripId || '',phase:context.routePhase || 'outbound'});
       const {data:result}=await this.routeJsonRequest(`${window.TC_BASE_URL}/actions/route-planner-state.php?${params}`);
-      const record=result.state;if(!record)return;
+      const record=result.state;if(!record){if(context.isDriver)this.acquireNavigationPosition('restore');return;}
       this.plannerRevision=Number(record.revision);
       const state=record.state_data;
       const current=this.plannerInputs();
@@ -2796,6 +2906,7 @@ class AIRouteEngine {
       this.trafficAware=state.inputs.trafficAware;
       this.generatedInputs=state.inputs;this.generationId=state.generationId;
       this.cachedDirectionsResponse=this.hydrateDirections(state.directions);
+      this.prePickupRoutes=this.hydrateDirections(state.approachDirections || []);
       this.modeEvaluations=state.modeEvaluations || {};this.candidatePayload=state.candidates || [];
       this.arrivalConfirmed=result.current_step==='Arrived';
       this.appliedRoute=state.applied;this.plannerRevision=record.revision;this.plannerLifecycle=record.lifecycle;
@@ -2807,7 +2918,7 @@ class AIRouteEngine {
         context.resumeNavigation=true;
         this.navigationRestoreState=state.navigation;
         await this.startNavigation({resume:true});
-      }
+      } else if(context.isDriver) this.acquireNavigationPosition('restore');
     } catch(error) {window.showAppToast?.('Route State',error.message,'warning');}
     finally {this.restoringPlanner=false;this.plannerRestorePending=false;}
   }
@@ -2894,7 +3005,7 @@ class AIRouteEngine {
 
   getVehicleEconomy(name) {
     const value=document.getElementById('route-vehicle-select')?.selectedOptions[0]?.dataset.consumption || '';
-    const match=value.match(/^\s*(\d+(?:\.\d+)?)\s*(?:km\s*\/\s*l)?\s*$/i);
+    const match=value.match(/^\s*(\d+(?:\.\d+)?)\s*(?:km\s*\/\s*l)?\s*(?:\(est\.\))?\s*$/i);
     return match && Number(match[1])>0?Number(match[1]):null;
   }
   async saveFundingRoute(button) {
@@ -2906,8 +3017,8 @@ class AIRouteEngine {
         vehicle_id:document.getElementById('route-vehicle-select')?.selectedOptions[0]?.dataset.vehicleId||'',
         origin:document.getElementById('route-origin-input').value,destination:document.getElementById('route-dest-input').value,
         route_id:this.appliedRoute.routeId,distance_km:this.appliedRoute.data.distanceKm,strategy:this.appliedRoute.mode});
-      const response=await fetch(`${window.TC_BASE_URL}/actions/route-preparation.php`,{method:'POST',body:fields,credentials:'same-origin'});
-      const data=await response.json();if(!data.ok)throw Error(data.error);message.textContent='Route saved. Return to Reservation & Dispatch to prepare Trip Funding.';
+      await this.routeJsonRequest(`${window.TC_BASE_URL}/actions/route-preparation.php`,{method:'POST',body:fields,credentials:'same-origin'});
+      message.textContent='Route saved. Return to Reservation & Dispatch to prepare Trip Funding.';
     }catch(error){message.textContent=error.message;}finally{button.disabled=false;}
   }
 
@@ -3066,20 +3177,11 @@ class AIRouteEngine {
     }
     if (this.currentEvaluationData) {
       form.append("selected_index", this.currentEvaluationData.selectedIndex || 0);
-      form.append("candidates_json", JSON.stringify(this.currentEvaluationData.candidates || []));
-      form.append("features_json", JSON.stringify(this.currentEvaluationData.selectedCandidate?.features || {}));
     }
     form.append("origin", origin || "");
     form.append("destination", destination || "");
     form.append("waypoints_json", JSON.stringify(this.getWaypointsList()));
-    form.append("route_data_json", JSON.stringify({
-      destinationLocation: this.getSelectedGoogleRoute()?.legs?.slice(-1)[0]?.end_location?.toJSON(),
-      mode: this.currentMode,
-      routeId: this.appliedRoute.routeId,
-      directions: this.currentDirectionsResult,
-      route: this.currentRouteData || null,
-      selectedCandidate: this.currentEvaluationData?.selectedCandidate || null
-    }));
+    // The backend loads the exact applied snapshot by route_id; do not upload its geometry again.
 
     const navBtn = document.getElementById("btn-start-navigation");
     if (navBtn) {
@@ -3087,12 +3189,8 @@ class AIRouteEngine {
       navBtn.innerHTML = `<span class="spinner-border spinner-border-sm me-2" role="status"></span>SAVING ROUTE...`;
     }
 
-    this.routeSaveInFlight = fetch(`${window.TC_BASE_URL}/actions/route-start.php`, { method: "POST", body: form })
-      .then(async (res) => {
-        const data = await res.json();
-        if (!res.ok || !data.ok) throw new Error(data.error || "Unable to save the selected route.");
-        return data;
-      })
+    this.routeSaveInFlight = this.routeJsonRequest(`${window.TC_BASE_URL}/actions/route-start.php`, { method: "POST", body: form })
+      .then(({data}) => data)
       .then((data) => {
         this.savedRouteSignature = signature;
         if (window.showAppToast) {
@@ -3125,9 +3223,9 @@ class AIRouteEngine {
     this.updateApplyButton();
     const dispatched = ['Dispatched', 'In Transit', 'Returning to Depot'].includes(window.TC_ROUTE_CONTEXT.tripStatus);
     const applied = Boolean(this.appliedRoute && this.currentRouteData?.routeId===this.appliedRoute.routeId);
-    const allowed = dispatched && applied && !this.arrivalConfirmed && !this.applyingRoute;
+    const allowed = dispatched && applied && !this.arrivalConfirmed && !this.applyingRoute && !this.navigationStarting && !this.routeSaveUncertain;
     button.disabled = !allowed;
-    button.textContent = this.arrivalConfirmed ? 'Destination Reached' : allowed ? 'START NAVIGATION' : (!dispatched ? 'Waiting for Dispatch' : 'Apply Route First');
+    button.textContent = this.routeSaveUncertain ? 'Reload Planner to Confirm Save' : this.arrivalConfirmed ? 'Destination Reached' : allowed ? 'START NAVIGATION' : (!dispatched ? 'Waiting for Dispatch' : 'Apply Route First');
     button.title = allowed ? '' : 'This trip has not been dispatched yet. Please wait for the Dispatcher/Admin.';
   }
 }

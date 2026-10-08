@@ -1,5 +1,6 @@
 <?php
 require_once __DIR__.'/reservation-assignment.php';
+require_once __DIR__.'/vehicle_efficiency.php';
 const TRIP_FUNDING_MOCK_DELAY_SECONDS = 5;
 function funding_can_manage(): bool { return has_role(['fleet_admin','dispatcher']) && can('dispatch.manage'); }
 function funding_can_view(): bool { return has_role(['fleet_admin','dispatcher','fleet_manager']) && can('dispatch.view'); }
@@ -34,7 +35,7 @@ function funding_inputs(array $t): array {
 }
 function funding_estimate(PDO $pdo,array $t): array {
  $issues=[]; $distance=(float)($t['distance_km']>0?$t['distance_km']:$t['route_distance_km']);
- $efficiency=preg_match('/^\s*(\d+(?:\.\d+)?)\s*(?:km\s*\/\s*l)?\s*$/i',(string)$t['avg_fuel_km'],$m)?(float)$m[1]:0;
+ $efficiency=vehicle_efficiency_value((string)$t['avg_fuel_km']) ?? 0;
  $price=fuel_current_price($pdo,(string)$t['fuel_type']);
  if(!$t['vehicle_id'] || !$t['driver_id'])$issues[]='Assign a vehicle and driver first.';
  if($distance<=0)$issues[]='Route distance unavailable. Prepare the route in the existing AI Route Planner.';
@@ -164,6 +165,7 @@ function funding_assert_dispatch(PDO $pdo,string $reservationId): void {
 function funding_payload(PDO $pdo,array $t): array {
  $pretrip=in_array($t['status'],['Scheduled','Assigned','Confirmed'],true);
  $f=funding_request($pdo,$t['id']);$e=$f && in_array($f['status'],['Pending Finance Approval','Funding Confirmed'],true) && (!$pretrip || funding_matches($f,$t))?$f:funding_estimate($pdo,$t);
+ $e['efficiency_source']=str_contains((string)$t['avg_fuel_km'],'(est.)')?'Type estimate':'Saved vehicle efficiency';
  $status=$f?$f['status']:'Not Requested';if($f && $status==='Funding Confirmed' && $pretrip && !funding_matches($f,$t))$status='Superseded';
  return ['trip'=>['id'=>$t['id'],'reservation_id'=>$t['reservation_id'],'driver'=>$t['driver_name'],'vehicle'=>$t['vehicle_id'].' — '.trim($t['brand'].' '.$t['model']),'vehicle_id'=>$t['vehicle_id'],'driver_id'=>$t['driver_id'],'departure'=>$t['scheduled_departure'],'notes'=>$t['notes'],'status'=>$t['status'],'origin'=>$t['origin'],'destination'=>$t['destination']],
  'estimate'=>$e,'request'=>$f,'status'=>$status,'methods'=>$pdo->query('SELECT code,name FROM trip_funding_methods WHERE enabled ORDER BY code')->fetchAll(),'can_manage'=>funding_can_manage(),

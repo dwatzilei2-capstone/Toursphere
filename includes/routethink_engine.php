@@ -12,6 +12,7 @@
 
 
 require_once __DIR__ . '/ai-learning.php';
+require_once __DIR__ . '/vehicle_efficiency.php';
 require_once __DIR__ . '/trip_funding.php';
 
 class RouteThinkEngine {
@@ -120,7 +121,7 @@ class RouteThinkEngine {
                 elseif (stripos($row['type'], 'Coaster') !== false) $weightClass = 2;
 
                 return [
-                    'efficiency_available' => preg_match('/^\s*(\d+(?:\.\d+)?)\s*(?:km\s*\/\s*l)?\s*$/i',(string)$row['avg_fuel_km'],$efficiencyMatch) && (float)$efficiencyMatch[1]>0,
+                    'efficiency_available' => vehicle_efficiency_value((string)$row['avg_fuel_km']) !== null,
                     'id'                  => $row['id'],
                     'name'                => "{$row['brand']} {$row['model']} ({$row['plate_number']})",
                     'type'                => $row['type'],

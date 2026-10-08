@@ -1,12 +1,14 @@
 <?php
+if(!defined('TOURSPHERE_JSON_REQUEST'))define('TOURSPHERE_JSON_REQUEST',true);
 require_once dirname(__DIR__).'/includes/bootstrap.php';require_once ROOT_PATH.'/includes/trip_funding.php';require_login();
+if(session_status()===PHP_SESSION_ACTIVE)session_write_close();
 require_once ROOT_PATH.'/includes/route_planner_state.php';
 header('Content-Type: application/json');
 try {
  if(!funding_can_manage() || !can('ai.view')){http_response_code(403);throw new DomainException('Route preparation is restricted to Admin and Dispatcher.');}
  if($_SERVER['REQUEST_METHOD']!=='POST'){http_response_code(405);throw new DomainException('POST required.');}
  if(!is_string($_POST['csrf']??null) || empty($_SESSION['route_prepare_csrf']) || !hash_equals($_SESSION['route_prepare_csrf'],$_POST['csrf'])){http_response_code(403);throw new DomainException('Route preparation session expired.');}
- $id=(string)($_POST['trip_id']??'');$pdo=db();$pdo->beginTransaction();$t=funding_trip($pdo,$id);if(!$t)throw new DomainException('Trip not found.');
+ $id=(string)($_POST['trip_id']??'');$pdo=db();$pdo->beginTransaction();$pdo->exec("SET LOCAL lock_timeout='5s'; SET LOCAL statement_timeout='10s'");$t=funding_trip($pdo,$id);if(!$t)throw new DomainException('Trip not found.');
  $pdo->prepare('SELECT id FROM reservations WHERE id=? FOR UPDATE')->execute([$t['reservation_id']]);$pdo->prepare('SELECT id FROM trips WHERE id=? FOR UPDATE')->execute([$id]);$t=funding_trip($pdo,$id);
  if(!in_array($t['status'],['Assigned','Confirmed','Scheduled'],true))throw new DomainException('Only an assigned trip can save its pre-trip route.');
  $f=funding_request($pdo,$id);if($f && in_array($f['status'],['Pending Finance Approval','Funding Confirmed'],true))throw new DomainException('The route is locked by its funding request. Revise the assignment before preparing a new funded route.');

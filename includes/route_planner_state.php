@@ -1,4 +1,37 @@
 <?php
+/** Expand shared snapshot references without recalculating or discarding geometry. */
+function route_planner_expand_state(array $state): array {
+ foreach(['selected','applied'] as $key){
+  if(empty($state[$key]))continue;
+  $route=&$state[$key];
+  if(isset($route['directionsRef'])){
+   if($route['directionsRef']!=='generated' || !isset($state['directions']))throw new DomainException('Invalid shared route directions.');
+   $route['directions']=$state['directions'];unset($route['directionsRef']);
+  }
+  foreach(['geometry','prePickupPath'] as $field){
+   $reference=$field.'Ref';if(!isset($route[$reference]))continue;
+   if($key!=='applied' || $route[$reference]!=='selected' || !isset($state['selected'][$field]))throw new DomainException('Invalid shared route geometry.');
+   $route[$field]=$state['selected'][$field];unset($route[$reference]);
+  }
+  unset($route);
+ }
+ return $state;
+}
+function route_planner_compact_state(array $state): array {
+ $state=route_planner_expand_state($state);$state['version']=2;
+ foreach(['selected','applied'] as $key){
+  if(empty($state[$key]))continue;
+  if(isset($state[$key]['directions']) && $state[$key]['directions']==$state['directions']){
+   unset($state[$key]['directions']);$state[$key]['directionsRef']='generated';
+  }
+ }
+ foreach(['geometry','prePickupPath'] as $field){
+  if(isset($state['applied'][$field],$state['selected'][$field]) && $state['applied'][$field]==$state['selected'][$field]){
+   unset($state['applied'][$field]);$state['applied'][$field.'Ref']='selected';
+  }
+ }
+ return $state;
+}
 function route_planner_decode_state(string $payload,string $encoding=''): string {
  if(strlen($payload)>4000000)throw new DomainException('Route state exceeds the permitted size.');
  if($encoding==='gzip-base64'){
@@ -24,7 +57,7 @@ function route_planner_scope(PDO $pdo,string $tripId,string $phase): array {
 }
 function route_planner_load(PDO $pdo,string $key): ?array {
  $q=$pdo->prepare('SELECT * FROM route_planner_states WHERE scope_key=?');$q->execute([$key]);$row=$q->fetch();
- if(!$row)return null;$row['state_data']=json_decode($row['state_data'],true);return $row;
+ if(!$row)return null;$row['state_data']=route_planner_expand_state(json_decode($row['state_data'],true));return $row;
 }
 function route_planner_validate(array $state): void {
  $modes=['balanced','fastest','fuelEfficient','shortest'];

@@ -24,7 +24,7 @@ try{
  if($scope['trip'] && !has_role('driver')){http_response_code(403);echo json_encode(['ok'=>false,'error'=>'Trip routes are read-only for non-Driver users.']);exit;}
  if(!is_string($_POST['csrf']??null)||empty($_SESSION['route_state_csrf'])||!hash_equals($_SESSION['route_state_csrf'],$_POST['csrf']))throw new DomainException('Route Planner session expired.');
  $json=route_planner_decode_state((string)($_POST['state']??''),(string)($_POST['state_encoding']??''));
- $state=json_decode($json,true,128,JSON_THROW_ON_ERROR);route_planner_validate($state);
+ $state=route_planner_expand_state(json_decode($json,true,128,JSON_THROW_ON_ERROR));route_planner_validate($state);
  $lifecycle=(string)($_POST['lifecycle']??'GENERATED');
  if(!in_array($lifecycle,['GENERATED','APPLIED','NAVIGATING'],true))throw new DomainException('Invalid route state.');
  if($lifecycle!=='GENERATED' && !can('ai.manage') && !can('ai.navigate'))throw new DomainException('You may view routes but cannot apply or navigate.');
@@ -32,7 +32,7 @@ try{
  $routeMark('validate');
  $pdo=db();$pdo->beginTransaction();$pdo->exec("SET LOCAL lock_timeout='5s'; SET LOCAL statement_timeout='10s'");$pdo->prepare('SELECT pg_advisory_xact_lock(hashtext(?))')->execute([$scope['key']]);$existing=route_planner_load($pdo,$scope['key']);
  $routeMark('lock_load');
- if($existing && (int)($_POST['revision']??0)!==(int)$existing['revision'])throw new DomainException('Route state changed in another page. Reload before applying.');
+ if($existing && (int)($_POST['revision']??0)!==(int)$existing['revision']){$routeErrorCode='ROUTE_REVISION_CONFLICT';throw new DomainException('Route state changed in another page. Reload before applying.');}
  if($scope['trip']){
   $q=$pdo->prepare('SELECT * FROM trips WHERE id=? FOR UPDATE');$q->execute([$scope['trip']['id']]);$trip=$q->fetch();
   if(in_array($trip['status'],['Completed','Cancelled'],true))throw new DomainException('This trip is no longer active.');
@@ -59,9 +59,9 @@ try{
  }
  $revision=($existing['revision']??0)+1;
  $routeMark('trip_checks');
- $pdo->prepare('INSERT INTO route_planner_states(scope_key,trip_id,user_id,phase,lifecycle,revision,state_data) VALUES (?,?,?,?,?,?,?::jsonb) ON CONFLICT(scope_key) DO UPDATE SET user_id=EXCLUDED.user_id,lifecycle=EXCLUDED.lifecycle,revision=EXCLUDED.revision,state_data=EXCLUDED.state_data,updated_at=clock_timestamp()')->execute([$scope['key'],$scope['trip']['id']??null,current_user()['id'],$scope['phase'],$lifecycle,$revision,json_encode($state,JSON_THROW_ON_ERROR)]);
+ $pdo->prepare('INSERT INTO route_planner_states(scope_key,trip_id,user_id,phase,lifecycle,revision,state_data) VALUES (?,?,?,?,?,?,?::jsonb) ON CONFLICT(scope_key) DO UPDATE SET user_id=EXCLUDED.user_id,lifecycle=EXCLUDED.lifecycle,revision=EXCLUDED.revision,state_data=EXCLUDED.state_data,updated_at=clock_timestamp()')->execute([$scope['key'],$scope['trip']['id']??null,current_user()['id'],$scope['phase'],$lifecycle,$revision,json_encode(route_planner_compact_state($state),JSON_THROW_ON_ERROR)]);
  if(in_array($lifecycle,['APPLIED','NAVIGATING'],true) && ($existing['state_data']['applied']['routeId']??null)!==($state['applied']['routeId']??null)){
   $pdo->prepare('INSERT INTO audit_logs(action,user_id,entity_type,entity_id,details) VALUES (?,?,?,?,?)')->execute([!empty($_POST['reroute'])?'ROUTE_REROUTED':'ROUTE_APPLIED',current_user()['id'],'route',$scope['trip']['id']??$scope['key'],json_encode(['phase'=>$scope['phase'],'mode'=>$state['applied']['mode'],'previous_route_id'=>$existing['state_data']['applied']['routeId']??null,'route_id'=>$state['applied']['routeId'],'distance_km'=>$state['applied']['data']['distanceKm']])]);
  }
  $routeMark('save_audit');$pdo->commit();$routeMark('commit');$routeTimingFinish();echo json_encode(['ok'=>true,'revision'=>$revision,'lifecycle'=>$lifecycle]);
-}catch(Throwable $e){if(db()->inTransaction())db()->rollBack();$routeMark('failed');$routeTimingFinish();http_response_code($e instanceof DomainException?409:422);echo json_encode(['ok'=>false,'error'=>$e->getMessage()]);}
+}catch(Throwable $e){if(db()->inTransaction())db()->rollBack();$routeMark('failed');$routeTimingFinish();http_response_code($e instanceof DomainException?409:422);echo json_encode(['ok'=>false,'error'=>$e->getMessage(),'error_code'=>$routeErrorCode??null]);}

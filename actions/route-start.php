@@ -1,11 +1,13 @@
 <?php
  
+if(!defined('TOURSPHERE_JSON_REQUEST'))define('TOURSPHERE_JSON_REQUEST',true);
 require_once dirname(__DIR__) . '/includes/bootstrap.php';
 require_once dirname(__DIR__) . '/includes/routethink_engine.php';
 require_once ROOT_PATH . '/includes/vehicle_compliance.php';
 require_once ROOT_PATH . '/includes/driver_vehicle_assignment.php';
 require_once ROOT_PATH.'/includes/route_planner_state.php';
 require_login();
+if(session_status()===PHP_SESSION_ACTIVE)session_write_close();
 header('Content-Type: application/json; charset=UTF-8');
 if (!has_role('driver') && (!empty($_POST['trip_id']) || !empty($_POST['reservation_id']))) {
     http_response_code(403);
@@ -28,6 +30,7 @@ if ($_SERVER['REQUEST_METHOD'] !== 'POST') {
 $pdo = db();
 try {
     $pdo->beginTransaction();
+    $pdo->exec("SET LOCAL lock_timeout='5s'; SET LOCAL statement_timeout='10s'");
     $isDriver = (($current_user['role_code'] ?? '') === 'driver');
     $tripId = trim($_POST['trip_id'] ?? '');
     $reservationId = trim($_POST['reservation_id'] ?? '');
