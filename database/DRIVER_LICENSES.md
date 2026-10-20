@@ -1,0 +1,21 @@
+# Driver license qualifications
+
+Driver Management now uses explicit modern LTO DL codes, rather than converting historical Class 2/3 restriction descriptions. The policy for active TourSphere logistics drivers is a manually verified, unexpired Professional license containing C. Trailer combinations require explicit C and CE. B2 is checked separately for cargo vehicles with registered GVW at or below 3,500 kg; payload is never used as GVW. Cargo trucks without recorded GVW default conservatively to C. A trailer flag or tractor/trailer/articulated designation requires CE.
+
+Reference: LTO Driver's License Code and Equivalent Restriction Codes, https://lto.gov.ph/wp-content/uploads/2023/09/14-CC2024-DL-CODES.pdf . The website blocked direct PDF retrieval during this change; the official search index supplied the document reference. The C minimum for all active logistics drivers is TourSphere's requested fleet policy.
+
+Migration: database/migrations/2026_10_12_driver_license_qualifications.sql, applied through scripts/migrate-driver-licenses.php. Full pre-migration PostgreSQL backup: storage/private/driver-license-migration-20261012-150807/before.dump. Existing 18 profiles were retained and changed to Inactive pending verification; no modern qualifications were inferred or assigned.
+
+The Review License control for existing profiles reuses the existing modal, card, input, and button styles. Fleet administrators and fleet managers with drivers.manage may upload a PDF/JPEG/PNG (8 MB max), review the license and explicitly confirm its classification, expiry and printed codes. Searchable PDFs support local text extraction; scanned PDFs/images fall back to manual review. Extraction only suggests qualifications and never verifies them. A clear original showing both sides is required. Extracted contradictions block saving; for incomplete text extraction, upload a clear image for documented manual review. Clearly labeled synthetic documents are rejected for driver verification, including in development.
+
+Verification stores a private document reference, explicit codes, expiry, reviewer user ID, timestamp, notes, and extraction metadata. This is an administrator's manual document review, not an online LTO validity lookup. Account credentials, driver accounts, performance history, and existing license descriptions remain intact. Changing qualifications is blocked during active trips; incompatible open trips must be reassigned/cancelled first. Incompatible default vehicle pairings are removed after a legitimate qualification change.
+
+Eligibility is checked in default assignment, reservation pairing, dispatch, route start and trip-status start. The vehicle picker disables incompatible driver choices. Database checks enforce code/evidence shape and prevent unverified activation. The status trigger also prevents an expired/unqualified driver from becoming Active, Assigned or On Trip on later status refreshes. Runtime eligibility checks expiry again even if no database update has occurred since expiration.
+
+Verification: tests/driver_license_test.php passed 29 checks, including real searchable-PDF parsing and rollback-only PostgreSQL storage/constraint checks. All changed PHP and JS files passed syntax checks. Browser checks confirmed license-review modal display, existing profile prefills, no automatic DL selection, unchecked manual attestation, and initially disabled Save. No genuine license was available to perform a successful live HTTP registration, and no test driver qualification was persisted.
+
+Correction: Add Driver was removed at the user’s request. The license endpoint requires an existing driver ID and has no INSERT path. Review License remains available for the existing profiles.
+
+UI correction: The Review License buttons and modal include were also removed at the user’s request. Driver Management exposes no newly added license form. Backend qualification checks and stored verification fields remain.
+
+Further UI correction: Review License buttons and the license modal inclusion were also removed at the user’s request. Driver Management has no new registration or review controls. Qualification data and backend assignment restrictions remain.

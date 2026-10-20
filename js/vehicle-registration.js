@@ -198,9 +198,106 @@ document.addEventListener('DOMContentLoaded', () => {
     await Promise.all(checks);
   };
 
+  const specFields = () => ({
+    payload: form.elements.payload_capacity_kg,
+    volume: form.elements.cargo_volume_m3,
+    length: form.elements.cargo_length_m,
+    width: form.elements.cargo_width_m,
+    height: form.elements.cargo_height_m,
+  });
+
+  const cargoVolumeNote = () => document.getElementById('vehicle-cargo-volume-note');
+
+  // Dimensions are optional, but a partially entered set makes the remaining fields required.
+  const syncDimensionRequirement = () => {
+    const fields = specFields();
+    const entered = [fields.length, fields.width, fields.height]
+      .filter(input => input && String(input.value).trim() !== '').length;
+    [fields.length, fields.width, fields.height].forEach(input => {
+      if (input) input.required = entered > 0;
+    });
+  };
+
+  // Non-blocking cross-check: the stated volume stays authoritative for saving.
+  const updateVolumeNote = () => {
+    const note = cargoVolumeNote();
+    if (!note) return;
+    const base = 'Cross-checked against Length × Width × Height when dimensions are recorded.';
+    const fields = specFields();
+    const length = parseFloat(fields.length?.value);
+    const width = parseFloat(fields.width?.value);
+    const height = parseFloat(fields.height?.value);
+    const volume = parseFloat(fields.volume?.value);
+    if (!(length > 0 && width > 0 && height > 0 && volume > 0)) {
+      note.textContent = base;
+      note.classList.remove('text-warning');
+      return;
+    }
+    const computed = length * width * height;
+    if (Math.abs(volume - computed) / computed > 0.2) {
+      note.textContent = `Stated cargo volume ${volume} m³ differs from Length × Width × Height (${computed.toFixed(2)} m³) by more than 20%. The stated value is saved.`;
+      note.classList.add('text-warning');
+    } else {
+      note.textContent = base;
+      note.classList.remove('text-warning');
+    }
+  };
+
+  const numericValue = (value) => {
+    const parsed = Number(String(value ?? '').replace(/[^0-9.]/g, ''));
+    return Number.isFinite(parsed) && parsed > 0 ? parsed : null;
+  };
+
+  // Only the uploaded document ever fills the fuel field; the Admin chooses everything else.
+  const FUEL_TYPE_NOTES = {
+    document: 'Fuel type extracted from the uploaded document — confirm it or correct it before registering.',
+    manual: 'Select the fuel type stated by the uploaded document, or correct it here. Fuel type is never inferred from the brand, model, or catalog variant.',
+  };
+
+  const fuelTypeNote = () => document.getElementById('vehicle-fuel-type-note');
+  const fuelTypeSourceField = () => document.getElementById('vehicle-fuel-type-source');
+
+  // "Other" collects a short description so the exact fuel can be priced separately.
+  const toggleOtherFuelField = () => {
+    const select = form.elements.fuel_type;
+    const field = document.getElementById('vehicle-fuel-other-field');
+    const input = form.elements.fuel_type_other;
+    const isOther = !!select && select.value === 'Other';
+    if (field) field.hidden = !isOther;
+    if (input && !isOther) input.value = '';
+  };
+
+  const setFuelTypeSource = (source) => {
+    const key = ['document', 'manual'].includes(source) ? source : 'manual';
+    const hidden = fuelTypeSourceField();
+    if (hidden) hidden.value = key;
+    const note = fuelTypeNote();
+    if (note) note.textContent = FUEL_TYPE_NOTES[key];
+  };
+
+  const selectFuelType = (value, source = 'manual') => {
+    const select = form.elements.fuel_type;
+    if (!select || !value) return false;
+    const wanted = String(value).trim().toLowerCase();
+    const match = Array.from(select.options).find(option => option.value.toLowerCase() === wanted);
+    if (!match) return false;
+    select.value = match.value;
+    setFuelTypeSource(source);
+    toggleOtherFuelField();
+    return true;
+  };
+
   const clearSpecifications = () => {
-    form.elements.capacity.value = '';
-    form.elements.fuel_type.value = '';
+    const fields = specFields();
+    [fields.payload, fields.volume, fields.length, fields.width, fields.height].forEach(input => {
+      if (input) input.value = '';
+    });
+    if (form.elements.fuel_type) form.elements.fuel_type.value = '';
+    if (form.elements.fuel_type_confirmed) form.elements.fuel_type_confirmed.checked = false;
+    setFuelTypeSource('manual');
+    toggleOtherFuelField();
+    syncDimensionRequirement();
+    updateVolumeNote();
   };
 
   const loadVariants = async () => {
@@ -219,13 +316,19 @@ document.addEventListener('DOMContentLoaded', () => {
     const documentData = data.document_data || data;
     const yearModel = documentData.year_model || data.year_model;
     if (yearModel) year.value = yearModel;
-    if (Number.isInteger(Number(documentData.passenger_capacity))
-      && Number(documentData.passenger_capacity) >= 1 && Number(documentData.passenger_capacity) <= 100) {
-      form.elements.capacity.value = String(documentData.passenger_capacity);
+    // Cargo specifications replace passenger capacity; only values the document actually shows are filled.
+    const fields = specFields();
+    const extractedPayload = numericValue(documentData.payload_capacity_kg);
+    if (extractedPayload && extractedPayload <= 60000) fields.payload.value = String(extractedPayload);
+    const extractedVolume = numericValue(documentData.cargo_volume_m3);
+    if (extractedVolume && extractedVolume <= 200) fields.volume.value = String(extractedVolume);
+    for (const [field, key] of [[fields.length, 'cargo_length_m'], [fields.width, 'cargo_width_m'], [fields.height, 'cargo_height_m']]) {
+      const value = numericValue(documentData[key]);
+      if (field && value && value <= 30) field.value = String(value);
     }
-    const allowedFuelTypes = ['Diesel', 'Gasoline', 'Hybrid', 'Electric'];
-    const extractedFuelType = allowedFuelTypes.find(value => value === documentData.fuel_type);
-    if (extractedFuelType) form.elements.fuel_type.value = extractedFuelType;
+    syncDimensionRequirement();
+    selectFuelType(documentData.fuel_type, 'document');
+    updateVolumeNote();
     const match = data.catalog_match;
     const partial = data.partial_match || {};
     const typeId = match?.vehicle_type_id || partial.vehicle_type_id;
@@ -298,7 +401,8 @@ document.addEventListener('DOMContentLoaded', () => {
       const fieldLabels = {
         plate_number: 'Plate Number', mv_file_number: 'MV File Number', engine_number: 'Engine Number',
         chassis_number: 'Chassis Number', brand_make: 'Brand / Make', series_model: 'Series / Model',
-        year_model: 'Year Model', body_type: 'Body Type', passenger_capacity: 'Passenger Capacity', fuel_type: 'Fuel Type',
+        year_model: 'Year Model', body_type: 'Body Type', passenger_capacity: 'Passenger Capacity (historical)', fuel_type: 'Fuel Type',
+        payload_capacity_kg: 'Maximum Payload Capacity (kg)', cargo_volume_m3: 'Cargo Volume (m³)',
         color: 'Color', classification: 'Classification', expiration_date: 'Expiration Date'
       };
       const extractedFields = Object.entries(data.document_data || {}).map(([key, value]) =>
@@ -404,11 +508,33 @@ document.addEventListener('DOMContentLoaded', () => {
     if (!option?.value) { validate(); return; }
     const item = variant._items?.find(entry => String(entry.id) === option.value);
     if (item) {
-      form.elements.capacity.value = item.passenger_capacity || '';
-      form.elements.fuel_type.value = item.fuel_type || '';
+      const fields = specFields();
+      const payload = numericValue(item.payload_capacity_kg);
+      if (payload && fields.payload) fields.payload.value = String(payload);
+      const volume = numericValue(item.cargo_volume_m3);
+      if (volume && fields.volume) fields.volume.value = String(volume);
       specs.hidden = false;
+      updateVolumeNote();
     }
     validate();
+  });
+
+  if (form.elements.fuel_type) {
+    form.elements.fuel_type.addEventListener('change', () => {
+      // Any manual change is the Admin's own decision, not a document or catalog suggestion.
+      setFuelTypeSource('manual');
+      toggleOtherFuelField();
+      validate();
+    });
+  }
+  toggleOtherFuelField();
+
+  Object.values(specFields()).forEach((input) => {
+    if (!input) return;
+    input.addEventListener('input', () => {
+      syncDimensionRequirement();
+      updateVolumeNote();
+    });
   });
 
   form.addEventListener('input', validate);

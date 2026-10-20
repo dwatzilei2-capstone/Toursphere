@@ -2,6 +2,8 @@
 require_once dirname(__DIR__) . '/includes/bootstrap.php';
 require_once ROOT_PATH . '/includes/vehicle_compliance.php';
 require_once ROOT_PATH . '/includes/schedules.php';
+require_once ROOT_PATH . '/includes/reservation-assignment.php';
+require_once ROOT_PATH . '/includes/cargo_availability.php';
 header('Content-Type: application/json; charset=UTF-8');
 header('Cache-Control: no-store');
 require_login();
@@ -78,6 +80,11 @@ try {
         $data['reservation']['scheduled_capacity'] = null;
     }
 
+    $data['reservation'] += array_intersect_key($reservation,array_flip(['request_kind','request_purpose','cargo_type','cargo_weight_kg','cargo_volume_m3','cargo_quantity','special_handling','source_system','integration_mode']));
+    if (($reservation['request_kind']??'Passenger')==='Cargo' && $reservation['status']==='Pending Approval') {
+        $data['availability']=cargo_reservation_availability($pdo,$reservation);
+        echo json_encode($data,JSON_UNESCAPED_UNICODE|JSON_UNESCAPED_SLASHES);exit;
+    }
     if ($reservation['status'] !== 'Pending Approval') {
         $data['availability'] = ['applicable' => false];
         echo json_encode($data, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);

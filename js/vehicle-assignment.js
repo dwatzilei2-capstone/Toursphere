@@ -106,11 +106,20 @@
     document.getElementById('va-driver-details').hidden = !driver.value;
     document.getElementById('va-license').textContent = option.dataset.license || '—';
     document.getElementById('va-score').textContent = option.dataset.score || '—';
+    driver.querySelectorAll('option[value]:not([value=""])').forEach(item => {
+      item.disabled=!!vehicle&&!JSON.parse(item.dataset.eligibleVehicles||'[]').includes(vehicle.value);
+    });
+    menu.querySelectorAll('[role="option"]').forEach(item => {
+      item.disabled=!!vehicle&&!JSON.parse(item.dataset.eligibleVehicles||'[]').includes(vehicle.value);
+    });
     const warnings = [];
+    if(driver.value && option.disabled) warnings.push('This driver lacks the verified DL code required for the selected vehicle. Choose another driver.');
+
     if (vehicle && vehicle.dataset.currentDriver) warnings.push(`This vehicle is currently assigned to ${vehicle.dataset.currentDriver}. Saving will replace its driver assignment.`);
     if (driver.value && option.dataset.status === 'Assigned') warnings.push('This driver is currently assigned to another vehicle. Unassign that vehicle first before continuing.');
     notice.textContent = warnings.join(' ');
     notice.hidden = warnings.length === 0;
+    const submit=form.querySelector('.va-submit');if(submit)submit.disabled=!vehicle||!driver.value||option.disabled;
   }
   form.addEventListener('click', (event) => {
     const input = event.target;

@@ -6,7 +6,7 @@
 require_once dirname(__DIR__, 2) . '/includes/bootstrap.php';
 require_login();
 require_permission('ai.view');
-$is_route_viewer = !has_role('driver') && (!empty($_GET['trip_id']) || !empty($_GET['reservation_id']));
+$is_route_viewer = !has_role('driver') && (!has_role('fleet_admin') || !empty($_GET['trip_id']) || !empty($_GET['reservation_id']));
 if ($is_route_viewer) require_permission('dispatch.view');
 require_once ROOT_PATH.'/includes/trip_funding.php';
 require_once ROOT_PATH.'/includes/route_planner_state.php';
@@ -33,7 +33,7 @@ if ($is_driver_user) {
     $driverTripSql =
         "SELECT t.id AS trip_id, t.reservation_id, t.origin, t.destination, t.waypoints,
                 t.vehicle_id, t.driver_id, t.status AS trip_status, t.route_history_id, t.navigation_active,
-                r.passenger_count, r.departure_date, r.departure_time
+                r.cargo_weight_kg, r.cargo_volume_m3, r.departure_date, r.departure_time
            FROM drivers d
            JOIN trips t ON t.driver_id = d.id
            LEFT JOIN reservations r ON r.id = t.reservation_id
@@ -52,7 +52,7 @@ if ($is_driver_user) {
     $contextStmt = $pdo->prepare(
         "SELECT t.id AS trip_id, t.reservation_id, t.origin, t.destination, t.waypoints,
                 t.vehicle_id, t.driver_id, t.status AS trip_status, t.route_history_id, t.navigation_active,
-                r.passenger_count, r.departure_date, r.departure_time
+                r.cargo_weight_kg, r.cargo_volume_m3, r.departure_date, r.departure_time
            FROM trips t LEFT JOIN reservations r ON r.id = t.reservation_id
           WHERE t.id = ? LIMIT 1"
     );
@@ -63,7 +63,7 @@ if ($is_driver_user) {
         "SELECT t.id AS trip_id, r.id AS reservation_id, COALESCE(t.origin,r.origin) AS origin, COALESCE(t.destination,r.destination) AS destination,
                 COALESCE(t.waypoints, '') AS waypoints, COALESCE(t.vehicle_id,r.assigned_vehicle_id) AS vehicle_id,
                 COALESCE(t.driver_id,r.assigned_driver_id) AS driver_id, COALESCE(t.status, r.status) AS trip_status,
-                t.route_history_id, t.navigation_active, r.passenger_count, r.departure_date, r.departure_time
+                t.route_history_id, t.navigation_active, r.cargo_weight_kg, r.cargo_volume_m3, r.departure_date, r.departure_time
            FROM reservations r LEFT JOIN trips t ON t.reservation_id = r.id
           WHERE r.id = ? ORDER BY t.created_at DESC NULLS LAST,t.id DESC LIMIT 1"
     );
@@ -122,7 +122,7 @@ if (!empty($route_context['route_history_id'])) {
 
  
 $fleet_vehicles = $pdo->query(
-    "SELECT v.id, v.plate_number, v.type, v.brand, v.model, v.capacity, v.fuel_type, v.avg_fuel_km
+    "SELECT v.id, v.plate_number, v.type, v.brand, v.model, v.capacity, v.payload_capacity_kg, v.cargo_volume_m3, v.fuel_type, v.avg_fuel_km
        FROM vehicles v
       WHERE v.status NOT IN ('Maintenance','Retired','Inactive')
         AND NOT EXISTS (
@@ -133,154 +133,7 @@ $fleet_vehicles = $pdo->query(
 )->fetchAll();
 
  
-$presets = $pdo->query('SELECT * FROM route_presets ORDER BY id')->fetchAll();
-$route_data = [];
-foreach ($presets as $p) {
-    $wps = $pdo->prepare('SELECT * FROM route_waypoints WHERE preset_id = ? ORDER BY sort_order');
-    $wps->execute([$p['id']]);
-    $waypoints = array_map(fn($w) => ['name' => $w['name'], 'coords' => [(float)$w['lat'], (float)$w['lng']]], $wps->fetchAll());
-
-    $alts = $pdo->prepare('SELECT * FROM route_alternatives WHERE preset_id = ?');
-    $alts->execute([$p['id']]);
-    $alternatives = [];
-    foreach ($alts->fetchAll() as $a) {
-        $alternatives[$a['mode_key']] = [
-            'title' => $a['title'],
-            'distance' => $a['distance'],
-            'duration' => $a['duration'],
-            'fuelEstimate' => $a['fuel_estimate'],
-            'tollEstimate' => $a['toll_estimate'],
-            'totalTripCost' => $a['total_trip_cost'],
-            'routeScore' => $a['route_score'],
-            'reason' => $a['reason'],
-        ];
-    }
-
-    $route_data[] = [
-        'id' => $p['id'],
-        'name' => $p['name'],
-        'origin' => $p['origin'],
-        'originCoords' => [(float)$p['origin_lat'], (float)$p['origin_lng']],
-        'destination' => $p['destination'],
-        'destinationCoords' => [(float)$p['dest_lat'], (float)$p['dest_lng']],
-        'defaultWaypoints' => $waypoints,
-        'passengerCount' => (int)$p['passenger_count'],
-        'recommendedVehicle' => $p['recommended_vehicle'],
-        'alternatives' => $alternatives,
-    ];
-}
-
- 
-$tourist_destinations = [
-    [
-        'id' => 'DEST-BAGUIO',
-        'name' => 'Baguio City (Summer Capital)',
-        'category' => 'Mountain & Heritage',
-        'province' => 'Benguet',
-        'coords' => [16.4023, 120.6080],
-        'address' => 'Baguio Country Club, Baguio City, Benguet',
-        'description' => 'Cool pine retreat, Mines View Park, Camp John Hay & Burnham Park.',
-    ],
-    [
-        'id' => 'DEST-TAGAYTAY',
-        'name' => 'Tagaytay Scenic Ridge & Taal Lake',
-        'category' => 'Scenic & Leisure',
-        'province' => 'Cavite',
-        'coords' => [14.0950, 120.9320],
-        'address' => 'Tagaytay Taal Vista Hotel, Tagaytay City, Cavite',
-        'description' => 'Overlooking Taal Volcano with fresh climate and premier dining.',
-    ],
-    [
-        'id' => 'DEST-INTRAMUROS',
-        'name' => 'Intramuros Heritage District',
-        'category' => 'Historical Heritage',
-        'province' => 'Metro Manila',
-        'coords' => [14.5895, 120.9747],
-        'address' => 'Fort Santiago, Intramuros, Manila',
-        'description' => 'Historic Spanish colonial walled city, San Agustin Church & Fort Santiago.',
-    ],
-    [
-        'id' => 'DEST-VIGAN',
-        'name' => 'Vigan Heritage Village (Calle Crisologo)',
-        'category' => 'UNESCO World Heritage',
-        'province' => 'Ilocos Sur',
-        'coords' => [17.5747, 120.3869],
-        'address' => 'Calle Crisologo, Vigan City, Ilocos Sur',
-        'description' => 'Preserved 16th-century Spanish colonial architecture and cobblestone streets.',
-    ],
-    [
-        'id' => 'DEST-BANAUE',
-        'name' => 'Banaue Rice Terraces',
-        'category' => 'Mountain & Nature',
-        'province' => 'Ifugao',
-        'coords' => [16.9130, 121.0594],
-        'address' => 'Banaue Viewpoint, Banaue, Ifugao',
-        'description' => '2,000-year-old terraces carved into the mountains by indigenous ancestors.',
-    ],
-    [
-        'id' => 'DEST-SUBIC',
-        'name' => 'Subic Bay Freeport Zone',
-        'category' => 'Eco-Tourism & Coast',
-        'province' => 'Zambales',
-        'coords' => [14.8219, 120.2818],
-        'address' => 'Ocean Adventure, Subic Bay Freeport, Zambales',
-        'description' => 'Marine parks, jungle safari tours, duty-free shopping and coastal harbor.',
-    ],
-    [
-        'id' => 'DEST-CLARK',
-        'name' => 'Clark Freeport Zone & Aqua Planet',
-        'category' => 'Leisure & Aviation',
-        'province' => 'Pampanga',
-        'coords' => [15.1840, 120.5360],
-        'address' => 'Clark Freeport Zone, Mabalacat, Pampanga',
-        'description' => 'Aviation gateway, water theme parks, golf courses and culinary dining.',
-    ],
-    [
-        'id' => 'DEST-HUNDRED-ISLANDS',
-        'name' => 'Hundred Islands National Park',
-        'category' => 'Island & Marine',
-        'province' => 'Pangasinan',
-        'coords' => [16.2045, 120.0430],
-        'address' => 'Lucap Wharf, Alaminos, Pangasinan',
-        'description' => '124 mushroom-shaped islands with limestone caves, ziplining and snorkeling.',
-    ],
-    [
-        'id' => 'DEST-MAYON',
-        'name' => 'Mount Mayon & Cagsawa Ruins',
-        'category' => 'Eco-Adventure',
-        'province' => 'Albay',
-        'coords' => [13.2570, 123.6850],
-        'address' => 'Cagsawa Ruins Park, Daraga, Albay',
-        'description' => 'World-renowned perfect cone volcano with ATV adventure trails.',
-    ],
-    [
-        'id' => 'DEST-ANILAO',
-        'name' => 'Anilao Marine Sanctuary & Dive Camp',
-        'category' => 'Diving & Coast',
-        'province' => 'Batangas',
-        'coords' => [13.7580, 120.8930],
-        'address' => 'Mabini, Anilao, Batangas',
-        'description' => 'Premier coral reef diving and macro underwater photography sanctuary.',
-    ],
-    [
-        'id' => 'DEST-SAGADA',
-        'name' => 'Sagada Eco-Valley & Sumaguing Cave',
-        'category' => 'Mountain & Cultural',
-        'province' => 'Mountain Province',
-        'coords' => [17.0833, 120.9022],
-        'address' => 'Sagada Town Center, Mountain Province',
-        'description' => 'Hanging coffins, spelunking, orange orchards and sea of clouds in Kiltepan.',
-    ],
-    [
-        'id' => 'DEST-LAUNION',
-        'name' => 'San Juan Surf & Beach Strip',
-        'category' => 'Beach & Lifestyle',
-        'province' => 'La Union',
-        'coords' => [16.6667, 120.3250],
-        'address' => 'Urbiztondo Beach, San Juan, La Union',
-        'description' => 'Surfing capital of the North with trendy beachfront dining & resorts.',
-    ]
-];
+$route_data = []; // No legacy passenger presets are supplied.
 
 $navigation_matches_phase = route_planner_navigation_matches_phase($route_context, is_array($savedRouteData) ? $savedRouteData : null, $is_return_mode ? 'return' : 'outbound');
 $route_mode_is_locked = $is_route_viewer || $navigation_matches_phase;
@@ -299,7 +152,7 @@ $selected_route_mode_label = $route_mode_labels[$initial_mode] ?? $initial_mode;
  
  
  
-$initial_preset = $is_driver_user ? '' : ($_GET['preset'] ?? '');
+$initial_preset = ''; // Delivery configuration comes from assignments or entered locations.
 
 $google_maps_key = defined('GOOGLE_MAPS_API_KEY') ? GOOGLE_MAPS_API_KEY : 'YOUR_GOOGLE_MAPS_API_KEY';
 $is_key_placeholder = ($google_maps_key === 'YOUR_GOOGLE_MAPS_API_KEY' || empty($google_maps_key));
@@ -319,7 +172,7 @@ require ROOT_PATH . '/includes/header.php';
       <span class="badge bg-primary-subtle text-primary border">Module 6</span>
       <span class="badge bg-dark-subtle text-dark border"><i class="bi bi-cpu me-1 text-primary"></i>ROUTETHINK Engine</span>
     </div>
-    <p class="text-muted-custom mb-0">Multi-criteria route solver optimizing travel time, fuel burn, terrain gradients, toll tariffs, and real-world traffic via Google Maps.</p>
+    <p class="text-muted-custom mb-0">Multi-criteria delivery route solver estimating travel time and fuel expenses using Google Maps traffic; cargo road restrictions are not verified.</p>
   </div>
   <div class="d-flex gap-2">
     <?php if (!$is_driver_user): ?>
@@ -350,7 +203,7 @@ require ROOT_PATH . '/includes/header.php';
   <i class="bi <?= $route_context ? 'bi-shield-lock-fill' : 'bi-exclamation-triangle-fill' ?> me-2"></i>
   <?php if ($route_context): ?>
     <?php if ($is_return_mode): ?>
-      Return-to-Depot mode is active for <strong><?= e($route_context['trip_id']) ?></strong>. ROUTETHINK will plan from the passenger destination back to <?= $configured_depot_address !== '' ? 'the configured depot' : 'the official trip origin (depot address is not configured)' ?>.
+      Return-to-Depot mode is active for <strong><?= e($route_context['trip_id']) ?></strong>. ROUTETHINK will plan from the delivery destination back to <?= $configured_depot_address !== '' ? 'the configured depot' : 'the official trip origin (depot address is not configured)' ?>.
     <?php else: ?>
       Driver trip mode is active for <strong><?= e($route_context['trip_id']) ?></strong>. Origin, destination, waypoints, and assigned vehicle are preloaded from Dispatch. No AI route is generated until you press <strong>Generate ROUTETHINK Route</strong>.
     <?php endif; ?>
@@ -390,38 +243,9 @@ require ROOT_PATH . '/includes/header.php';
       </div>
       <div class="p-3" style="max-height: calc(100vh - 270px); overflow-y: auto;">
          
-        <div class="mb-3">
-          <label class="tc-form-label d-flex justify-content-between align-items-center">
-            <span>Tour Preset / Template</span>
-            <span class="text-muted-custom" style="font-size: 10px;">Optional</span>
-          </label>
-          <select class="tc-form-select" id="route-preset-select" onchange="aiRouteEngine.setPreset(this.value)" <?= ($is_driver_user || $is_route_viewer) ? 'disabled' : '' ?>>
-            <option value="" <?= empty($initial_preset) ? 'selected' : '' ?>>-- Select Preset Template (Optional) --</option>
-            <?php foreach ($route_data as $rd): ?>
-              <option value="<?= e($rd['id']) ?>" <?= $rd['id'] === $initial_preset ? 'selected' : '' ?>><?= e($rd['name']) ?></option>
-            <?php endforeach; ?>
-            <option value="custom"><i class="bi bi-plus-circle"></i> Custom Route / Multi-Destination Itinerary</option>
-          </select>
-        </div>
-
-         
-        <div class="mb-3">
-          <label class="tc-form-label d-flex justify-content-between align-items-center">
-            <span><i class="bi bi-geo-alt-fill text-danger me-1"></i>Tourist Destination Quick-Pick</span>
-            <span class="badge bg-secondary-subtle text-dark" style="font-size: 9px;"><?= count($tourist_destinations) ?> Spots</span>
-          </label>
-          <select class="tc-form-select tc-form-select-sm" id="tourist-destination-quickpick" onchange="aiRouteEngine.selectTouristDestination(this.value)" <?= ($is_driver_user || $is_route_viewer) ? 'disabled' : '' ?>>
-            <option value="">-- Choose a Popular Destination (Optional) --</option>
-            <?php foreach ($tourist_destinations as $td): ?>
-              <option value="<?= e($td['id']) ?>"><?= e($td['name']) ?> (<?= e($td['category']) ?>)</option>
-            <?php endforeach; ?>
-          </select>
-        </div>
-
-         
         <div class="mb-2">
           <label class="tc-form-label d-flex justify-content-between align-items-center">
-            <span>Origin Departure Point <span class="text-danger">*</span></span>
+            <span>Pickup Location <span class="text-danger">*</span></span>
             <button type="button" class="btn btn-link btn-sm p-0 text-decoration-none small text-success" title="Detect GPS Location" onclick="aiRouteEngine.useCurrentLocationAsOrigin()" <?= ($is_driver_user || $is_route_viewer) ? 'disabled' : '' ?>>
               <i class="bi bi-crosshair me-1"></i>My Location
             </button>
@@ -447,7 +271,7 @@ require ROOT_PATH . '/includes/header.php';
 
          
         <div class="mb-3">
-          <label class="tc-form-label">Final Destination Point <span class="text-danger">*</span></label>
+          <label class="tc-form-label">Delivery Destination <span class="text-danger">*</span></label>
           <div class="input-group input-group-sm">
             <span class="input-group-text bg-light text-danger"><i class="bi bi-geo-fill"></i></span>
             <input type="text" class="form-control" id="route-dest-input" placeholder="Enter destination or address..." value="<?= e($context_destination) ?>" autocomplete="off" <?= ($is_driver_user || $is_route_viewer) ? 'readonly' : '' ?>>
@@ -466,15 +290,12 @@ require ROOT_PATH . '/includes/header.php';
                 $currentFuelPrice=fuel_current_price($pdo,(string)$v['fuel_type']);
                 $selected = ($context_vehicle_id === $val || $context_vehicle_id === $v['id'] || stripos((string)$context_vehicle_id, $v['plate_number']) !== false) ? 'selected' : '';
               ?>
-                <option value="<?= e($val) ?>" data-vehicle-id="<?= e($v['id']) ?>" data-capacity="<?= (int)$v['capacity'] ?>" data-consumption="<?= e($kmL) ?>" data-fuel-price="<?= e($currentFuelPrice['price_per_liter']??'') ?>" <?= $selected ?>>
-                  <?= e($v['brand']) ?> <?= e($v['model']) ?> (<?= e($v['plate_number']) ?>) &bull; <?= e($v['type']) ?> &bull; <?= e($kmL) ?> &bull; <?= (int)$v['capacity'] ?> pax
+                <option value="<?= e($val) ?>" data-vehicle-id="<?= e($v['id']) ?>" data-payload-capacity-kg="<?= e($v['payload_capacity_kg'] ?? '') ?>" data-consumption="<?= e($kmL) ?>" data-fuel-price="<?= e($currentFuelPrice['price_per_liter']??'') ?>" <?= $selected ?>>
+                  <?= e($v['brand']) ?> <?= e($v['model']) ?> (<?= e($v['plate_number']) ?>) &bull; <?= e($v['type']) ?> &bull; <?= e($kmL) ?> &bull; <?= !empty($v['payload_capacity_kg']) ? e($v['payload_capacity_kg']).' kg payload' : 'Payload unavailable' ?>
                 </option>
               <?php endforeach; ?>
             <?php else: ?>
-              <option value="Tour Bus (Hino Grand View 45s)" selected>Tour Bus (Hino Grand View 45s - 3.8 km/L)</option>
-              <option value="Executive Van (Toyota HiAce Grandia)">Executive Van (Toyota HiAce Grandia - 9.2 km/L)</option>
-              <option value="Coaster Bus (Toyota Coaster Deluxe)">Coaster Bus (Toyota Coaster Deluxe - 6.4 km/L)</option>
-              <option value="VIP SUV (Ford Everest Titanium 4x4)">VIP SUV (Ford Everest Titanium 4x4 - 10.5 km/L)</option>
+              <option value="" disabled>No assigned cargo vehicles available</option>
             <?php endif; ?>
           </select>
         </div>
@@ -506,7 +327,7 @@ require ROOT_PATH . '/includes/header.php';
               <div class="opt-title fw-bold small"><i class="bi bi-stars text-primary me-1"></i> Balanced (ROUTETHINK Recommended)</div>
               <span class="badge bg-primary-subtle text-primary" style="font-size: 10px;">Best Value</span>
             </div>
-            <div class="text-muted-custom" style="font-size: 11px;">Optimal balance of expressway speed, fuel efficiency & passenger comfort.</div>
+            <div class="text-muted-custom" style="font-size: 11px;">Optimal balance of expressway speed, fuel efficiency & delivery efficiency.</div>
           </div>
 
           <div class="opt-option-card <?= $initial_mode === 'fuelEfficient' ? 'selected' : '' ?>" data-mode="fuelEfficient" onclick="aiRouteEngine.selectMode('fuelEfficient', this)">
@@ -588,7 +409,6 @@ require ROOT_PATH . '/includes/header.php';
         <div><span class="d-inline-block rounded-circle bg-success me-1" style="width:9px; height:9px;"></span> Origin</div>
         <div><span class="d-inline-block rounded-circle bg-primary me-1" style="width:9px; height:9px;"></span> Waypoints</div>
         <div><span class="d-inline-block rounded-circle bg-danger me-1" style="width:9px; height:9px;"></span> Destination</div>
-        <div><span class="d-inline-block rounded-circle bg-warning me-1" style="width:9px; height:9px;"></span> Tourist Spot</div>
         <div class="text-muted-custom border-start ps-2 d-none d-sm-inline-block" style="font-size: 11px;"><i class="bi bi-google me-1"></i>Google Maps</div>
       </div>
     </div>
@@ -603,7 +423,7 @@ require ROOT_PATH . '/includes/header.php';
           </div>
           <div class="flex-grow-1 overflow-hidden">
             <div class="nav-hud-eyebrow text-white-50" id="nav-hud-target-label">Next Destination</div>
-            <div class="nav-hud-destination fw-bold text-white text-truncate" id="nav-hud-target-name">Final Destination Point</div>
+            <div class="nav-hud-destination fw-bold text-white text-truncate" id="nav-hud-target-name">Delivery Destination</div>
             <div class="nav-hud-instruction text-white-50 text-truncate" id="nav-hud-subtext">Navigating along ROUTETHINK route</div>
           </div>
         </div>
@@ -667,29 +487,29 @@ require ROOT_PATH . '/includes/header.php';
       </div>
 
       <div class="p-3" style="max-height: calc(100vh - 320px); overflow-y: auto;">
-        <div id="ai-res-title" class="fw-bold small text-primary-custom mb-3">Select a preset or click Generate to calculate the optimal route.</div>
+        <div id="ai-res-title" class="fw-bold small text-primary-custom mb-3">Enter delivery locations and click Generate to calculate the route.</div>
 
          
         <div class="row g-2 mb-3 text-center h-100">
           <div class="col-6 p-2 bg-light rounded border d-flex flex-column justify-content-center">
-            <div class="text-muted-custom" style="font-size: 11px;">Total Distance</div>
+            <div class="text-muted-custom" style="font-size: 11px;">Route Distance</div>
             <div id="ai-res-distance" class="fw-bold fs-6">—</div>
           </div>
           <div class="col-6 p-2 bg-light rounded border d-flex flex-column justify-content-center">
-            <div id="ai-res-duration-label" class="text-muted-custom" style="font-size: 11px;">Google Traffic ETA</div>
+            <div id="ai-res-duration-label" class="text-muted-custom" style="font-size: 11px;">Estimated Travel Time</div>
             <div id="ai-res-duration" class="fw-bold fs-6 text-primary">—</div>
           </div>
           <div class="col-6 p-2 bg-light rounded border d-flex flex-column justify-content-center">
-            <div id="ai-res-fuel-label" class="text-muted-custom" style="font-size: 11px;">Formula Fuel Estimate</div>
+            <div id="ai-res-fuel-label" class="text-muted-custom" style="font-size: 11px;">Estimated Fuel Cost</div>
             <div id="ai-res-fuel" class="fw-bold fs-6 text-success">—</div>
           </div>
           <div class="col-6 p-2 bg-light rounded border d-flex flex-column justify-content-center">
             <div id="ai-res-cost-label" class="text-muted-custom" style="font-size: 11px;">
-              <?= $is_driver_user ? 'Estimated Trip Revenue' : ($is_route_revenue_admin ? 'Total Route Revenue' : 'Estimated Trip Cost') ?>
+              Estimated Transportation Cost
             </div>
             <div id="ai-res-cost" class="fw-bold fs-6 text-primary-custom">—</div>
             <div id="ai-res-cost-context" class="text-muted-custom mt-1 small" style="font-size: 10px; line-height: 1.2;" aria-live="polite">
-              <?= $is_driver_user ? 'Checking assigned-trip reservations…' : ($is_route_revenue_admin ? 'Select a route and date.' : '') ?>
+              Generate a route to estimate supported expenses.
             </div>
           </div>
         </div>
@@ -697,8 +517,8 @@ require ROOT_PATH . '/includes/header.php';
         <?php if ($is_route_revenue_admin): ?>
         <div class="row g-2 mb-2">
           <div class="col-12">
-            <label for="route-revenue-date" class="visually-hidden">Route revenue date</label>
-            <input type="date" id="route-revenue-date" class="form-control form-control-sm px-2 py-1" value="<?= e($route_context['departure_date'] ?? date('Y-m-d')) ?>" aria-label="Route revenue date" style="font-size: 12px;">
+            <label for="route-revenue-date" class="visually-hidden">Delivery schedule date</label>
+            <input type="date" id="route-revenue-date" disabled class="form-control form-control-sm px-2 py-1" value="<?= e($route_context['departure_date'] ?? date('Y-m-d')) ?>" aria-label="Delivery schedule date" style="font-size: 12px;">
           </div>
         </div>
         <?php endif; ?>
@@ -749,14 +569,8 @@ require ROOT_PATH . '/includes/header.php';
 
 <script>
   window.TC_ROUTE_PREPARE_CSRF=<?= json_encode($_SESSION['route_prepare_csrf']) ?>;
-  window.TC_ROUTE_REVENUE = <?= json_encode([
-    'role' => $is_driver_user ? 'driver' : ($is_route_revenue_admin ? 'admin' : null),
-    'endpoint' => BASE_URL . '/actions/route-revenue.php',
-    'tripId' => $route_context['trip_id'] ?? null,
-  ], JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES) ?>;
   window.TC_INITIAL_MODE = <?= json_encode($initial_mode) ?>;
   window.TC_INITIAL_PRESET = <?= json_encode($initial_preset) ?>;
-  window.TC_TOURIST_DESTINATIONS = <?= json_encode($tourist_destinations, JSON_UNESCAPED_UNICODE) ?>;
   window.TC_ROUTE_CONTEXT = <?= json_encode([
     'isDriver' => $is_driver_user,
     'userId' => (int)$current_user['id'],
@@ -768,7 +582,8 @@ require ROOT_PATH . '/includes/header.php';
     'tripId' => $route_context['trip_id'] ?? null,
     'reservationId' => $route_context['reservation_id'] ?? null,
     'vehicleId' => $route_context['vehicle_id'] ?? null,
-    'passengerCount' => (int)($route_context['passenger_count'] ?? 0),
+    'cargoWeightKg' => $route_context['cargo_weight_kg'] ?? null,
+    'cargoVolumeM3' => $route_context['cargo_volume_m3'] ?? null,
     'waypoints' => $context_waypoints,
     'hasActiveTrip' => $driver_has_active_trip,
     'routeModeLocked' => $route_mode_is_locked,

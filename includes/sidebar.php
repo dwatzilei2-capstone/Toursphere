@@ -31,9 +31,9 @@ if (!function_exists('nav_active')) {
 
   <div class="sidebar-nav-container">
     <?php if ($is_customer): ?>
-      <div class="sidebar-section-title">My Booking</div>
+      <div class="sidebar-section-title">Logistics 1 Requests</div>
       <ul class="p-0 m-0">
-        <li class="nav-item-custom"><a class="nav-link-custom <?= nav_active('customer-reservations') ?>" href="<?= BASE_URL ?>/modules/customer-portal/reservations.php"><i class="bi bi-calendar2-check"></i><span class="nav-label">My Reservations</span></a></li>
+        <li class="nav-item-custom"><a class="nav-link-custom <?= nav_active('customer-reservations') ?>" href="<?= BASE_URL ?>/modules/customer-portal/reservations.php"><i class="bi bi-calendar2-check"></i><span class="nav-label">My Cargo Requests</span></a></li>
       </ul>
     <?php elseif ($is_driver): ?>
        
@@ -49,6 +49,12 @@ if (!function_exists('nav_active')) {
           <a class="nav-link-custom <?= nav_active('driver-trips') ?>" href="<?= BASE_URL ?>/modules/driver-portal/driver-trips.php">
             <i class="bi bi-calendar2-check"></i>
             <span class="nav-label">My Trips</span>
+          </a>
+        </li>
+        <li class="nav-item-custom">
+          <a class="nav-link-custom <?= nav_active('trip-performance') ?>" href="<?= BASE_URL ?>/modules/driver-trip-performance/trip-performance.php">
+            <i class="bi bi-clipboard-check"></i>
+            <span class="nav-label">Trip Performance</span>
           </a>
         </li>
         <li class="nav-item-custom">

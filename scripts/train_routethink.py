@@ -26,7 +26,7 @@ FEATURE_NAMES = [
     'waypoint_count',
     'baseline_km_per_liter',
     'vehicle_weight_class',
-    'passenger_load_ratio',
+    'cargo_load_ratio',
     'highway_ratio',
 ]
 
@@ -40,6 +40,11 @@ def clean_and_extract_features(records, target_key='actual_fuel_liters'):
     for r in records:
         try:
             
+            # Cargo training accepts only complete measured feature vectors.
+            if any(key not in r or not math.isfinite(float(r[key])) for key in FEATURE_NAMES):
+                continue
+            if float(r['baseline_km_per_liter']) <= 0:
+                continue
             y = float(r.get(target_key, 0.0))
             dist = float(r.get('distance_km', 0.0))
             duration = float(r.get('base_duration_mins', 0.0))
@@ -55,7 +60,12 @@ def clean_and_extract_features(records, target_key='actual_fuel_liters'):
             waypoints = int(r.get('waypoint_count', 0))
             km_l = float(r.get('baseline_km_per_liter', 6.0))
             weight_class = int(r.get('vehicle_weight_class', 2))
-            pax_ratio = float(r.get('passenger_load_ratio', 0.5))
+            # Legacy passenger rows remain stored, but cannot train a cargo model.
+            if 'cargo_load_ratio' not in r:
+                continue
+            cargo_ratio = float(r['cargo_load_ratio'])
+            if not math.isfinite(cargo_ratio) or not 0 <= cargo_ratio <= 1:
+                continue
             highway_ratio = float(r.get('highway_ratio', 0.65))
 
             row = [
@@ -65,7 +75,7 @@ def clean_and_extract_features(records, target_key='actual_fuel_liters'):
                 max(0, min(15, waypoints)),
                 max(1.0, min(30.0, km_l)),
                 max(1, min(4, weight_class)),
-                max(0.0, min(1.0, pax_ratio)),
+                cargo_ratio,
                 max(0.0, min(1.0, highway_ratio)),
             ]
 

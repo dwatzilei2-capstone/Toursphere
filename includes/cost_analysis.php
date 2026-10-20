@@ -38,7 +38,7 @@ function cost_sources_sql(bool $includeSourceId = false): string
     $maintenanceId=$includeSourceId ? 'id, ' : '';
     $tripId=$includeSourceId ? 'id, ' : '';
     return "SELECT {$fuelId}transaction_date::timestamp AS occurred_at, vehicle_id, trip_id, 'Fuel'::text AS category, total_cost::numeric AS amount
-              FROM fuel_transactions
+              FROM fuel_transactions WHERE verification_status='Verified'
             UNION ALL
             SELECT {$maintenanceId}scheduled_date::timestamp, vehicle_id, source_trip_id, 'Maintenance'::text, COALESCE(estimated_cost,0)::numeric
               FROM maintenance_orders WHERE status='Completed'

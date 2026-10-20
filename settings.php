@@ -1,12 +1,14 @@
 <?php
 require_once __DIR__ . '/includes/bootstrap.php';
 require_login();
+require_once ROOT_PATH.'/includes/trip_performance.php';
 if (has_role('customer')) redirect_to(BASE_URL . '/' . home_path());
 
 $sections = ['general' => ['General', 'bi-sliders2', 'Company profile & preferences']];
+if(performance_reviewer($current_user))$sections['trip-performance-evaluation']=['Trip Performance Evaluation','bi-clipboard-check','Evaluation criteria & percentage weights'];
 if (can('vehicles.manage')) $sections['maintenance'] = ['Maintenance', 'bi-tools', 'Service intervals & reminders'];
 if (can('dispatch.manage')) $sections['dispatch'] = ['Reservation & Dispatch', 'bi-calendar2-check', 'Booking & scheduling rules'];
-if (can('settings.manage')) $sections['fare'] = ['Fare Configuration', 'bi-cash-coin', 'Customer base fare & distance rate'];
+if (can('settings.manage')) $sections['fare'] = ['Fare Configuration', 'bi-cash-coin', 'Legacy passenger base fare & distance rate'];
 if (has_role('fleet_admin')) $sections['fuel-prices'] = ['Fuel Prices', 'bi-fuel-pump', 'Default prices & price history'];
 if (has_role('fleet_admin')) $sections['schedule-management'] = ['Schedule Management', 'bi-clock', 'Operating days & departure times'];
 if (has_role('fleet_admin')) $sections['ai-model-training'] = ['AI Model Training', 'bi-cpu', 'RouteThink models & diagnostics'];
@@ -20,7 +22,13 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         if (!is_string($_POST['csrf'] ?? null) || !hash_equals($_SESSION['settings_csrf'], $_POST['csrf'])) throw new RuntimeException('Your session expired. Refresh the page and try again.');
         $section = is_string($_POST['section'] ?? null) ? $_POST['section'] : '';
         $values = [];
-        if ($section === 'schedule-management') {
+        if ($section === 'trip-performance-evaluation') {
+            $tab=isset($sections[$section])?$section:'general';
+            $pdo=db();$pdo->beginTransaction();
+            performance_save_config($pdo,(array)($_POST['weights']??[]),$current_user);
+            $pdo->commit();$_SESSION['settings_saved']='Evaluation weights saved. Historical evaluations retain their saved weights.';
+            redirect_to(BASE_URL.'/settings.php?tab=trip-performance-evaluation');
+        } elseif ($section === 'schedule-management') {
             if (!has_role('fleet_admin')) throw new RuntimeException('Only administrators can manage operating schedules.');
             $tab = 'schedule-management';
             $action = trim((string)($_POST['schedule_action'] ?? ''));
@@ -145,6 +153,7 @@ function settings_token(string $section): void {
         'maintenance' => ['maintenance_interval_days' => fleet_setting('maintenance.interval_days', '90'), 'maintenance_reminder_days' => fleet_setting('maintenance.reminder_days', '7')],
         'dispatch' => ['reservation_notice_hours' => fleet_setting('reservation.notice_hours', '0'), 'dispatch_buffer_hours' => fleet_setting('dispatch.buffer_hours', '4')],
         'fare' => ['fare_base_fare' => fleet_setting('fare.base_fare', ''), 'fare_rate_per_km' => fleet_setting('fare.rate_per_km', '')],
+        'trip-performance-evaluation' => array_combine(array_map(fn($key)=>'weights['.$key.']',array_keys(PERFORMANCE_CRITERIA)),array_values(performance_config(db()))),
     };
     $editing = ($posted['section'] ?? '') === $section;
 ?>
@@ -217,6 +226,18 @@ require ROOT_PATH . '/includes/header.php';
         </div><p class="settings-help">Choose a theme, then select Save appearance to apply it to your account.</p></div>
         <div class="settings-card-footer"><span>Your teammates keep their own appearance.</span><button class="tc-btn tc-btn-primary" type="submit">Save appearance</button></div>
       </form>
+    <?php elseif ($tab === 'trip-performance-evaluation' && performance_reviewer($current_user)): ?>
+      <div class="settings-section-title"><h2>Trip Performance Evaluation</h2><p>Configure the six cargo delivery evaluation weights.</p></div>
+      <form method="post" class="settings-card" data-performance-weights>
+        <?php settings_token('trip-performance-evaluation'); $currentWeights=performance_config(db()); ?>
+        <div class="settings-card-heading"><div><h3>Evaluation criteria &amp; weights</h3><p>Percentages must total exactly 100%.</p></div><span class="settings-scope">Workspace</span></div>
+        <div class="settings-card-body">
+        <?php foreach(PERFORMANCE_CRITERIA as $key=>$label): ?>
+          <div class="settings-row"><div><label for="performance-weight-<?= e($key) ?>"><?= e($label) ?></label></div><div class="settings-number"><div><input id="performance-weight-<?= e($key) ?>" name="weights[<?= e($key) ?>]" type="number" min="0" max="100" step="1" required value="<?= e(is_scalar($posted['weights'][$key]??null)?$posted['weights'][$key]:$currentWeights[$key]) ?>"><span>%</span></div></div></div>
+        <?php endforeach; ?>
+        <p class="small mt-3 mb-0" data-weight-total role="status">Total: <?= array_sum($currentWeights) ?>%</p>
+        </div><?php settings_actions('trip-performance-evaluation','evaluation weights','Changes apply to new evaluations. Saved evaluation snapshots stay unchanged.'); ?>
+      </form>
     <?php elseif ($tab === 'maintenance'): ?>
       <div class="settings-section-title"><h2>Maintenance settings</h2><p>Plan regular service and identify upcoming work.</p></div>
       <form method="post" class="settings-card"><?php settings_token('maintenance'); ?><div class="settings-card-heading"><div><h3>Preventive maintenance</h3><p>Default rules for the fleet.</p></div><span class="settings-scope">Workspace</span></div>
@@ -232,7 +253,7 @@ require ROOT_PATH . '/includes/header.php';
     <?php elseif ($tab === 'fare' && can('settings.manage')): ?>
       <div class="settings-section-title"><h2>Fare Configuration</h2><p>Set the customer price used for new reservation estimates.</p></div>
       <form method="post" class="settings-card"><?php settings_token('fare'); ?>
-        <div class="settings-card-heading"><div><h3>Customer transportation fare</h3><p>Each passenger pays the base fare plus the verified road distance multiplied by the distance rate.</p></div><span class="settings-scope">Future reservations</span></div>
+        <div class="settings-card-heading"><div><h3>Legacy passenger transportation fare</h3><p>Each passenger pays the base fare plus the verified road distance multiplied by the distance rate.</p></div><span class="settings-scope">Future reservations</span></div>
         <div class="settings-card-body settings-form-grid">
           <div class="settings-field"><label for="fare-base-fare">Base Fare</label><div class="input-group"><span class="input-group-text"><?= e(currency_symbol()) ?></span><input id="fare-base-fare" name="fare_base_fare" type="number" min="0" max="99999999.99" step="0.01" required value="<?= e(settings_value('fare.base_fare')) ?>"></div><small>Starting fare charged per passenger.</small></div>
           <div class="settings-field"><label for="fare-rate-per-km">Rate Per Kilometer</label><div class="input-group"><span class="input-group-text"><?= e(currency_symbol()) ?></span><input id="fare-rate-per-km" name="fare_rate_per_km" type="number" min="0" max="99999999.99" step="0.01" required value="<?= e(settings_value('fare.rate_per_km')) ?>"><span class="input-group-text">/ km</span></div><small>Applied to the verified road-route distance for each passenger.</small></div>
@@ -245,7 +266,7 @@ require ROOT_PATH . '/includes/header.php';
       <div class="settings-section-title"><h2>Schedule Management</h2><p>Configure reusable departure schedules offered during customer reservations.</p></div>
       <form method="post" class="settings-card" id="schedule-editor">
         <input type="hidden" name="csrf" value="<?= e($_SESSION['settings_csrf']) ?>"><input type="hidden" name="section" value="schedule-management"><input type="hidden" name="schedule_action" id="schedule-action" value="create"><input type="hidden" name="schedule_id" id="schedule-id" value="">
-        <div class="settings-card-heading"><div><h3 id="schedule-editor-title">Add operating schedule</h3><p>Customers only see active schedules on their configured operating days.</p></div><span class="settings-scope">Admin only</span></div>
+        <div class="settings-card-heading"><div><h3 id="schedule-editor-title">Add operating schedule</h3><p>Passenger reservations use active schedules on their configured operating days.</p></div><span class="settings-scope">Admin only</span></div>
         <div class="settings-card-body settings-form-grid">
           <div class="settings-field"><label for="schedule-name">Schedule name <span>*</span></label><input id="schedule-name" name="schedule_name" maxlength="120" required></div>
           <div class="settings-field"><label for="schedule-time">Departure time <span>*</span></label><input id="schedule-time" name="departure_time" type="time" required></div>

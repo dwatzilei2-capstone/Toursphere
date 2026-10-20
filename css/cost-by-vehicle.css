@@ -1,0 +1,101 @@
+.cost-by-vehicle-page{background:#f4f8fd;color:#101348}
+.cost-by-vehicle-page .vc-heading{display:flex;justify-content:space-between;align-items:end;gap:16px;margin-bottom:12px}
+.cost-by-vehicle-page h1{font-size:25px;letter-spacing:-.6px;margin:0 0 3px;font-weight:750}
+.cost-by-vehicle-page .vc-eyebrow{font-size:11px;color:#536b99;margin-bottom:2px;font-weight:600}
+.cost-by-vehicle-page p{font-size:11px;color:#647aa5;margin:2px 0 0;line-height:1.5}
+.cost-by-vehicle-page .vc-filters{display:flex;align-items:end;gap:7px;flex-wrap:wrap;justify-content:flex-end}
+.cost-by-vehicle-page label{display:grid;gap:4px;font-size:10px;color:#273c70;margin:0}
+.cost-by-vehicle-page select,.cost-by-vehicle-page input{border:1px solid #dce6f5;background:#fff;border-radius:5px;font:inherit;font-size:11px;color:#273c70;padding:7px 9px;min-height:32px;max-width:165px;min-width:0}
+.cost-by-vehicle-page .vc-filters .tc-btn{font-size:11px;min-height:32px;padding:7px 14px}
+.cost-by-vehicle-page .vc-source{border:1px solid #e1e8f1;background:#fff;padding:9px 12px;font-size:11px;color:#536b99;border-radius:6px;margin-bottom:12px}
+.cost-by-vehicle-page .tc-card{border:1px solid #e1e9f4;border-radius:6px;box-shadow:none;animation:none!important;min-width:0}
+.cost-by-vehicle-page .tc-card:hover{transform:none;box-shadow:none}
+.cost-by-vehicle-page .vc-section{margin-bottom:11px;overflow:hidden}
+.cost-by-vehicle-page .vc-section-heading{padding:10px 13px 7px;display:flex;justify-content:space-between;align-items:start;gap:12px}
+.cost-by-vehicle-page h2{font-size:15px;font-weight:750;letter-spacing:-.3px;margin:0;color:#101348}
+.cost-by-vehicle-page h3{font-size:12px;font-weight:700;margin:0;color:#101348}
+.cost-by-vehicle-page .vc-section-heading .vc-search{max-width:315px;width:100%}
+.cost-by-vehicle-page .vc-scroll{overflow-x:auto;max-width:100%;-webkit-overflow-scrolling:touch}
+.cost-by-vehicle-page .tc-table{font-size:10px;width:100%;border-collapse:collapse;white-space:nowrap;margin:0}
+.cost-by-vehicle-page .tc-table th{font-size:9px;color:#243c70;background:#f3f7fc;line-height:1.3;text-transform:uppercase;font-weight:600;white-space:normal;min-width:90px}
+.cost-by-vehicle-page .tc-table td,.cost-by-vehicle-page .tc-table th{padding:6px 9px;border:1px solid #eaf0f8;text-align:center;vertical-align:middle}
+.cost-by-vehicle-page .tc-table td:first-child{min-width:135px;text-align:left}
+.cost-by-vehicle-page .tc-table small{display:block;color:#647aa5;font-size:9px;line-height:1.4}
+.cost-by-vehicle-page .vc-total{font-weight:750}
+.cost-by-vehicle-page .vc-type{display:inline-block;color:#1677ff;background:#eaf3ff;padding:3px 6px;border-radius:4px;font-size:9px;white-space:nowrap}
+.cost-by-vehicle-page .vc-badge{display:inline-block;min-width:78px;padding:3px 7px;border-radius:4px;font-size:9px;white-space:nowrap}
+.cost-by-vehicle-page .vc-neutral{background:#eef2f8;color:#536b99}
+.cost-by-vehicle-page .vc-positive-bg{background:#dcf7e9;color:#008555}
+.cost-by-vehicle-page .vc-attention{background:#fff0e7;color:#b74c20}
+.cost-by-vehicle-page .vc-positive{color:#00a36d;font-weight:600}
+.cost-by-vehicle-page .vc-negative{color:#dc3545;font-weight:600}
+.cost-by-vehicle-page .vc-selection{display:flex;gap:12px;flex-shrink:0}
+.cost-by-vehicle-page .vc-selection select{max-width:240px;width:220px}
+.cost-by-vehicle-page .vc-performance{display:grid;grid-template-columns:245px minmax(0,1fr);gap:10px;padding:0 10px 10px}
+.cost-by-vehicle-page .vc-profile{border:1px solid #e3ebf6;border-radius:5px;padding:12px;min-width:0}
+.cost-by-vehicle-page .vc-identity{display:flex;align-items:center;gap:10px;margin-bottom:12px;flex-wrap:wrap}
+.cost-by-vehicle-page .vc-identity h3{font-size:17px;color:#101348}
+.cost-by-vehicle-page .vc-truck{width:85px;height:72px;background:#f3f8ff;color:#5384bb;display:grid;place-items:center;font-size:55px;border-radius:5px}
+.cost-by-vehicle-page .vc-photo{width:90px;height:75px;object-fit:contain}
+.cost-by-vehicle-page dl{font-size:10px;margin:0}
+.cost-by-vehicle-page dl>div{display:flex;justify-content:space-between;gap:8px;padding:6px 0;border-bottom:1px solid #edf2f8}
+.cost-by-vehicle-page dt{font-weight:400;color:#536b99;flex-shrink:0}
+.cost-by-vehicle-page dd{text-align:right;margin:0;overflow-wrap:anywhere}
+.cost-by-vehicle-page .vc-analytics{min-width:0}
+.cost-by-vehicle-page .vc-kpis{display:grid;grid-template-columns:repeat(5,minmax(0,1fr));gap:6px;margin-bottom:8px}
+.cost-by-vehicle-page .vc-kpi{padding:10px 8px;border:1px solid #e3ebf6;border-radius:5px;display:flex;align-items:start;gap:7px;min-width:0}
+.cost-by-vehicle-page .vc-kpi>div{min-width:0}
+.cost-by-vehicle-page .vc-kpi strong{display:block;font-size:15px;line-height:1.4;white-space:nowrap;font-variant-numeric:tabular-nums;overflow-x:auto}
+.cost-by-vehicle-page .vc-kpi small{display:block;font-size:9px;color:#536b99}
+.cost-by-vehicle-page .vc-kpi-icon{display:grid;place-items:center;background:#eaf3ff;color:#1677ff;font-size:18px;width:30px;height:35px;border-radius:5px;flex-shrink:0}
+.cost-by-vehicle-page .vc-delta{display:block;font-size:8px;color:#647aa5;line-height:1.5;margin-top:3px}
+.cost-by-vehicle-page .vc-chart-grid{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:7px}
+.cost-by-vehicle-page .vc-chart{padding:9px 7px;border:1px solid #e3ebf6;border-radius:5px;min-width:0}
+.cost-by-vehicle-page .vc-plot{height:185px;position:relative;margin-top:7px;min-width:0}
+.cost-by-vehicle-page .vc-empty{color:#647aa5;font-size:12px;display:grid;place-items:center;min-height:100px;height:100%;padding:15px;text-align:center}
+.cost-by-vehicle-page .vc-history-note{padding:8px 13px;border-top:1px solid #e3ebf6;color:#647aa5;font-size:11px}
+.cost-by-vehicle-page .vc-efficiency td:first-child{min-width:230px}
+@media(max-width:1500px){.cost-by-vehicle-page .vc-heading{flex-direction:column;align-items:stretch}.cost-by-vehicle-page .vc-filters{justify-content:flex-start}.cost-by-vehicle-page .vc-performance{grid-template-columns:200px minmax(0,1fr)}.cost-by-vehicle-page .vc-kpi-icon{display:none}.cost-by-vehicle-page .vc-kpi strong{font-size:13px}.cost-by-vehicle-page .vc-chart-grid{grid-template-columns:repeat(2,minmax(0,1fr))}}
+@media(max-width:1000px){.cost-by-vehicle-page .vc-section-heading{flex-wrap:wrap}.cost-by-vehicle-page .vc-kpis{grid-template-columns:repeat(3,minmax(0,1fr))}.cost-by-vehicle-page .vc-selection{flex-wrap:wrap}.cost-by-vehicle-page .vc-selection select{width:200px}}
+@media(max-width:700px){.cost-by-vehicle-page .vc-performance{grid-template-columns:1fr}.cost-by-vehicle-page .vc-profile{display:grid;grid-template-columns:1fr 1fr;gap:10px}.cost-by-vehicle-page .vc-filters{display:grid;grid-template-columns:1fr 1fr}.cost-by-vehicle-page .vc-filters label,.cost-by-vehicle-page .vc-filters select,.cost-by-vehicle-page .vc-filters input{width:100%;max-width:none}.cost-by-vehicle-page .vc-filters button{grid-column:1/-1}.cost-by-vehicle-page .vc-selection{width:100%}.cost-by-vehicle-page .vc-selection label{width:100%}.cost-by-vehicle-page .vc-selection select{width:100%;max-width:none}.cost-by-vehicle-page .vc-kpis{grid-template-columns:repeat(2,minmax(0,1fr))}}
+@media(max-width:420px){.cost-by-vehicle-page .vc-chart-grid,.cost-by-vehicle-page .vc-profile{grid-template-columns:1fr}.cost-by-vehicle-page .vc-plot{height:210px}}
+/* Compact Vehicle Performance Analytics; financial tables and filters are unchanged. */
+.cost-by-vehicle-page .vc-performance{grid-template-columns:minmax(190px,22fr) minmax(0,78fr);align-items:start;gap:10px;padding:0 10px 10px}
+.cost-by-vehicle-page .vc-profile{align-self:start;padding:10px}
+.cost-by-vehicle-page .vc-identity{gap:8px;margin-bottom:8px;flex-wrap:nowrap}
+.cost-by-vehicle-page .vc-identity>div:last-child{min-width:0}
+.cost-by-vehicle-page .vc-identity h3{font-size:15px;overflow-wrap:anywhere}
+.cost-by-vehicle-page .vc-identity p{font-size:10px}
+.cost-by-vehicle-page .vc-truck{width:58px;height:50px;flex:0 0 58px;font-size:36px}
+.cost-by-vehicle-page .vc-photo{width:58px;height:50px;flex:0 0 58px}
+.cost-by-vehicle-page .vc-profile dl>div{display:grid;grid-template-columns:minmax(72px,.9fr) minmax(0,1.1fr);gap:8px;padding:5px 0;align-items:start}
+.cost-by-vehicle-page .vc-profile dt{white-space:normal;line-height:1.45}
+.cost-by-vehicle-page .vc-profile dd{line-height:1.45}
+.cost-by-vehicle-page .vc-kpis{grid-template-columns:repeat(5,minmax(0,1fr));gap:6px;margin-bottom:8px;align-items:stretch}
+.cost-by-vehicle-page .vc-kpi{padding:7px 8px;gap:6px;align-items:flex-start}
+.cost-by-vehicle-page .vc-kpi strong{font-size:13px;line-height:1.35}
+.cost-by-vehicle-page .vc-kpi small{font-size:10px;line-height:1.35;margin-top:1px}
+.cost-by-vehicle-page .vc-kpi-icon{display:grid;width:23px;height:28px;font-size:15px}
+.cost-by-vehicle-page .vc-delta{font-size:9px;line-height:1.35;margin-top:2px}
+.cost-by-vehicle-page .vc-chart-grid{grid-template-columns:repeat(2,minmax(0,1fr));gap:8px;align-items:start}
+.cost-by-vehicle-page .vc-chart{padding:8px;align-self:start}
+.cost-by-vehicle-page .vc-chart h3{font-size:12px;line-height:16px;margin:0}
+.cost-by-vehicle-page .vc-plot{height:138px;margin-top:4px}
+@media(min-width:1101px) and (max-width:1350px){.cost-by-vehicle-page .vc-kpi-icon{display:none}.cost-by-vehicle-page .vc-kpi{padding:7px 6px}}
+@media(max-width:1100px){.cost-by-vehicle-page .vc-performance{grid-template-columns:1fr}.cost-by-vehicle-page .vc-profile{display:grid;grid-template-columns:minmax(150px,.7fr) minmax(0,1.3fr);gap:14px}.cost-by-vehicle-page .vc-identity{align-self:start;margin:0}.cost-by-vehicle-page .vc-profile dl{display:grid;grid-template-columns:1fr 1fr;column-gap:14px}.cost-by-vehicle-page .vc-kpi-icon{display:none}.cost-by-vehicle-page .vc-plot{height:148px}}
+@media(max-width:700px){.cost-by-vehicle-page .vc-profile{grid-template-columns:1fr}.cost-by-vehicle-page .vc-profile dl{grid-template-columns:1fr}.cost-by-vehicle-page .vc-kpis{grid-template-columns:repeat(2,minmax(0,1fr))}.cost-by-vehicle-page .vc-kpi-icon{display:grid}.cost-by-vehicle-page .vc-plot{height:180px}}
+@media(max-width:480px){.cost-by-vehicle-page .vc-chart-grid{grid-template-columns:1fr}.cost-by-vehicle-page .vc-plot{height:195px}}
+/* Reference layout: all four analytics charts share one desktop row. */
+@media(min-width:1101px){
+.cost-by-vehicle-page .vc-chart-grid{grid-template-columns:repeat(4,minmax(0,1fr));gap:7px}
+.cost-by-vehicle-page .vc-chart{padding:8px 6px}
+.cost-by-vehicle-page .vc-chart h3{font-size:11px;line-height:15px;min-height:30px}
+.cost-by-vehicle-page .vc-plot{height:145px;margin-top:3px}
+}
+.cost-by-vehicle-page .vc-floating-tooltip{position:fixed;z-index:1080;pointer-events:none;width:max-content;max-width:calc(100vw - 16px);padding:11px 13px;border:1px solid #24334b;border-radius:7px;background:#0f172a;color:#e2e8f0;box-shadow:0 5px 18px #0f172a26;font-size:11px;line-height:1.5}
+.cost-by-vehicle-page .vc-floating-tooltip[hidden]{display:none!important}
+.cost-by-vehicle-page .vc-tip-title{font-weight:600;color:#fff;white-space:nowrap}
+.cost-by-vehicle-page .vc-tip-row{display:flex;align-items:center;gap:6px;white-space:nowrap}
+.cost-by-vehicle-page .vc-tip-row:first-of-type{margin-top:5px}
+.cost-by-vehicle-page .vc-tip-row i{width:8px;height:8px;border-radius:2px;flex:0 0 8px}
+.cost-by-vehicle-page .vc-tip-footer{font-weight:600;white-space:nowrap;color:#fff}

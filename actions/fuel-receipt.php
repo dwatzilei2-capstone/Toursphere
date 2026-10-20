@@ -11,6 +11,7 @@ if (!$record) { http_response_code(404); exit('Receipt not found'); }
 if (has_role('driver') && (string)$record['driver_user_id'] !== (string)current_user()['id']) { http_response_code(403); exit('Forbidden'); }
 $path = fuel_receipt_path($record['receipt_filename'] ?? null);
 if (!$path || !in_array($record['receipt_mime'],['image/jpeg','image/png','application/pdf'],true)) { http_response_code(404); exit('Receipt not uploaded'); }
+if(!empty($record['receipt_sha256'])&&!hash_equals($record['receipt_sha256'],hash_file('sha256',$path))){http_response_code(409);exit('Receipt integrity check failed');}
 header('Cache-Control: private, no-store');header('X-Content-Type-Options: nosniff');
 if (($_GET['info'] ?? '') === '1') {
     header('Content-Type: application/json; charset=UTF-8');

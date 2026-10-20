@@ -172,3 +172,176 @@
     transition-delay: 0ms !important;
   }
 }
+/* Reuse the standard TourSphere modal, with scrolling inside the evaluation. */
+.trip-performance-page #modal-trip-performance .tc-modal {
+  max-height: calc(var(--tc-visible-height, 100dvh) - 2rem);
+}
+.trip-performance-page #modal-trip-performance .performance-modal-body {
+  overflow-y: auto;
+  min-height: 0;
+  overflow-wrap: anywhere;
+}
+.trip-performance-page #modal-trip-performance :is(.tc-card-header, .tc-card-footer) {
+  flex-shrink: 0;
+}
+.trip-performance-page .performance-evidence-table {
+  table-layout: fixed;
+  min-width: 620px;
+  font-size: 13px;
+}
+.trip-performance-page .performance-evidence-table th:nth-child(1) { width: 23%; }
+.trip-performance-page .performance-evidence-table th:nth-child(2) { width: 43%; }
+.trip-performance-page .performance-evidence-table th:nth-child(3) { width: 34%; }
+.trip-performance-page .performance-evidence-table td { padding: 8px 10px; }
+.trip-performance-page .performance-evidence-summary {
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  line-height: 1.4;
+}
+/* Trip evaluation presentation only; surrounding page and shared modals stay unchanged. */
+#modal-trip-performance .tc-modal {
+  width: min(980px, 100%);
+  max-width: 980px;
+  max-height: calc(100dvh - 32px);
+  border-radius: 12px;
+  color: #17304f;
+}
+#modal-trip-performance > .tc-modal > .tc-card-header {
+  padding: 16px 20px;
+  background: #fff;
+  border-bottom: 1px solid #e4ebf5;
+  min-height: 58px;
+}
+#modal-trip-performance .performance-modal-body {
+  padding: 16px 20px;
+  background: #fff;
+  font-size: 13px;
+  overflow-x: hidden;
+  overscroll-behavior: contain;
+  scrollbar-gutter: stable;
+}
+#modal-trip-performance .performance-trip-summary {
+  padding: 12px 14px !important;
+  margin-bottom: 14px !important;
+  background: linear-gradient(180deg, #f7faff, #fff);
+  border-color: #dce6f3 !important;
+}
+#modal-trip-performance .performance-trip-summary > .row {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  margin: 10px 0 0;
+  gap: 0;
+  border-top: 1px solid #e4ebf5;
+  padding-top: 10px;
+}
+#modal-trip-performance .performance-trip-summary > .row > div {
+  width: auto;
+  padding: 0 12px;
+  border-right: 1px solid #dce6f3;
+  line-height: 1.6;
+}
+#modal-trip-performance .performance-trip-summary > .row > div:first-child { padding-left: 0; }
+#modal-trip-performance .performance-trip-summary > .row > div:last-child { border: 0; }
+#modal-trip-performance .performance-trip-summary > .row strong { display: block; color: #17304f; font-size: 11px; }
+#modal-trip-performance .performance-section {
+  border: 1px solid #dce6f3;
+  border-radius: 7px;
+  margin-bottom: 14px;
+  padding: 12px;
+  min-width: 0;
+}
+#modal-trip-performance .performance-section-title {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  font-size: 14px;
+  font-weight: 700;
+  padding: 0 0 10px;
+  margin: 0 0 8px;
+  border-bottom: 1px solid #e4ebf5;
+}
+#modal-trip-performance .performance-section-title i { color: #1478ff; font-size: 20px; }
+#modal-trip-performance .performance-evidence-section > p { font-size: 11px; line-height: 1.5; margin-bottom: 8px; }
+#modal-trip-performance :is(.form-control, .form-select, .tc-form-control, .tc-form-select) {
+  font-size: 12px;
+  border-color: #d6e1ee;
+  border-radius: 4px;
+  min-height: 32px;
+  padding: 5px 9px;
+}
+#modal-trip-performance :is(.tc-form-label, label, legend) { font-size: 11px; }
+#modal-trip-performance input[type='checkbox'] { accent-color: #1478ff; }
+#modal-trip-performance textarea { resize: vertical; }
+#modal-trip-performance .table { font-size: 12px; margin-bottom: 8px; }
+#modal-trip-performance .table th { background: #f5f8fd; font-size: 11px; padding: 8px; border-color: #e4ebf5; }
+#modal-trip-performance .table td { padding: 8px; border-color: #e4ebf5; vertical-align: top; }
+#modal-trip-performance .performance-evidence-table { min-width: 0; }
+#modal-trip-performance .performance-evidence-summary { -webkit-line-clamp: unset; display: block; overflow-wrap: anywhere; }
+#modal-trip-performance .performance-matrix table { table-layout: fixed; width: 100%; }
+#modal-trip-performance .performance-matrix th:nth-child(1) { width: 27%; }
+#modal-trip-performance .performance-matrix th:nth-child(2) { width: 8%; }
+#modal-trip-performance .performance-matrix th:nth-child(3) { width: 16%; }
+#modal-trip-performance .performance-matrix td:first-child { white-space: normal !important; }
+#modal-trip-performance .performance-matrix td:last-child { min-width: 0 !important; }
+#modal-trip-performance .performance-matrix input[type='number'] { width: 100% !important; }
+#modal-trip-performance .performance-matrix summary { font-size: 11px; }
+#modal-trip-performance .performance-delay {
+  padding: 12px 0 4px;
+  margin-top: 10px !important;
+  border-top: 1px solid #dce6f3;
+}
+#modal-trip-performance details { min-width: 0; }
+#modal-trip-performance summary { cursor: pointer; list-style: none; line-height: 1.6; }
+#modal-trip-performance summary::-webkit-details-marker { display: none; }
+#modal-trip-performance summary::before { content: '+'; display: inline-block; width: 16px; color: #3579c9; font-weight: 600; }
+#modal-trip-performance details[open] > summary::before { content: '−'; }
+#modal-trip-performance summary:focus-visible { outline: 2px solid #1478ff; outline-offset: 3px; border-radius: 3px; }
+#modal-trip-performance .performance-audit > summary { font-size: 13px; font-weight: 600; }
+#modal-trip-performance .performance-audit-change { background: #f8faff; border-radius: 5px; padding: 10px; margin-top: 7px; }
+#modal-trip-performance .performance-audit-change h6 { font-size: 11px; margin: 8px 0; }
+#modal-trip-performance .performance-facts > div { display: grid; grid-template-columns: minmax(120px, 30%) 1fr; gap: 12px; padding: 3px 0; border-bottom: 1px solid #ecf1f8; }
+#modal-trip-performance .performance-facts dt { font-size: 11px; font-weight: 500; }
+#modal-trip-performance .performance-facts dd { margin: 0; font-size: 11px; overflow-wrap: anywhere; }
+#modal-trip-performance > .tc-modal > .tc-card-footer {
+  display: flex;
+  justify-content: flex-end;
+  align-items: center;
+  gap: 10px;
+  padding: 12px 20px;
+  background: #fff;
+  border-top: 1px solid #e4ebf5;
+}
+#modal-trip-performance .performance-submit-actions { display: flex; flex-wrap: wrap; gap: 8px; }
+#modal-trip-performance .tc-btn { font-size: 12px; min-height: 32px; border-radius: 5px; }
+#modal-trip-performance .performance-evidence-section fieldset { padding: 8px 10px; background: #f7faff; border-radius: 5px; }
+@media (max-width: 767px) {
+  #modal-trip-performance { padding: 10px; }
+  #modal-trip-performance .tc-modal { max-height: calc(100dvh - 20px); }
+  #modal-trip-performance .performance-modal-body { padding: 12px; }
+  #modal-trip-performance .performance-trip-summary > .row { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px 0; }
+  #modal-trip-performance .performance-trip-summary > .row > div:nth-child(3) { padding-left: 0; }
+  #modal-trip-performance .performance-trip-summary > .row > div:nth-child(2) { border-right: 0; }
+  #modal-trip-performance .performance-matrix :is(table, tbody, tr, td),
+  #modal-trip-performance .performance-evidence-table :is(tbody, tr, td) { display: block; width: 100%; }
+  #modal-trip-performance .performance-matrix thead,
+  #modal-trip-performance .performance-evidence-table thead { display: none; }
+  #modal-trip-performance :is(.performance-matrix, .performance-evidence-table) tr { border: 1px solid #e4ebf5; border-radius: 5px; margin-bottom: 10px; padding: 6px; }
+  #modal-trip-performance :is(.performance-matrix, .performance-evidence-table) td { border: 0; padding: 5px; }
+  #modal-trip-performance .performance-matrix td:nth-child(2)::before { content: 'Weight: '; color: #68788f; }
+  #modal-trip-performance .performance-matrix td:nth-child(3)::before { content: 'Score / 100'; display: block; margin-bottom: 4px; color: #68788f; }
+  #modal-trip-performance .performance-matrix td:first-child { font-weight: 600; }
+  #modal-trip-performance .performance-facts > div { grid-template-columns: 1fr; gap: 0; }
+  #modal-trip-performance > .tc-modal > .tc-card-footer { padding: 10px 12px; flex-wrap: wrap; }
+  #modal-trip-performance .performance-submit-actions { flex: 1; justify-content: flex-end; }
+}
+#modal-trip-performance .performance-evaluation-guide { padding: 12px; background: #f4f8ff; border: 1px solid #dce6f3; border-radius: 6px; }
+#modal-trip-performance .performance-evaluation-guide ol { padding-left: 20px; margin-top: 6px; }
+#modal-trip-performance .performance-matrix td:first-child .small { font-weight: 400; line-height: 1.5; }
+#modal-trip-performance [aria-invalid='true'] { border-color: #b76013; box-shadow: 0 0 0 1px #b76013; }
+#modal-trip-performance .performance-validation-link { background: none; border: 0; padding: 3px 0; text-align: left; color: inherit; font-size: 12px; text-decoration: underline; }
+#modal-trip-performance .performance-validation-summary ul { padding-left: 18px; margin-bottom: 0; }
+.trip-performance-page .performance-score-chart-scroll { width: 100%; overflow-x: auto; overflow-y: hidden; overscroll-behavior-inline: contain; padding-bottom: 8px; }
+.trip-performance-page .performance-score-chart-scroll:focus-visible { outline: 2px solid #2f80ed; outline-offset: 3px; border-radius: 5px; }

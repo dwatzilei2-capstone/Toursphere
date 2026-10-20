@@ -35,7 +35,7 @@ function audit_ui_module(?string $module): string {
         'vehicle','vehicles','vehicle_documents','vehicle_photos'=>'Fleet & Vehicles',
         'reservation','reservations','reservation_events'=>'Reservations', 'trip','trips'=>'Trips',
         'driver','drivers','driver_ratings'=>'Driver Monitoring', 'security','users'=>'Login / Security',
-        'report','reports'=>'Reports', 'maintenance_orders'=>'Maintenance', 'fuel_transactions'=>'Fuel Management',
+        'report','reports'=>'Reports', 'maintenance_orders'=>'Maintenance', 'fuel_transactions','fuel_operations','fuel_authorizations','fuel_shortage_reports'=>'Fuel Management',
         'vehicle_cost_ledger'=>'Cost Analysis', 'roles','role_permissions'=>'Access Management',
         'system_settings'=>'System Settings', 'operating_schedules','operating_schedule_days','scheduled_departures'=>'Schedules',
         ''=>'System', default=>audit_ui_label($module)

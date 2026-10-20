@@ -4,13 +4,11 @@
 
 ## Deployment
 
-Deploy the migration, PHP/JS/CSS files, placeholder, and every PNG in `assets/images/vehicle-samples/`. Run:
+Deploy the migration, PHP/JS/CSS files, and the placeholder. `database/migrations/2026_10_05_vehicle_photos.sql` creates the shared storage table and is already applied on existing installs; the former sample-seeding runner was removed with the illustrations. Vehicles without an uploaded photo show `assets/images/vehicle-placeholder.svg`.
 
-```powershell
-php scripts/migrate-vehicle-photos.php
-```
+## Built-in passenger illustrations removed
 
-The migration is idempotent. It associates samples by a digest of the stored brand, model, variant name (if present), type, and year. It never replaces an uploaded actual photo or changes operational records. Unknown/new model combinations receive the placeholder unless an actual photo is supplied. `manifest.json` contains the model catalog and the exact generation prompt for each sample; no vehicle-ID conditionals are used by the application. Samples were generated with the built-in image generator and are illustrations for testing, not photographs of the physical fleet.
+The Logistics 2 cargo change removed every generated passenger illustration, its `manifest.json` catalog, the `vehicle-samples` directory (about 25 MB), `scripts/migrate-vehicle-photos.php`, and the `vehicle_photo_sample_*` helpers. Vehicles that referenced an illustration keep their uploaded actual photo and otherwise fall back to the clean placeholder. `vehicle_photos.sample_filename` and `sample_label` remain only so retired pointers can be inspected; the application no longer reads or writes them.
 
 ## Uploads and display
 
@@ -20,7 +18,7 @@ Uploads require CSRF validation, successful HTTP upload provenance, matching ext
 
 Replacement locks the vehicle record, updates one photo record, retains its sample, and audits the change. Failed database writes roll back and remove the newly stored image. Old actual files are removed only after successful commit. No compliance-document files are used as photos.
 
-Resolution is actual → sample → placeholder, with filesystem existence checks on the server and image-error fallback in the browser. Every sample has a visible “Sample” label and accessible wording identifying it as an illustration. Thumbnail dimensions stay fixed and images use `object-fit: contain`.
+Resolution is uploaded image → placeholder, with filesystem existence checks on the server and image-error fallback in the browser. Placeholder imagery carries a visible “No photo” label and accessible wording. Thumbnail dimensions stay fixed and images use `object-fit: contain`.
 
 ## Verification
 
@@ -32,4 +30,4 @@ node tests/reservation_assignment_browser_test.js
 php tests/assignment_http_sessions.php --clean
 ```
 
-The photo browser test uses one explicitly named temporary vehicle and cleans its record, audit events, and test uploads. It verifies PNG/JPEG/WebP uploads, authorization/CSRF/content/size rejection, shared sources, replacement cleanup, source labels, selection, and responsive layouts. It does not upload photos to current fleet vehicles or confirm/dispatch reservations.
+The photo browser test uses one explicitly named temporary vehicle and cleans its record, audit events, and test uploads. It verifies PNG/JPEG/WebP uploads, authorization/CSRF/content/size rejection, shared sources, replacement cleanup, placeholder labels, selection, and responsive layouts. It does not upload photos to current fleet vehicles or confirm/dispatch reservations.

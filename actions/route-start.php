@@ -5,6 +5,7 @@ require_once dirname(__DIR__) . '/includes/bootstrap.php';
 require_once dirname(__DIR__) . '/includes/routethink_engine.php';
 require_once ROOT_PATH . '/includes/vehicle_compliance.php';
 require_once ROOT_PATH . '/includes/driver_vehicle_assignment.php';
+require_once ROOT_PATH . '/includes/driver_license.php';
 require_once ROOT_PATH.'/includes/route_planner_state.php';
 require_login();
 if(session_status()===PHP_SESSION_ACTIVE)session_write_close();
@@ -15,7 +16,7 @@ if (!has_role('driver') && (!empty($_POST['trip_id']) || !empty($_POST['reservat
     exit;
 }
 
-if (!can('ai.manage') && !can('ai.navigate')) {
+if ((!has_role('driver') && !has_role('fleet_admin')) || (!can('ai.manage') && !can('ai.navigate'))) {
     http_response_code(403);
     echo json_encode(['ok' => false, 'error' => 'You do not have permission to start route navigation.']);
     exit;
@@ -169,6 +170,12 @@ try {
         $vehStmt->execute([$vehicleId]);
         $vehicle = $vehStmt->fetch();
         if (!$vehicle) throw new RuntimeException('The assigned vehicle could not be found.');
+        if ($trip) {
+            $licenseDriver = $pdo->prepare('SELECT * FROM drivers WHERE id=? FOR UPDATE');
+            $licenseDriver->execute([$driverId]);
+            if ($licenseIssue = driver_license_eligibility($vehicle,$licenseDriver->fetch() ?: [])) throw new RuntimeException($licenseIssue);
+        }
+
         $compliance = vehicle_operational_compliance($pdo, $vehicleId);
         if (!$compliance['operational']) {
             throw new RuntimeException('Vehicle cannot start an actual trip because required compliance documents are incomplete or invalid. ' . $compliance['reason']);

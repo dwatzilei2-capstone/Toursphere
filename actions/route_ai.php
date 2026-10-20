@@ -27,11 +27,18 @@ try {
         exit;
     }
 
+    if (!has_role('driver') && !has_role('fleet_admin')) {
+        http_response_code(403); echo json_encode(['ok'=>false,'error'=>'Route generation is restricted to Drivers and isolated Admin testing.']); exit;
+    }
+    if (has_role('fleet_admin') && trim($_POST['trip_id'] ?? '') !== '') {
+        http_response_code(403); echo json_encode(['ok'=>false,'error'=>'Operational trip routes are read-only for Admin.']); exit;
+    }
     $origin          = sanitize_text($_POST['origin'] ?? '');
     $destination     = sanitize_text($_POST['destination'] ?? '');
-    $vehicle         = sanitize_text($_POST['vehicle'] ?? 'Tour Bus');
+    $vehicle         = sanitize_text($_POST['vehicle'] ?? '');
     $mode            = sanitize_text($_POST['mode'] ?? 'balanced');
-    $passengerCount  = max(0, (int)($_POST['passenger_count'] ?? 0));
+    $passengerCount = 0;
+    $cargoWeight = null; // Admin tests have no operational cargo record.
     $routePhase      = ($_POST['route_phase'] ?? '') === 'return' ? 'return' : 'outbound';
     $waypointsRaw    = $_POST['waypoints'] ?? [];
     $candidatesRaw   = $_POST['candidates'] ?? [];
@@ -60,7 +67,9 @@ try {
         $origin = $allowedOrigin;
         $destination = $allowedDestination;
         $vehicle = $trustedTrip['vehicle_id'];
-        $passengerCount = (int)$trustedTrip['passengers'];
+        $cargoQuery=db()->prepare('SELECT cargo_weight_kg FROM reservations WHERE id=?');
+        $cargoQuery->execute([$trustedTrip['reservation_id']]);
+        $cargoWeight=$cargoQuery->fetchColumn();
         $waypointsRaw = $routePhase === 'return'
             ? '[]'
             : json_encode(array_values(array_filter(array_map('trim', preg_split('/[;\n]+/', $trustedTrip['waypoints'] ?? '') ?: []))));
@@ -89,6 +98,8 @@ try {
 
      
     $vehicleSpecs = RouteThinkEngine::getVehicleSpecs($vehicle);
+    $payload=(float)($vehicleSpecs['payload_capacity_kg'] ?? 0);
+    $vehicleSpecs['cargo_load_ratio']=$payload>0 && is_numeric($cargoWeight) ? min(1,max(0,(float)$cargoWeight/$payload)) : 0;
 
      
     if (!empty($candidates)) {

@@ -21,6 +21,7 @@ try{
   $routeMark('load');$routeTimingFinish();echo json_encode(['ok'=>true,'state'=>$row,'trip_status'=>$scope['trip']['status']??null,'navigation_active'=>$scope['trip']['navigation_active']??0,'current_step'=>$scope['trip']['current_step']??null]);exit;
  }
  if($_SERVER['REQUEST_METHOD']!=='POST'){http_response_code(405);exit;}
+ if(!has_role('driver') && !has_role('fleet_admin')){http_response_code(403);echo json_encode(['ok'=>false,'error'=>'Monitoring access is read-only.']);exit;}
  if($scope['trip'] && !has_role('driver')){http_response_code(403);echo json_encode(['ok'=>false,'error'=>'Trip routes are read-only for non-Driver users.']);exit;}
  if(!is_string($_POST['csrf']??null)||empty($_SESSION['route_state_csrf'])||!hash_equals($_SESSION['route_state_csrf'],$_POST['csrf']))throw new DomainException('Route Planner session expired.');
  $json=route_planner_decode_state((string)($_POST['state']??''),(string)($_POST['state_encoding']??''));
@@ -32,6 +33,15 @@ try{
  $routeMark('validate');
  $pdo=db();$pdo->beginTransaction();$pdo->exec("SET LOCAL lock_timeout='5s'; SET LOCAL statement_timeout='10s'");$pdo->prepare('SELECT pg_advisory_xact_lock(hashtext(?))')->execute([$scope['key']]);$existing=route_planner_load($pdo,$scope['key']);
  $routeMark('lock_load');
+ if(!empty($_POST['reroute']))throw new DomainException('The applied route cannot be replaced.');
+ if(!empty($existing['state_data']['applied'])){
+  if($lifecycle==='APPLIED')throw new DomainException('This route has already been applied.');
+  if(($existing['state_data']['inputs']??null)!=$state['inputs'] ||
+     $existing['state_data']['applied']!=($state['applied']??null) ||
+     $existing['state_data']['selected']!=($state['selected']??null) ||
+     $existing['state_data']['directions']!=$state['directions'])throw new DomainException('The applied route is locked.');
+ }
+
  if($existing && (int)($_POST['revision']??0)!==(int)$existing['revision']){$routeErrorCode='ROUTE_REVISION_CONFLICT';throw new DomainException('Route state changed in another page. Reload before applying.');}
  if($scope['trip']){
   $q=$pdo->prepare('SELECT * FROM trips WHERE id=? FOR UPDATE');$q->execute([$scope['trip']['id']]);$trip=$q->fetch();
@@ -48,14 +58,6 @@ try{
  if($navigationActive && empty($_POST['reroute']) && (!$sameInputs || ($existing['state_data']['applied']??null)!=($state['applied']??null)))throw new DomainException('The active navigation route cannot be replaced.');
  if($existing && $sameInputs && $lifecycle==='GENERATED' && !empty($existing['state_data']['applied'])){
   $state['applied']=$existing['state_data']['applied'];$lifecycle=$existing['lifecycle'];
- }
- if($existing && $existing['lifecycle']==='NAVIGATING' && !empty($_POST['reroute']) && ($existing['state_data']['applied']['mode']??'')!==($state['applied']['mode']??''))throw new DomainException('Rerouting must preserve the applied optimization mode.');
- if(!empty($_POST['reroute'])){
-  if(!$existing || $existing['lifecycle']!=='NAVIGATING' || $lifecycle!=='NAVIGATING')throw new DomainException('Rerouting requires an existing active navigation session.');
-  $route=$state['applied'];$legs=$route['directions']['routes'][$route['evaluation']['selectedIndex']]['legs'];
-  $payload=['mode'=>$route['mode'],'phase'=>$scope['phase'],'routeId'=>$route['routeId'],'directions'=>$route['directions'],'route'=>$route['data'],'selectedCandidate'=>$route['evaluation']['selectedCandidate'],'destinationLocation'=>$legs[array_key_last($legs)]['end_location']];
-  if($scope['trip'])$pdo->prepare('UPDATE route_history SET route_data_json=? WHERE log_id=? AND trip_id=?')->execute([json_encode($payload),$trip['route_history_id'],$trip['id']]);
-  else $pdo->prepare("UPDATE route_history SET route_data_json=? WHERE created_by=? AND NULLIF(route_data_json,'')::jsonb->>'routeId'=?")->execute([json_encode($payload),current_user()['id'],$existing['state_data']['applied']['routeId']]);
  }
  $revision=($existing['revision']??0)+1;
  $routeMark('trip_checks');

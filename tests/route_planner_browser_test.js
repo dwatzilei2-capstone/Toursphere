@@ -1,4 +1,4 @@
-const fs=require('node:fs'),assert=require('node:assert/strict');
+const fs=require('node:fs'),assert=require('node:assert/strict'),zlib=require('node:zlib');
 const {chromium}=require('C:/Users/LAPTOP-3DS/.cache/codex-runtimes/codex-primary-runtime/dependencies/node/node_modules/playwright');
 const sessions=JSON.parse(fs.readFileSync(`${__dirname}/../tmp/assignment-test-sessions.json`,'utf8'));
 const fixture=JSON.parse(fs.readFileSync(`${__dirname}/../tmp/route-planner-evaluations.json`,'utf8'));
@@ -6,7 +6,7 @@ const fixture=JSON.parse(fs.readFileSync(`${__dirname}/../tmp/route-planner-eval
  const browser=await chromium.launch({headless:true,channel:'msedge'});let checks=0;
  const check=(ok,label)=>{assert.ok(ok,label);checks++;};
  try{
-  for(const role of ['fleet_admin','dispatcher','driver']){
+  for(const role of ['fleet_admin','driver']){
    const context=await browser.newContext();await context.addCookies([{name:'PHPSESSID',value:sessions[role],domain:'localhost',path:'/'}]);
    const page=await context.newPage();let record=null,active=0,generations=0;const errors=[];
    page.on('pageerror',error=>errors.push(error.message));
@@ -21,7 +21,7 @@ const fixture=JSON.parse(fs.readFileSync(`${__dirname}/../tmp/route-planner-eval
    await page.route('**/actions/route-planner-state.php*',async route=>{
     if(route.request().method()==='POST'){
      const body=new URLSearchParams(route.request().postData());assert.equal(Number(body.get('revision')),record?.revision||0);
-     record={revision:(record?.revision||0)+1,lifecycle:body.get('lifecycle'),state_data:JSON.parse(body.get('state'))};
+     record={revision:(record?.revision||0)+1,lifecycle:body.get('lifecycle'),state_data:JSON.parse(body.get('state_encoding')==='gzip-base64'?zlib.gunzipSync(Buffer.from(body.get('state'),'base64')).toString():body.get('state'))};
      await route.fulfill({json:{ok:true,revision:record.revision}});
     }else await route.fulfill({json:{ok:true,state:record,navigation_active:active}});
    });
@@ -34,12 +34,12 @@ const fixture=JSON.parse(fs.readFileSync(`${__dirname}/../tmp/route-planner-eval
     await page.waitForFunction(()=>Boolean(window.aiRouteEngine));
     await page.evaluate(({fixture,role})=>{
      class LatLng{constructor(lat,lng){this.a=lat;this.b=lng;}lat(){return this.a;}lng(){return this.b;}equals(other){return this.a===other.lat()&&this.b===other.lng();}toJSON(){return {lat:this.a,lng:this.b};}}
-     class Polyline{constructor(options){this.path=options.path;this.map=options.map;}setMap(map){this.map=map;}getPath(){return {getLength:()=>this.path.length};}}
+     class Polyline{constructor(options){this.path=options.path;this.map=options.map;}setMap(map){this.map=map;}setPath(path){this.path=path;}getPath(){return {getLength:()=>this.path.length};}}
      window.google={maps:{LatLng,Polyline,LatLngBounds:class{},TravelMode:{DRIVING:'DRIVING'},TrafficModel:{BEST_GUESS:'BEST_GUESS'},DirectionsStatus:{OK:'OK'}}};
-     Object.assign(window.TC_ROUTE_CONTEXT,{tripId:'TEST-T',reservationId:'TEST-R',vehicleId:'TEST-V',tripStatus:'Dispatched',hasActiveTrip:true,passengerCount:5,waypoints:[],isDriver:role==='driver',canApply:true,routePhase:'outbound'});
+     Object.assign(window.TC_ROUTE_CONTEXT,{tripId:'TEST-T',reservationId:'TEST-R',vehicleId:'TEST-V',tripStatus:'Dispatched',hasActiveTrip:true,cargoWeightKg:500,waypoints:[],isDriver:role==='driver',canApply:true,routePhase:'outbound'});
      const origin=document.getElementById('route-origin-input'),destination=document.getElementById('route-dest-input'),vehicle=document.getElementById('route-vehicle-select');
      origin.value='Origin';destination.value='Destination';
-     const option=new Option('Test vehicle','Test vehicle');Object.assign(option.dataset,{vehicleId:'TEST-V',consumption:'9.5',fuelPrice:'95.95',capacity:'15'});vehicle.add(option);vehicle.value='Test vehicle';
+     const option=new Option('Test vehicle','Test vehicle');Object.assign(option.dataset,{vehicleId:'TEST-V',consumption:'9.5',fuelPrice:'95.95',payloadCapacityKg:'2000'});vehicle.add(option);vehicle.value='Test vehicle';
      document.getElementById('waypoints-container').replaceChildren();
      const engine=window.aiRouteEngine;engine.map={};engine.fitMapBounds=()=>{};engine.acquireNavigationPosition=()=>{};engine.acquireDriverPlanningPosition=()=>{};
      engine.directionsRenderer={setMap(){},setOptions(){},setDirections(){},setRouteIndex(index){window.testRenderedRouteIndex=index;}};
@@ -51,16 +51,22 @@ const fixture=JSON.parse(fs.readFileSync(`${__dirname}/../tmp/route-planner-eval
    }
    for(const [mode,winner] of Object.entries({fastest:0,shortest:1,fuelEfficient:2,balanced:2})){
     record=null;active=0;await openPlanner();
+    check(await page.locator('#route-preset-select, #tourist-destination-quickpick').count()===0,`${role} ${mode}: obsolete preset and tourism controls removed`);
+    check(!/Tourism layer disabled|Tourism recommendations unavailable|Select a preset/.test(await page.locator('main').count()?await page.locator('main').innerText():await page.locator('body').innerText()),`${role} ${mode}: no obsolete tourism labels`);
+    const initialCost=await page.locator('#ai-res-cost').textContent(); check(initialCost==='\u2014',`${role} ${mode}: no cost before generation (${JSON.stringify(initialCost)})`);
     await page.locator('#btn-generate-ai-route').click();await page.waitForFunction(()=>Boolean(aiRouteEngine.currentRouteData));
     await page.evaluate(async()=>{await aiRouteEngine.evaluationPromise;await aiRouteEngine.persistQueue;});generations++;
     // Compare all four objectives on the same generated directions before applying this mode.
     for(const [comparison,index] of Object.entries({fastest:0,shortest:1,fuelEfficient:2,balanced:2})){
      await page.locator(`.opt-option-card[data-mode="${comparison}"]`).click();
      check(await page.evaluate(index=>testRenderedRouteIndex===index&&aiRouteEngine.currentEvaluationData.selectedIndex===index,index),`${role} ${comparison}: renderer and metrics`);
+     check(await page.evaluate(index=>JSON.stringify(aiRouteEngine.selectedRoutePolyline.path)===JSON.stringify(aiRouteEngine.getDriverPlanningPath(aiRouteEngine.cachedDirectionsResponse.routes[index])),index),`${role} ${comparison}: drawn geometry matches selected alternative`);
      check(await page.locator('#ai-res-distance').textContent()===(await page.evaluate(()=>aiRouteEngine.currentRouteData.distance)),`${role} ${comparison}: results update`);
     }
     await page.locator(`.opt-option-card[data-mode="${mode}"]`).click();await page.locator('#btn-generate-ai-route').click();
     await page.waitForFunction(()=>document.getElementById('btn-generate-ai-route').textContent.endsWith('Applied'));
+    check(await page.locator('#ai-res-cost-label').textContent().then(t=>t.trim())==='Estimated Transportation Cost',`${role} ${mode}: cargo cost label`);
+    check(await page.locator('#ai-res-fuel-label').textContent()==='Estimated Fuel Cost',`${role} ${mode}: fuel cost label`);
     const applied=await page.evaluate(()=>aiRouteEngine.appliedRoute.routeId);
     check(await page.locator('#btn-generate-ai-route').isDisabled(),`${role} ${mode}: applied disabled`);
     await page.goto('http://localhost/fleet/modules/fuel-management/fuel-overview.php',{waitUntil:'domcontentloaded'});await openPlanner();
@@ -74,6 +80,16 @@ const fixture=JSON.parse(fs.readFileSync(`${__dirname}/../tmp/route-planner-eval
    }
    check(errors.length===0,`${role}: browser errors: ${errors.join(', ')}`);console.log(`Browser workflows passed for ${role}.`);await context.close();
   }
-  console.log(`${checks} browser lifecycle checks passed; 12 independent mode/role workflows. Provider/state responses intercepted; no operational trip records changed.`);
+  const monitoring=await browser.newContext();
+  await monitoring.addCookies([{name:'PHPSESSID',value:sessions.dispatcher,domain:'localhost',path:'/'}]);
+  const monitorPage=await monitoring.newPage();
+  await monitorPage.route('**/maps.googleapis.com/**',route=>route.abort());
+  await monitorPage.goto('http://localhost/fleet/modules/ai-route-optimization/ai-route-planner.php',{waitUntil:'domcontentloaded'});
+  check(await monitorPage.locator('#btn-generate-ai-route').isDisabled(),'Dispatcher cannot generate or apply');
+  check(await monitorPage.evaluate(()=>TC_ROUTE_CONTEXT.readOnly && !TC_ROUTE_CONTEXT.canApply),'Dispatcher receives monitoring-only route context');
+  await monitorPage.goto('http://localhost/fleet/modules/ai-route-optimization/route-history.php',{waitUntil:'domcontentloaded'});
+  check(await monitorPage.locator('.tc-table thead th').count()===9,'Route History keeps its existing nine columns');
+  await monitoring.close();
+  console.log(`${checks} browser lifecycle checks passed; 8 independent mode/role workflows. Provider/state responses intercepted; no operational trip records changed.`);
  }finally{await browser.close();}
 })().catch(error=>{console.error(error);process.exitCode=1;});

@@ -1,0 +1,6 @@
+[
+ {"id":"TEST-CT-P01","vehicle_id":"TEST-VC-V01","date":"2025-05-14","status":"Completed","origin":"Manila pickup warehouse","destination":"Makati delivery warehouse","fuel":null,"maintenance":null,"toll":null,"other":null,"estimate":180000,"funding":200000,"distance":120,"test_data":true},
+ {"id":"TEST-CT-P02","vehicle_id":"TEST-VC-V02","date":"2026-09-16","status":"Completed","origin":"Valenzuela cargo hub","destination":"Cavite distribution center","fuel":null,"maintenance":null,"toll":null,"other":null,"estimate":220000,"funding":250000,"distance":145,"test_data":true},
+ {"id":"TEST-CT-P03","vehicle_id":"TEST-VC-V01","date":"2026-09-17","status":"In Progress","origin":"Pasig cargo hub","destination":"Laguna delivery depot","fuel":null,"maintenance":null,"toll":null,"other":null,"estimate":230000,"funding":260000,"distance":null,"test_data":true},
+ {"id":"TEST-CT-C01","vehicle_id":"TEST-VC-V01","date":"2026-09-18","status":"Cancelled","origin":"Manila cargo hub","destination":"Clark depot","fuel":null,"maintenance":null,"toll":null,"other":null,"estimate":240000,"funding":null,"distance":null,"test_data":true}
+]

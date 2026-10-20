@@ -67,6 +67,12 @@
           const formatted = monetary
             ? (window.fleetCurrencySymbol || '₱') + Number(value).toLocaleString(undefined, { maximumFractionDigits: 2 })
             : Number(value).toLocaleString(undefined, { maximumFractionDigits: 2 }) + (config?.max === 100 ? '%' : '');
+          const deliveryCounts = config?.delivery_counts?.[context.dataIndex];
+          const evaluationCounts = config?.evaluation_counts?.[context.dataIndex];
+          if (config?.tooltip_value_only) return Number(value).toLocaleString(undefined, {maximumFractionDigits: 2});
+          if (evaluationCounts) return [`On-Time score: ${Number(value).toLocaleString(undefined, {maximumFractionDigits: 2})}/100`, `Based on ${evaluationCounts.count} finalized evaluation${evaluationCounts.count === 1 ? '' : 's'}`];
+          if (config?.unit === 'score') return `${config.tooltip_label || 'Score'}: ${Number(value).toLocaleString(undefined, {maximumFractionDigits: 2})}/100`;
+          if (deliveryCounts) return [`${label}${label ? ': ' : ''}${formatted}`, `${deliveryCounts.on_time} of ${deliveryCounts.measurable} deliveries on time (${deliveryCounts.late} late)`, 'Delivery rate, not performance score'];
           return `${label}${label ? ': ' : ''}${formatted}`;
         };
       }
@@ -82,6 +88,11 @@
           if (axis === 'x') Object.assign(scale.ticks, { maxRotation: 0, autoSkip: true });
         }
       }
+      if (chart.canvas.id === 'chart-trip-performance-score') {
+        Object.assign(options.scales.y, {min: 0, max: 100, title: {display: true, text: 'Score / 100', color: text, font}, ticks: {...options.scales.y.ticks, stepSize: 20, maxTicksLimit: 6}});
+        Object.assign(options.scales.x, {offset: true, ticks: {...options.scales.x.ticks, autoSkip: false, maxTicksLimit: chart.data.labels.length, maxRotation: 0}});
+        options.interaction = {mode: 'index', intersect: false};
+      }
       for (const dataset of chart.data.datasets) {
         if (type === 'line') {
           Object.assign(dataset, { borderWidth: 2.5, pointRadius: chart.data.labels.length > 24 ? 0 : 3,
@@ -90,6 +101,7 @@
             pointBackgroundColor: dataset.borderColor,
             pointHoverBackgroundColor: dataset.borderColor });
           dataset.tension ??= .3;
+          if (chart.canvas.id === 'chart-trip-performance-score') Object.assign(dataset, {pointRadius: 4.5, pointHoverRadius: 6.5, tension: .22, cubicInterpolationMode: 'monotone'});
         } else if (type === 'bar') {
           dataset.borderRadius ??= 5;
           dataset.maxBarThickness ??= 48;

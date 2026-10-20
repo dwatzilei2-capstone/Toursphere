@@ -11,9 +11,8 @@ $record = vehicle_photo_records(db(), [$id])[$id] ?? [];
 $path = vehicle_photo_actual_path($record['actual_filename'] ?? null);
 $mime = $path ? ($record['actual_mime'] ?? '') : '';
 if (!$path || !in_array($mime, ['image/jpeg','image/png','image/webp'], true)) {
-    $path = vehicle_photo_sample_path($record['sample_filename'] ?? null);
-    $mime = $path ? 'image/png' : 'image/svg+xml';
-    $path ??= ROOT_PATH . '/assets/images/vehicle-placeholder.svg';
+    $path = ROOT_PATH . '/assets/images/vehicle-placeholder.svg';
+    $mime = 'image/svg+xml';
 }
 session_write_close();
 header('Content-Type: ' . $mime);

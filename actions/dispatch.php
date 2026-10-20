@@ -124,12 +124,14 @@ try {
     if ($maintenanceStmt->fetchColumn()) {
         throw new RuntimeException('The selected vehicle has an active maintenance repair and cannot be dispatched.');
     }
-    if ((int)$vehicle['capacity'] < $dispatchPassengerDemand) {
+    if (($r['request_kind']??'Passenger')==='Cargo' && ($issue=logistics_vehicle_issue($r,$vehicle))) throw new RuntimeException($issue);
+    if (($r['request_kind']??'Passenger')!=='Cargo' && (int)$vehicle['capacity'] < $dispatchPassengerDemand) {
         throw new RuntimeException('The selected vehicle does not have enough capacity for the scheduled passenger demand.');
     }
-    if ($r['customer_id'] && $vehicle['type'] !== $r['vehicle_requested']) {
+    if (($r['request_kind']??'Passenger')!=='Cargo' && $r['customer_id'] && $vehicle['type'] !== $r['vehicle_requested']) {
         throw new RuntimeException('The vehicle must match the customer-requested vehicle type.');
     }
+    if ($licenseIssue = driver_license_eligibility($vehicle,$driver,substr($departure_dt,0,10))) throw new RuntimeException($licenseIssue);
     if (driver_has_active_trip($pdo, $driver_id)) throw new RuntimeException($driver['name'] . ' is already On Trip and cannot be assigned.');
     if (!in_array($driver['status'], ['Active', 'Assigned'], true)) throw new RuntimeException($driver['name'] . ' is not available for dispatch.');
     if (vehicle_has_active_trip($pdo, $vehicle_id)) throw new RuntimeException($vehicle['plate_number'] . ' is already being used by an active trip.');

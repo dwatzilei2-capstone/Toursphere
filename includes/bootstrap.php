@@ -36,6 +36,7 @@ require_once dirname(__DIR__) . '/includes/settings.php';
 
 date_default_timezone_set(company_timezone());
 db()->prepare("SELECT set_config('TimeZone', ?, false)")->execute([company_timezone()]);
+db()->prepare("SELECT set_config('toursphere.app_env', ?, false)")->execute([strtolower((string)($_ENV['APP_ENV'] ?? (getenv('APP_ENV') ?: 'production')))]);
 
 require_once __DIR__ . '/notifications.php';
 load_current_user();

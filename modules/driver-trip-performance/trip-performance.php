@@ -2,95 +2,65 @@
  
 require_once dirname(__DIR__, 2) . '/includes/bootstrap.php';
 require_login();
-require_permission('drivers.view');
+require_once ROOT_PATH.'/includes/trip_performance.php';
+if(!performance_access($current_user)){http_response_code(403);exit('Forbidden');}
+$_SESSION['trip_performance_csrf'] ??= bin2hex(random_bytes(32));
 
 $pdo = db();
 
  
  
-$perf_stmt = $pdo->prepare(
-    "SELECT d.name,
-            COUNT(t.id) FILTER (WHERE t.status = 'Completed') AS completed_trips,
-            COALESCE(
-              100.0 * COUNT(t.id) FILTER (
-                WHERE t.status = 'Completed'
-                  AND t.actual_departure IS NOT NULL AND t.scheduled_departure IS NOT NULL
-                  AND t.actual_departure <= t.scheduled_departure + INTERVAL '15 minutes'
-              ) / NULLIF(COUNT(t.id) FILTER (
-                WHERE t.status = 'Completed'
-                  AND t.actual_departure IS NOT NULL AND t.scheduled_departure IS NOT NULL
-              ), 0), 0
-            ) AS on_time_rate
-       FROM drivers d
-       LEFT JOIN trips t ON t.driver_id = d.id
-      WHERE d.status <> :inactive_status
-      GROUP BY d.id, d.name
-      HAVING COUNT(t.id) FILTER (WHERE t.status = 'Completed') > 0
-      ORDER BY d.id"
-);
-$perf_stmt->execute(['inactive_status' => 'Inactive']);
-$perf_rows = $perf_stmt->fetchAll();
-$perf_labels = array_map(fn($d) => driver_short_name($d['name']), $perf_rows);
-$perf_data   = array_map(fn($d) => (float)$d['on_time_rate'], $perf_rows);
+if(!has_role('driver')) {
+$deliveryKpis=performance_delivery_kpis($pdo);
+$perf_labels=[];$perf_data=[];$perf_counts=[];
+foreach($pdo->query('SELECT id,name FROM drivers ORDER BY id') as $driver){
+    $delivery=$deliveryKpis['on_time_score_by_driver'][$driver['id']]??null;
+    if(!$delivery||$delivery['average']===null)continue;
+    $perf_labels[]=driver_short_name($driver['name']);
+    $perf_data[]=(float)$delivery['average'];
+    $perf_counts[]=['count'=>(int)$delivery['count']];
+}
 
- 
-$total_completed = (int)$pdo->query("SELECT COUNT(*) FROM trips WHERE status = 'Completed'")->fetchColumn();
-$timingKpis = $pdo->query(
-    "SELECT
-       COUNT(*) FILTER (WHERE actual_departure IS NOT NULL AND scheduled_departure IS NOT NULL) measurable,
-       COUNT(*) FILTER (
-         WHERE actual_departure IS NOT NULL AND scheduled_departure IS NOT NULL
-           AND actual_departure <= scheduled_departure + INTERVAL '15 minutes'
-       ) on_time,
-       COALESCE(AVG(EXTRACT(EPOCH FROM (actual_departure - scheduled_departure)) / 60.0)
-         FILTER (WHERE actual_departure IS NOT NULL AND scheduled_departure IS NOT NULL), 0) avg_variance
-     FROM trips WHERE status = 'Completed'"
-)->fetch();
-$measurable_trips = (int)($timingKpis['measurable'] ?? 0);
-$avg_ontime = $measurable_trips > 0 ? ((int)$timingKpis['on_time'] / $measurable_trips) * 100 : 0;
-$avg_departure_variance = (float)($timingKpis['avg_variance'] ?? 0);
-$reservationKpis = $pdo->query(
-    "SELECT COUNT(*) total, COUNT(*) FILTER (WHERE status = 'Cancelled') cancelled FROM reservations"
-)->fetch();
-$total_reservations = (int)($reservationKpis['total'] ?? 0);
-$cancel_rate = $total_reservations > 0 ? ((int)$reservationKpis['cancelled'] / $total_reservations) * 100 : 0;
-
-$tripTrendRows = $pdo->query(
-    "SELECT id,
-            ROUND((EXTRACT(EPOCH FROM (actual_departure - scheduled_departure)) / 60.0)::numeric, 1) departure_variance
-       FROM trips
-      WHERE status = 'Completed' AND actual_departure IS NOT NULL AND scheduled_departure IS NOT NULL
-      ORDER BY COALESCE(actual_arrival, actual_departure), id"
-)->fetchAll();
-$tripTrendLabels = array_column($tripTrendRows, 'id');
-$tripTrendData = array_map('floatval', array_column($tripTrendRows, 'departure_variance'));
+$tripTrendRows = $deliveryKpis['overall_score_trend'];
+$tripTrendLabels = array_column($tripTrendRows, 'trip_id');
+$tripTrendData = array_map('floatval', array_column($tripTrendRows, 'score'));
+$tripPointSpacing=max(100,max(array_map('strlen',$tripTrendLabels)?:[0])*8+36);
 
 $chart_data = [
     'chart-driver-on-time' => [
         'type'   => 'bar',
-        'label'  => 'On-Time Score %',
+        'label'  => 'Average On-Time Delivery Score /100',
         'labels' => $perf_labels,
         'data'   => $perf_data,
+        'evaluation_counts' => $perf_counts,
+        'tooltip_value_only' => true,
+        'unit' => 'score',
         'color'  => '#27AE60',
         'min'    => 0,
         'max'    => 100,
         'legend' => false,
     ],
-    'chart-trip-punctuality' => [
+    'chart-trip-performance-score' => [
         'type'   => 'line',
-        'label'  => 'Departure Variance (minutes)',
+        'label'  => 'Overall Performance Score /100',
+        'tooltip_label' => 'Overall score',
+        'tooltip_value_only' => true,
+        'unit' => 'score',
+        'min' => 0,
+        'max' => 100,
         'labels' => $tripTrendLabels,
         'data'   => $tripTrendData,
         'color'  => '#2F80ED',
         'fill'   => true,
-        'legend' => true,
+        'legend' => false,
     ],
 ];
 
+}
 $active_page = 'trip-performance';
 $body_class = trim(($body_class ?? '') . ' driver-trip-monitoring-module trip-performance-page');
 $page_title  = 'Trip Performance & Punctuality Analytics';
-$include_chart = true;
+$include_chart = !has_role('driver');
 require ROOT_PATH . '/includes/header.php';
 ?>
 
@@ -100,36 +70,42 @@ require ROOT_PATH . '/includes/header.php';
     <h1 class="mb-1">Trip Performance & Punctuality Analytics</h1>
     <p class="text-muted-custom mb-0">Historical completion analysis, route delay factors, and driver punctuality scoring.</p>
   </div>
-  <a class="tc-btn tc-btn-secondary tc-btn-sm" href="<?= BASE_URL ?>/modules/driver-trip-performance/driver-performance.php">← Driver Directory</a>
+  <a class="tc-btn tc-btn-secondary tc-btn-sm" href="<?= BASE_URL ?>/<?= has_role('driver')?'modules/driver-portal/driver-dashboard.php':'modules/driver-trip-performance/driver-performance.php' ?>">← <?= has_role('driver')?'Dashboard':'Driver Directory' ?></a>
 </div>
 
+<?php require ROOT_PATH.'/includes/trip_performance_view.php'; ?>
+<?php if(!has_role('driver')): ?>
 <div class="row g-3 mb-4">
   <div class="col-lg-7">
     <div class="tc-card p-3">
-      <h4 class="fw-bold mb-3 fs-6">Driver On-Time Rating Benchmark (%)</h4>
+      <h4 class="fw-bold mb-3 fs-6">Average On-Time Delivery Score by Driver</h4>
+      <p class="small text-muted-custom mb-2"><strong>Uses the numeric On-Time Delivery scores from finalized evaluations.</strong> One score of 80 displays 80/100. This is one criterion, separate from the overall performance score.</p>
       <div style="height: 240px;">
-        <canvas id="chart-driver-on-time"></canvas>
+        <?php if($perf_labels): ?><canvas id="chart-driver-on-time"></canvas>
+        <?php else: ?><div class="h-100 d-flex flex-column align-items-center justify-content-center text-muted-custom" role="status"><strong>No data</strong><span class="small text-center mt-1">No qualifying finalized On-Time Delivery scores yet.</span></div><?php endif; ?>
       </div>
+      <?php if($perf_labels): ?><ul class="list-unstyled small mb-0 mt-3" aria-label="Finalized evaluation counts by driver"><?php foreach($perf_counts as $index=>$counts): ?><li class="d-flex flex-wrap justify-content-between gap-2 border-top py-2"><strong><?= e($perf_labels[$index]) ?></strong><span><?= $counts['count'] ?> finalized evaluation<?= $counts['count']===1?'':'s' ?></span></li><?php endforeach; ?></ul><?php endif; ?>
     </div>
   </div>
   <div class="col-lg-5">
     <div class="tc-card p-3">
       <h4 class="fw-bold mb-3 fs-6">Key Performance Indicators</h4>
+      <p class="small text-muted-custom mb-2">Verified cargo deliveries only. The On-Time Delivery score is the average numeric criterion score in qualifying finalized evaluations. Warehouse On time / Late confirmations do not replace the numeric score. Average delay uses recorded timing only; warehouse confirmations do not invent delay minutes. Development simulations are excluded.</p>
       <div class="p-2 border rounded mb-2 d-flex justify-content-between">
-        <span class="text-muted-custom">Total Fleet Completed Trips:</span>
-        <span class="fw-bold text-success"><?= number_format($total_completed) ?> Trips</span>
+        <span class="text-muted-custom">Verified Completed Deliveries:</span>
+        <span class="fw-bold text-success"><?= number_format($deliveryKpis['completed']) ?> Deliveries</span>
       </div>
       <div class="p-2 border rounded mb-2 d-flex justify-content-between">
-        <span class="text-muted-custom">Fleet On-Time Departure Rate:</span>
-        <span class="fw-bold text-primary"><?= number_format($avg_ontime, 1) ?>%</span>
+        <span class="text-muted-custom">Average On-Time Delivery Score:</span>
+        <div class="text-end"><span class="fw-bold text-primary"><?= $deliveryKpis['on_time_score']===null?'No data':number_format($deliveryKpis['on_time_score'],1).' / 100' ?></span><?php if($deliveryKpis['on_time_score_count']): ?><div class="small text-muted-custom"><?= (int)$deliveryKpis['on_time_score_count'] ?> finalized evaluation<?= $deliveryKpis['on_time_score_count']===1?'':'s' ?></div><?php endif; ?></div>
       </div>
       <div class="p-2 border rounded mb-2 d-flex justify-content-between">
-        <span class="text-muted-custom">Reservation Cancellation Rate:</span>
-        <span class="fw-bold text-muted"><?= number_format($cancel_rate, 1) ?>%</span>
+        <span class="text-muted-custom">Request Cancellation Rate:</span>
+        <span class="fw-bold text-muted"><?= $deliveryKpis['cancellation_rate']===null?'No data':number_format($deliveryKpis['cancellation_rate'],1).'%' ?></span>
       </div>
       <div class="p-2 border rounded d-flex justify-content-between">
-        <span class="text-muted-custom">Average Departure Variance:</span>
-        <span class="fw-bold <?= $avg_departure_variance <= 15 ? 'text-success' : 'text-warning' ?>"><?= $avg_departure_variance > 0 ? '+' : '' ?><?= number_format($avg_departure_variance, 1) ?> min</span>
+        <span class="text-muted-custom">Average Delivery Delay:</span>
+        <span class="fw-bold <?= $deliveryKpis['average_delay']===null?'text-muted':($deliveryKpis['average_delay']>0?'text-warning':'text-success') ?>"><?= $deliveryKpis['average_delay']===null?'No data':number_format($deliveryKpis['average_delay'],1).' min' ?></span>
       </div>
     </div>
   </div>
@@ -137,18 +113,22 @@ require ROOT_PATH . '/includes/header.php';
 
 <div class="tc-card p-3 mb-4">
   <div class="d-flex flex-wrap justify-content-between align-items-center gap-2 mb-3">
-    <h4 class="fw-bold mb-0 fs-6">Completed Trip Departure Variance</h4>
-    <span class="badge bg-success-subtle text-success border">On-time benchmark: 15 minutes or less</span>
+    <h4 class="fw-bold mb-0 fs-6">Overall Performance Score by Trip</h4>
+    <span class="badge bg-primary-subtle text-primary border">Finalized evaluations · Score / 100</span>
   </div>
   <?php if ($tripTrendLabels): ?>
-    <div style="height: 260px;">
-      <canvas id="chart-trip-punctuality"></canvas>
+    <p class="small text-muted-custom mb-2">Ordered by final approval. Each point is one trip's overall evaluation score.</p>
+    <div class="performance-score-chart-scroll" role="region" aria-label="Overall performance scores; scroll horizontally to view more trips" tabindex="0">
+      <div style="height:280px;width:100%;min-width:<?= count($tripTrendLabels)*$tripPointSpacing ?>px"><canvas id="chart-trip-performance-score" role="img" aria-label="Overall performance scores by trip"></canvas></div>
     </div>
+    <?php if(count($tripTrendLabels)===1): ?><p class="small text-muted-custom mt-2 mb-0">1 finalized trip. More finalized evaluations will extend the line.</p><?php endif; ?>
   <?php else: ?>
-    <div class="text-center text-muted-custom py-5">Complete a trip with scheduled and actual departure timestamps to populate this graph.</div>
+    <div class="text-center text-muted-custom py-5" role="status"><strong>No finalized scores yet</strong><div class="small mt-1">Approved overall trip evaluation scores will appear here.</div></div>
   <?php endif; ?>
 </div>
+<?php endif; ?>
 </div>
 
 <script src="<?= BASE_URL ?>/js/driver-trip-monitoring.js?v=<?= (int)filemtime(ROOT_PATH . '/js/driver-trip-monitoring.js') ?>"></script>
+<script src="<?= BASE_URL ?>/js/trip-performance.js?v=<?= (int)filemtime(ROOT_PATH . '/js/trip-performance.js') ?>" defer></script>
 <?php require ROOT_PATH . '/includes/footer.php'; ?>

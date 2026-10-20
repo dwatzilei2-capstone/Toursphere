@@ -187,3 +187,232 @@
     transform: none;
   }
 }
+.fuel-management-module .fuel-operations-table {
+  font-size: 12px;
+  min-width: 1060px;
+}
+.fuel-management-module .fuel-operations-table td { padding: 9px 12px; vertical-align: middle; }
+.fuel-management-module .fuel-ops-clamp {
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+  overflow: hidden;
+  max-width: 280px;
+  overflow-wrap: break-word;
+}
+.fuel-management-module :is(#modal-log-fuel,#modal-fuel-assessment) .tc-modal {
+  max-height: calc(100dvh - 2rem);
+  display: flex;
+  flex-direction: column;
+}
+.fuel-management-module :is(#modal-log-fuel,#modal-fuel-assessment) .tc-card-body { overflow-y: auto; min-height: 0; }
+.fuel-transactions-page #modal-fuel-details .tc-modal {
+  max-height: calc(100dvh - 2rem);
+  display: flex;
+  flex-direction: column;
+}
+.fuel-transactions-page #modal-fuel-details .tc-card-body { overflow-y: auto; min-height: 0; }
+.fuel-transactions-page #modal-fuel-details :is(.tc-card-header,.tc-card-footer) { flex-shrink: 0; }
+.fuel-transactions-page .fuel-unified-table { min-width: 980px; }
+.fuel-transactions-page #modal-fuel-details { z-index: 1040; }
+/* Transactions Log: operational table and compact evidence dialog. */
+.fuel-transactions-page .fuel-records-panel { overflow: hidden; box-shadow: none; }
+.fuel-transactions-page .fuel-filterbar { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; padding: 12px 14px; border-bottom: 1px solid #EEF2F7; }
+.fuel-filterbar > label { margin: 0; flex: 1 1 135px; min-width: 0; }
+.fuel-filterbar .fuel-filter-search { flex: 2 1 240px; position: relative; }
+.fuel-filter-search > i { position: absolute; left: 11px; top: 11px; color: #6B7280; }
+.fuel-filter-search input { padding-left: 33px; }
+.fuel-transactions-page .fuel-filterbar :is(input,select) { min-height: 38px; font-size: 12px; width: 100%; }
+.fuel-filterbar .fuel-date-filter { display: flex; align-items: center; gap: 5px; flex-basis: 160px; }
+.fuel-date-filter > span { font-size: 11px; color: #6B7280; }
+.fuel-filter-actions { display: flex; gap: 5px; }
+.fuel-filter-error { color: #b42318; font-size: 12px; padding: 8px 14px; margin: 0; }
+.fuel-table-scroll { overflow-x: auto; -webkit-overflow-scrolling: touch; }
+.fuel-transactions-page .fuel-unified-table { table-layout: fixed; width: 100%; min-width: 1160px; font-size: 12px; margin: 0; }
+.fuel-unified-table .fuel-col-log { width: 14%; }.fuel-unified-table .fuel-col-vehicle { width: 16%; }.fuel-unified-table .fuel-col-allocation { width: 12%; }.fuel-unified-table .fuel-col-date { width: 12%; }.fuel-unified-table .fuel-col-quantity { width: 12%; }.fuel-unified-table .fuel-col-price { width: 10%; }.fuel-unified-table .fuel-col-status { width: 16%; }.fuel-unified-table .fuel-col-actions { width: 8%; }
+.fuel-transactions-page .fuel-unified-table th { padding: 12px 10px; font-size: 10px; letter-spacing: .025em; white-space: nowrap; color: #52627a; background: #F8FAFC; }
+.fuel-transactions-page .fuel-unified-table td { padding: 10px; vertical-align: middle; border-bottom: 1px solid #EEF2F7; }
+.fuel-cell-title,.fuel-cell-sub { display: block; line-height: 1.5; font-size: 12px; font-weight: 500; color: #1F2937; }
+.fuel-cell-sub { font-size: 11px; color: #6B7280; font-weight: 400; }
+.fuel-cost { color: #1F2937; font-weight: 600; }
+.fuel-ellipsis { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.fuel-status-line { display: flex; align-items: baseline; gap: 5px; line-height: 1.5; }
+.fuel-status-line + .fuel-status-line { margin-top: 4px; }
+.fuel-status-line > span:first-child { font-size: 10px; color: #6B7280; min-width: 25px; }
+.fuel-status-list { display: flex; flex-wrap: wrap; gap: 3px; }
+.fuel-status { display: inline-block; width: fit-content; font-size: 10px; font-weight: 600; line-height: 1.45; border: 1px solid transparent; border-radius: 4px; padding: 2px 6px; color: #52627a; background: #F1F5F9; border-color: #dce3ec; }
+.fuel-row-actions { display: flex; flex-wrap: wrap; gap: 5px; justify-content: flex-end; }
+.fuel-transactions-page .tc-btn-sm { min-height: 34px; font-size: 11px; }
+.fuel-table-footer { display: flex; flex-wrap: wrap; justify-content: space-between; align-items: center; gap: 10px; padding: 10px 14px; color: #6B7280; font-size: 11px; }
+.fuel-table-footer nav { display: flex; align-items: center; gap: 9px; }
+.fuel-transactions-page .fuel-empty td { text-align: center; padding: 34px 16px; }
+.fuel-empty :is(strong,span) { display: block; margin-top: 6px; }.fuel-empty i { color: #6B7280; font-size: 22px; }.fuel-empty span { color: #6B7280; font-size: 12px; }
+.fuel-transactions-page #modal-fuel-details { padding: 20px; }
+.fuel-transactions-page #modal-fuel-details .fuel-details-dialog { width: min(100%,1040px); max-width: 1040px; margin: auto; max-height: calc(100dvh - 40px); border-radius: 12px; overflow: hidden; display: flex; flex-direction: column; }
+.fuel-details-header { display: flex; justify-content: space-between; align-items: center; padding: 17px 22px; border-bottom: 1px solid #EEF2F7; flex-shrink: 0; gap: 12px; }
+.fuel-details-header h2 { margin: 0; font-size: 17px; font-weight: 600; }.fuel-details-header p { margin: 3px 0 0; font-size: 12px; color: #6B7280; overflow-wrap: anywhere; }
+.fuel-details-header .btn-close { min-width: 32px; min-height: 32px; padding: 5px; }
+.fuel-details-body { overflow-y: auto; overscroll-behavior: contain; min-height: 0; padding: 0 22px; }
+.fuel-details-section { padding: 18px 0; }.fuel-details-section + .fuel-details-section { border-top: 1px solid #EEF2F7; }
+.fuel-details-section h3 { font-size: 13px; font-weight: 600; margin: 0 0 12px; }.fuel-section-heading { display: flex; align-items: center; justify-content: space-between; gap: 10px; margin-bottom: 12px; }.fuel-section-heading h3 { margin: 0; }
+.fuel-detail-grid { display: grid; grid-template-columns: repeat(3,minmax(0,1fr)); gap: 13px 20px; margin: 0; }.fuel-allocation-grid { grid-template-columns: repeat(4,minmax(0,1fr)); margin-bottom: 12px; }.fuel-detail-grid--two { grid-template-columns: repeat(2,minmax(0,1fr)); }
+.fuel-field { min-width: 0; }.fuel-field dt { font-size: 11px; font-weight: 400; color: #6B7280; margin-bottom: 3px; }.fuel-field dd { font-size: 12px; font-weight: 500; color: #1F2937; line-height: 1.6; margin: 0; overflow-wrap: anywhere; }
+.fuel-muted-note { font-size: 11px; color: #6B7280; margin: 8px 0 0; }
+.fuel-refill,.fuel-authorization-record { border: 1px solid #EEF2F7; border-radius: 6px; margin-top: 8px; }
+.fuel-refill > summary,.fuel-authorization-record > summary { cursor: pointer; padding: 11px 13px; font-size: 12px; background: #F8FAFC; border-radius: 6px; }
+.fuel-refill > summary { display: flex; justify-content: space-between; align-items: center; gap: 12px; list-style: none; }
+.fuel-refill > summary::before { content: '\203A'; font-size: 20px; color: #6B7280; }.fuel-refill[open] > summary::before { transform: rotate(90deg); }
+.fuel-refill-reference { flex: 1; min-width: 0; }.fuel-refill-reference strong { display: block; font-size: 12px; overflow-wrap: anywhere; }.fuel-refill-reference > span { color: #6B7280; font-size: 11px; }
+.fuel-refill-amount { display: flex; flex-direction: column; align-items: flex-end; gap: 3px; font-weight: 600; white-space: nowrap; }
+.fuel-refill-body,.fuel-authorization-body { padding: 14px; font-size: 12px; }
+.fuel-refill-columns { display: grid; grid-template-columns: minmax(0,1.6fr) minmax(0,1fr); gap: 24px; }
+.fuel-refill h4 { font-size: 12px; font-weight: 600; margin: 0 0 12px; }
+.fuel-verification { border-top: 1px solid #EEF2F7; margin-top: 16px; padding-top: 14px; }
+.fuel-verification form { display: flex; flex-wrap: wrap; align-items: flex-end; gap: 8px; padding-top: 8px; }.fuel-verification form label { flex: 1 1 200px; font-size: 11px; }.fuel-verification form input,.fuel-verification form select { font-size: 12px; }
+.fuel-receipt-tile { border: 1px solid #EEF2F7; background: #F8FAFC; width: 100%; padding: 10px; border-radius: 6px; display: flex; align-items: center; gap: 12px; color: #195dac; text-align: left; margin-bottom: 12px; font-size: 12px; }
+.fuel-receipt-tile img { width: 62px; height: 80px; object-fit: contain; background: white; }.fuel-receipt-tile > i { font-size: 26px; }.fuel-no-receipt { display: flex; align-items: center; gap: 7px; font-size: 12px; color: #6B7280; padding: 16px 0; }
+.fuel-review-note { margin-top: 12px; padding-left: 10px; border-left: 2px solid #dce3ec; font-size: 12px; }.fuel-review-note strong { font-size: 11px; }.fuel-review-note p { margin: 4px 0; white-space: pre-wrap; overflow-wrap: anywhere; }
+.fuel-details-footer { padding: 12px 22px; border-top: 1px solid #EEF2F7; display: flex; align-items: center; justify-content: space-between; gap: 12px; flex-shrink: 0; }.fuel-details-footer > span { font-size: 11px; color: #6B7280; }
+.fuel-transactions-page :is(a,button,input,select,summary,[tabindex]):focus-visible { outline: 2px solid #2F80ED; outline-offset: 3px; }
+@media(max-width:1023px) { .fuel-filterbar > label { flex-basis: 150px; }.fuel-details-body { padding: 0 16px; }.fuel-refill-columns { gap: 16px; }.fuel-transactions-page .fuel-page-heading { gap: 12px; flex-wrap: wrap; } }
+@media(max-width:767px) {
+ .fuel-transactions-page .fuel-filterbar { padding: 12px; gap: 8px; }.fuel-filterbar .fuel-filter-search { flex-basis: 100%; }.fuel-filterbar > label,.fuel-filterbar .fuel-date-filter { flex: 1 1 calc(50% - 8px); }.fuel-filterbar .fuel-filter-actions { flex: 1; justify-content: flex-end; }
+ .fuel-transactions-page .fuel-table-scroll { overflow: visible; }.fuel-transactions-page .fuel-unified-table { display: block; min-width: 0; }.fuel-unified-table colgroup,.fuel-unified-table thead { display: none; }.fuel-unified-table tbody { display: block; }.fuel-unified-table tr { display: grid; grid-template-columns: minmax(0,1fr) minmax(0,1fr); gap: 12px 16px; padding: 14px; border-bottom: 1px solid #EEF2F7; }.fuel-transactions-page .fuel-unified-table td { display: block; border: 0; padding: 0; min-width: 0; }.fuel-unified-table td::before { content: attr(data-label); display: block; font-size: 10px; color: #6B7280; margin-bottom: 4px; }.fuel-unified-table td:nth-child(7) { grid-column: 1 / -1; }.fuel-unified-table td:nth-child(8) { grid-column: 1 / -1; }.fuel-unified-table td:nth-child(8)::before { display: none; }.fuel-row-actions { justify-content: flex-start; }.fuel-transactions-page .tc-btn-sm { min-height: 40px; }.fuel-status-line { display: inline-flex; margin-right: 10px; }.fuel-status-line + .fuel-status-line { margin-top: 0; }.fuel-unified-table .fuel-empty { display: block; }.fuel-table-footer { padding: 12px; }
+ .fuel-transactions-page #modal-fuel-details { padding: 6px; }.fuel-transactions-page #modal-fuel-details .fuel-details-dialog { max-height: calc(100dvh - 12px); border-radius: 8px; }.fuel-details-header { padding: 12px 14px; }.fuel-details-body { padding: 0 14px; }.fuel-details-section { padding: 14px 0; }.fuel-detail-grid,.fuel-allocation-grid { grid-template-columns: repeat(2,minmax(0,1fr)); gap: 12px; }.fuel-refill-columns { grid-template-columns: minmax(0,1fr); }.fuel-details-header h2 { font-size: 16px; }.fuel-refill-body { padding: 12px; }.fuel-details-footer { padding: 10px 14px; }.fuel-details-footer > span { max-width: 190px; }.fuel-section-heading { align-items: flex-start; }.fuel-section-heading .fuel-muted-note { display: none; }.fuel-transactions-page #fuel-receipt-modal .modal-dialog { margin: 6px; }.fuel-transactions-page #fuel-receipt-modal .modal-content { max-height: calc(100dvh - 12px); }.fuel-transactions-page #fuel-receipt-modal .modal-body { overflow-y: auto; }
+}
+/* Refined toolbar: primary filters stay visible; optional controls expand inline. */
+.fuel-transactions-page .fuel-filterbar { gap: 10px; position: relative; }
+.fuel-filterbar .fuel-filter-search { flex: 2 1 280px; }
+.fuel-filterbar > label:not(.fuel-filter-search) { flex: 0 1 190px; }
+.fuel-advanced-filters { display: contents; }
+.fuel-advanced-filters > summary { display: inline-flex; align-items: center; gap: 7px; padding: 8px 12px; border: 1px solid #dce3ec; border-radius: 6px; background: #fff; color: #1F2937; cursor: pointer; font-size: 12px; min-height: 38px; list-style: none; }
+.fuel-advanced-filters > summary::-webkit-details-marker { display: none; }
+.fuel-advanced-filters[open] > summary { border-color: #2F80ED; background: #eff6ff; color: #195dac; }
+.fuel-filter-count { border-radius: 4px; background: #dbeafe; color: #195dac; font-size: 10px; padding: 1px 5px; }
+.fuel-advanced-fields { flex: 1 0 100%; order: 10; display: flex; flex-wrap: wrap; align-items: flex-end; gap: 10px; padding-top: 10px; border-top: 1px solid #EEF2F7; }
+.fuel-advanced-filters:not([open]) > .fuel-advanced-fields { display: none; }
+.fuel-advanced-fields > label { flex: 0 1 190px; min-width: 0; font-size: 11px; color: #6B7280; }
+.fuel-advanced-fields .fuel-date-filter { display: block; }
+.fuel-advanced-fields label > span { display: block; margin-bottom: 4px; }
+.fuel-clear-filters { font-size: 12px; color: #195dac; padding: 9px 3px; white-space: nowrap; text-decoration: none; }
+.fuel-clear-filters:hover { text-decoration: underline; }
+/* Distinct semantic fills, with labels retained in every badge. */
+.fuel-status--success { color: #166534; background: #dcfce7; border-color: #86cda1; }
+.fuel-status--warning { color: #854d0e; background: #fef3c7; border-color: #eac66a; }
+.fuel-status--danger { color: #991b1b; background: #fee2e2; border-color: #eda5a5; }
+.fuel-status--neutral { color: #475569; background: #f1f5f9; border-color: #cbd5e1; }
+.fuel-status--info { color: #1e40af; background: #dbeafe; border-color: #93b8ec; }
+@media(max-width:767px) {
+ .fuel-filterbar .fuel-filter-search { flex-basis: 100%; }
+ .fuel-filterbar > label:not(.fuel-filter-search) { flex: 1 1 calc(50% - 10px); }
+ .fuel-advanced-filters > summary,.fuel-clear-filters { min-height: 42px; }
+ .fuel-advanced-fields > label { flex: 1 1 calc(50% - 10px); }
+ .fuel-advanced-fields > button { min-height: 42px; }
+}
+.fuel-advanced-filters::details-content { display: contents; }
+/* Only the existing transaction review controls inside Fuel Details. */
+.fuel-review { margin-top: 14px; }
+.fuel-review-trigger { display: inline-flex; align-items: center; gap: 7px; border: 1px solid #dce3ec; background: #fff; color: #1F2937; padding: 8px 11px; border-radius: 6px; font: inherit; cursor: pointer; min-height: 38px; }
+.fuel-review-trigger[aria-expanded="true"] > .bi-chevron-down { transform: rotate(180deg); }
+.fuel-review-content { margin-top: 10px; padding: 14px; border: 1px solid #EEF2F7; border-radius: 7px; background: #fff; }
+.fuel-review-content[hidden] { display: none; }
+.fuel-review-heading { display: flex; justify-content: space-between; align-items: flex-start; gap: 12px; margin-bottom: 12px; }
+.fuel-review-heading h4 { font-size: 13px; margin: 0 0 4px; font-weight: 600; }
+.fuel-review-heading p { font-size: 11px; color: #6B7280; margin: 0; }
+.fuel-review-facts { display: grid; grid-template-columns: repeat(4,minmax(0,1fr)); gap: 12px; padding: 12px 0; margin: 0 0 14px; border-top: 1px solid #EEF2F7; border-bottom: 1px solid #EEF2F7; }
+.fuel-review-receipt { background: none; border: 0; color: #195dac; padding: 0; font: inherit; cursor: pointer; text-align: left; }
+.fuel-verification .fuel-review-content form { display: block; padding: 0; }
+.fuel-review-controls { display: grid; grid-template-columns: minmax(0,1.2fr) minmax(0,1fr); gap: 18px; }
+.fuel-review-decisions { margin: 0; padding: 0; border: 0; display: flex; flex-wrap: wrap; align-content: flex-start; gap: 7px; min-width: 0; }
+.fuel-review-decisions legend,.fuel-review-notes > label { float: none; display: block; width: 100%; font-size: 11px; font-weight: 500; margin: 0 0 7px; color: #1F2937; }
+.fuel-verification .fuel-review-decisions .fuel-review-choice { flex: 1 1 auto; margin: 0; position: relative; cursor: pointer; }
+.fuel-review-choice input { position: absolute; opacity: 0; width: 1px; height: 1px; }
+.fuel-review-choice > span { display: flex; justify-content: center; align-items: center; gap: 6px; min-height: 39px; padding: 7px 9px; font-size: 11px; border: 1px solid var(--review-color); border-radius: 5px; color: var(--review-color); background: #fff; }
+.fuel-review-choice--success { --review-color: #166534; }.fuel-review-choice--warning { --review-color: #854d0e; }.fuel-review-choice--danger { --review-color: #991b1b; }
+.fuel-review-choice input:checked + span { background: var(--review-color); color: #fff; }
+.fuel-review-choice input:focus-visible + span { outline: 2px solid #2F80ED; outline-offset: 3px; }
+.fuel-review-choice.is-submitting { opacity: .6; pointer-events: none; }
+.fuel-review-notes { min-width: 0; }.fuel-review-notes [data-fuel-reason-label] { font-weight: 400; color: #6B7280; }
+.fuel-verification .fuel-review-notes textarea { width: 100%; font-size: 12px; min-height: 80px; resize: vertical; }
+.fuel-review-notes textarea[aria-invalid="true"] { border-color: #b42318; }
+.fuel-review-error { color: #b42318; font-size: 11px; margin: 5px 0 0; }
+.fuel-review-actions { display: flex; flex-wrap: wrap; justify-content: flex-end; align-items: center; gap: 8px; margin-top: 12px; }
+.fuel-review-progress { flex: 1; font-size: 11px; color: #6B7280; }
+@media(max-width:1023px) { .fuel-review-facts { grid-template-columns: repeat(2,minmax(0,1fr)); }.fuel-review-controls { grid-template-columns: minmax(0,1fr); gap: 14px; } }
+@media(max-width:767px) { .fuel-review-content { padding: 12px; }.fuel-review-heading { flex-wrap: wrap; gap: 8px; }.fuel-review-decisions { flex-direction: column; }.fuel-verification .fuel-review-decisions .fuel-review-choice { flex: 0 0 auto; width: 100%; }.fuel-review-choice > span { min-height: 44px; }.fuel-review-actions > button { flex: 1; min-height: 44px; }.fuel-review-progress { flex-basis: 100%; }.fuel-review-trigger { min-height: 44px; }.fuel-review-receipt { min-height: 38px; } }
+@media(max-width:767px) { .fuel-review-actions > [data-fuel-review-submit] { flex: 1.7; white-space: nowrap; } }
+/* Keep focus scrolling inside the content, never inside the dialog shell. */
+.fuel-transactions-page #modal-fuel-details .fuel-details-dialog {
+  height: auto;
+  min-height: 0;
+  overflow: clip;
+}
+.fuel-transactions-page #modal-fuel-details .fuel-details-body {
+  flex: 0 1 auto;
+  min-height: 0;
+  overflow-y: auto;
+}
+.fuel-transactions-page #modal-fuel-details :is(.fuel-details-header,.fuel-details-footer) {
+  flex: 0 0 auto;
+}
+/* Conditional decisions only: no selection, notes or confirmation action initially. */
+.fuel-review-controls { grid-template-columns: minmax(0,1fr); gap: 12px; }
+.fuel-review [hidden] { display: none !important; }
+.fuel-review-initial { display: flex; align-items: center; gap: 7px; color: #475569; background: #F8FAFC; border-radius: 5px; font-size: 11px; margin: 0; padding: 10px 12px; }
+.fuel-review-followup { min-width: 0; }
+.fuel-review-confirmation { display: flex; gap: 10px; align-items: flex-start; padding: 11px 12px; border-radius: 5px; margin-bottom: 12px; font-size: 11px; }
+.fuel-review-confirmation > i { font-size: 16px; line-height: 1.5; }
+.fuel-review-confirmation strong { font-size: 12px; font-weight: 600; }.fuel-review-confirmation p { margin: 3px 0 0; line-height: 1.6; color: #475569; }
+.fuel-review-choice--success { --review-color: #16803d; }.fuel-review-choice--warning { --review-color: #b45309; }.fuel-review-choice--danger { --review-color: #dc2626; }
+.fuel-review form[data-review-decision="verify"] .fuel-review-confirmation { color: #166534; background: #f0fdf4; }
+.fuel-review form[data-review-decision="return"] .fuel-review-confirmation { color: #92400e; background: #fffbeb; }
+.fuel-review form[data-review-decision="reject"] .fuel-review-confirmation { color: #991b1b; background: #fff1f2; }
+.fuel-review form[data-review-decision="return"] [data-fuel-review-submit] { color: #fff; background: #b45309; border-color: #b45309; }
+.fuel-review form[data-review-decision="reject"] [data-fuel-review-submit] { color: #fff; background: #dc2626; border-color: #dc2626; }
+.fuel-review form[data-review-decision="return"] [data-fuel-review-submit]:hover { background: #92400e; }.fuel-review form[data-review-decision="reject"] [data-fuel-review-submit]:hover { background: #b91c1c; }
+@media(max-width:767px) { .fuel-review-actions > [data-fuel-review-submit] { flex: 1 1 auto; white-space: normal; }.fuel-review-actions > [data-fuel-review-cancel] { flex: 0 0 auto; } }
+/* Approved transaction review workspace; surrounding fuel pages are unchanged. */
+.fuel-transactions-page #modal-fuel-details .fuel-review-dialog { max-width: 1140px; width: min(100%,1140px); }
+.fuel-review-workspace { display: grid; grid-template-columns: minmax(280px,.8fr) minmax(0,1.2fr); align-items: start; gap: 16px; padding: 0 22px 18px; }
+.fuel-review-information { border: 1px solid #EEF2F7; border-radius: 7px; padding: 0 14px; min-width: 0; }
+.fuel-review-info { padding: 14px 0; }.fuel-review-info + .fuel-review-info { border-top: 1px solid #EEF2F7; }
+.fuel-review-info > summary { display: flex; align-items: center; gap: 8px; list-style: none; font-size: 12px; font-weight: 600; color: #1F2937; cursor: pointer; }
+.fuel-review-info > summary::-webkit-details-marker { display: none; }.fuel-review-info > summary > i:first-child { color: #2F80ED; font-size: 16px; }.fuel-review-info > summary > i:last-child { margin-left: auto; font-size: 12px; color: #6B7280; }.fuel-review-info[open] > summary > i:last-child { transform: rotate(180deg); }
+.fuel-review-data { margin: 12px 0 0; display: grid; gap: 8px; }.fuel-review-data .fuel-field { display: grid; grid-template-columns: minmax(0,1fr) minmax(0,1.3fr); gap: 10px; }.fuel-review-data .fuel-field dt { margin: 0; font-size: 11px; }.fuel-review-data .fuel-field dd { font-size: 12px; }
+.fuel-review-data--pair { grid-template-columns: repeat(2,minmax(0,1fr)); gap: 12px; }.fuel-review-data--pair .fuel-field,.fuel-review-data--stack .fuel-field { display: block; }.fuel-review-data--pair dt,.fuel-review-data--stack dt { margin-bottom: 4px !important; }
+.fuel-review-history > .fuel-status { margin-top: 7px; }.fuel-review-history .fuel-review-note { border: 1px solid #EEF2F7; border-radius: 5px; padding: 9px; }
+.fuel-review-evidence { min-width: 0; }.fuel-review-document { border: 1px solid #EEF2F7; border-radius: 7px; overflow: hidden; background: #fff; }
+.fuel-review-document > header { display: flex; align-items: center; justify-content: space-between; gap: 8px; padding: 12px; }.fuel-review-document h3 { font-size: 12px; font-weight: 600; margin: 0; }.fuel-review-document h3 > i { color: #2F80ED; margin-right: 6px; }
+.fuel-review-fullscreen { background: none; border: 0; color: #195dac; font: inherit; font-size: 11px; padding: 5px; cursor: pointer; }.fuel-review-fullscreen:disabled { color: #6B7280; cursor: default; }
+.fuel-review-document-stage { position: relative; display: flex; align-items: center; justify-content: center; min-height: 160px; padding: 12px; background: #F8FAFC; }
+.fuel-review-document-status { font-size: 12px; color: #6B7280; text-align: center; padding: 20px; margin: 0; }
+/* Submitted receipt image: the actual upload, scaled to the panel without stretching or a fixed viewer frame. */
+.fuel-review-document-stage img.fuel-review-image-preview { display: block; border: 0; width: auto; max-width: 100%; height: auto; max-height: clamp(240px, 52dvh, 560px); border-radius: 6px; background: #fff; box-shadow: 0 1px 3px rgba(15,23,42,.12); cursor: zoom-in; }
+.fuel-review-document-stage img.fuel-review-image-preview.is-zoomed { width: 100%; max-width: 100%; max-height: none; cursor: zoom-out; }
+/* PDF receipts keep the fitted, toolbar-free frame. */
+.fuel-review-document-stage iframe { display: block; border: 0; width: 100%; height: 340px; background: #F8FAFC; }
+.fuel-review-document-status:not([hidden]) + :is(img,iframe) { position: absolute; opacity: 0; }.fuel-review-document-status[hidden] { display: none; }
+.fuel-review-document:fullscreen { display: flex; flex-direction: column; background: #fff; width: 100vw; height: 100dvh; border-radius: 0; }.fuel-review-document:fullscreen .fuel-review-document-stage { flex: 1; min-height: 0; overflow: auto; }.fuel-review-document:fullscreen iframe { height: 100%; }.fuel-review-document:fullscreen img.fuel-review-image-preview { max-height: 100%; }.fuel-review-document:fullscreen img.fuel-review-image-preview.is-zoomed { width: auto; max-width: 100%; max-height: none; }
+.fuel-review-workspace .fuel-review { margin-top: 12px; }.fuel-review-workspace .fuel-review-content { margin-top: 0; padding: 14px; }.fuel-review-workspace .fuel-review-heading { flex-wrap: wrap; }.fuel-review-workspace .fuel-review-controls { gap: 10px; }.fuel-review-workspace .fuel-review-heading h4 { font-size: 13px; }.fuel-review-workspace .fuel-review-choice > span { padding: 7px; }.fuel-review-workspace .fuel-review-actions { margin-top: 12px; }
+@media(min-width:768px) { .fuel-review-workspace .fuel-review-decisions { flex-direction: row; }.fuel-review-workspace .fuel-review-choice { flex: 1 1 auto; }.fuel-review-info > summary > i:last-child { visibility: hidden; } }
+@media(max-width:767px) {
+ .fuel-transactions-page #modal-fuel-details .fuel-review-dialog { width: 100%; }
+ .fuel-review-workspace { grid-template-columns: minmax(0,1fr); gap: 12px; padding: 0 12px 12px; }
+ .fuel-review-information { padding: 0 12px; }.fuel-review-info { padding: 12px 0; }.fuel-review-info > summary { min-height: 32px; }.fuel-review-document > header { padding: 10px; }.fuel-review-document-stage { padding: 10px; }.fuel-review-document-stage iframe { height: 250px; }.fuel-review-document-stage img.fuel-review-image-preview { max-height: clamp(200px, 44dvh, 420px); }
+ .fuel-review-workspace .fuel-review-content { padding: 12px; }.fuel-review-workspace .fuel-review-decisions { flex-direction: row; gap: 5px; }.fuel-review-workspace .fuel-review-decisions .fuel-review-choice { width: auto; flex: 1 1 0; }.fuel-review-workspace .fuel-review-choice > span { min-height: 44px; padding: 6px 4px; font-size: 10px; gap: 4px; text-align: center; }
+ .fuel-review-fullscreen { min-height: 40px; }
+}
+@media(max-width:359px) { .fuel-review-workspace .fuel-review-decisions { flex-direction: column; }.fuel-review-workspace .fuel-review-decisions .fuel-review-choice { width: 100%; } }
+@media(prefers-reduced-motion:no-preference) { .fuel-review-workspace .fuel-review-followup:not([hidden]) { animation: fuel-review-reveal 140ms ease-out; }@keyframes fuel-review-reveal { from { opacity: 0; transform: translateY(3px); }to { opacity: 1; transform: none; } } }
+.fuel-review-fullscreen-note { margin: 0; padding: 0 12px 10px; font-size: 11px; color: #6B7280; }
+/* Receipt PDF only: fit the complete page in a responsive, toolbar-free frame. */
+.fuel-review-document-stage iframe.fuel-review-pdf-preview {
+  height: clamp(300px, 48dvh, 520px);
+  min-width: 0;
+}
+.fuel-review-document:fullscreen .fuel-review-document-stage iframe.fuel-review-pdf-preview {
+  height: 100%;
+}
+@media(max-width:767px) {
+  .fuel-review-document-stage iframe.fuel-review-pdf-preview { height: clamp(250px, 42dvh, 380px); }
+}

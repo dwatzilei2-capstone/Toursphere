@@ -57,7 +57,7 @@ function makePage(role,store){
  return {engine,ids,requests,window,acquireGps:sandbox.RouteEngine.prototype.acquireNavigationPosition.bind(engine)};
 }
 (async()=>{
- for(const role of ['fleet_admin','dispatcher','driver']){
+ for(const role of ['fleet_admin','driver']){
   for(const [mode,winner] of Object.entries({fastest:0,shortest:1,fuelEfficient:2,balanced:2})){
    const store={record:null,active:0,starts:0};const page=makePage(role,store);const e=page.engine;
    e.currentMode=mode;e.processGoogleDirectionsResult(fixture.directions);await e.evaluationPromise;await e.persistQueue;
@@ -102,12 +102,12 @@ function makePage(role,store){
    resumed.engine.hasReachedPickup=true;resumed.engine.directionsService={route:(request,callback)=>callback(fixture.directions,'OK')};
    resumed.engine.offRouteConsecutiveCount=3;resumed.engine.renderLiveNavigationRoute(14.62,121.02,{confirmedOffRoute:true});await resumed.engine.evaluationPromise;await resumed.engine.persistQueue;
    check(resumed.engine.appliedRoute.mode===mode&&resumed.engine.currentMode===mode,`${role} ${mode}: reroute preserves objective`);
-   check(resumed.engine.appliedRoute.routeId!==appliedId&&store.record.lifecycle==='NAVIGATING',`${role} ${mode}: reroute snapshot persists`);
+   check(resumed.engine.appliedRoute.routeId===appliedId&&store.record.lifecycle==='NAVIGATING',`${role} ${mode}: off-route GPS preserves immutable snapshot`);
    check(resumed.engine.currentEvaluationData.selectedIndex===winner,`${role} ${mode}: reroute optimizes its own candidates`);
   }
   const store={record:null,active:0,starts:0},page=makePage(role,store);page.engine.processGoogleDirectionsResult(fixture.directions);await page.engine.evaluationPromise;if(role==='driver')page.engine.selectMode('balanced');await page.engine.applySelectedRoute();
   const firstId=page.engine.appliedRoute.routeId;page.engine.selectMode('shortest');await page.engine.applySelectedRoute();
-  check(page.engine.appliedRoute.routeId!==firstId&&store.record.state_data.applied.mode==='shortest',`${role}: another applied strategy allowed before navigation`);
+  check(page.engine.appliedRoute.routeId===firstId&&store.record.state_data.applied.mode===page.engine.appliedRoute.mode,`${role}: second application cannot change strategy`);
  }
  const store={record:null,active:0,starts:0},viewer=makePage('fleet_manager',store);viewer.engine.processGoogleDirectionsResult(fixture.directions);await viewer.engine.evaluationPromise;await viewer.engine.applySelectedRoute();
  check(!viewer.engine.appliedRoute&&viewer.ids['btn-generate-ai-route'].disabled,'Read-only role cannot apply routes');
@@ -124,13 +124,13 @@ function makePage(role,store){
  check(driver.ids['btn-generate-ai-route'].textContent==='Balance — Applied','Confirmed Balance status');
  const confirmedId=engine.appliedRoute.routeId;
  engine.selectMode('shortest');await engine.persistQueue;
- check(driver.ids['btn-start-navigation'].style.display==='none','Unapplied preview cannot start navigation');
+ check(engine.currentMode==='balanced' && driver.ids['btn-start-navigation'].style.display==='block','Applied route remains selected and navigation stays available');
  const returned=makePage('driver',driverStore);await returned.engine.restorePlannerState();
  check(returned.engine.currentMode==='balanced'&&returned.engine.currentRouteData.routeId===confirmedId,'Returning from another module restores applied route instead of unapplied preview');
  engine.persistPlannerState=async()=>{throw new Error('Simulated save failure');};
  await engine.applySelectedRoute();
  check(engine.appliedRoute.routeId===confirmedId,'Failed Apply preserves previously confirmed route');
- check(driver.ids['btn-start-navigation'].style.display==='none','Failed Apply does not enable navigation for preview');
+ check(driver.ids['btn-start-navigation'].style.display==='block','Second Apply leaves authorized navigation available');
  for(const mode of ['fastest','shortest','fuelEfficient','balanced']){
   const store={record:null,active:0,starts:0},page=makePage('driver',store),e=page.engine;
   e.processGoogleDirectionsResult(fixture.directions);await e.evaluationPromise;await e.persistQueue;
@@ -202,7 +202,7 @@ function makePage(role,store){
   e.selectMode('fastest');await e.applySelectedRoute();
   const restored=makePage('driver',store);await restored.engine.restorePlannerState();restored.engine.selectMode('shortest');
   check(restored.engine.prePickupRoutes.length===3,'GPS pickup alternatives persist across module changes');
-  check(restored.engine.prePickupSelectedIndex===1,'Restored pickup leg switches with shortest mode before Apply');
+  check(restored.engine.currentMode==='fastest' && restored.engine.prePickupSelectedIndex===0,'Restored applied pickup leg cannot switch mode');
  }
  {
   const store={record:null,active:0,starts:0},page=makePage('driver',store),e=page.engine;
@@ -278,5 +278,5 @@ function makePage(role,store){
   check(store.toasts.some(t=>t[0]==='Apply Failed' && (fault==='failSave'?t[1].includes('Database unavailable'):t[1].includes('timed out'))),`${fault}: actual error/timeout is displayed`);
   if(releaseQueue){const before=page.requests.length;releaseQueue();await e.persistQueue;check(page.requests.length===before,'Expired queued Apply cannot save later');}
  }
- console.log(`${checks} lifecycle checks passed across Admin, Dispatcher, Driver and read-only access. Routing-provider responses are controlled fixtures; no real trips are changed.`);
+ console.log(`${checks} lifecycle checks passed across Admin, Driver and read-only access. Routing-provider responses are controlled fixtures; no real trips are changed.`);
 })().catch(error=>{console.error(error);process.exitCode=1;});

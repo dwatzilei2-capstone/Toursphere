@@ -30,16 +30,6 @@ class RouteThinkEngine {
      
 
 
-    protected static array $baselineEconomy = [
-        'Tour Bus'      => 3.8,
-        'Coaster Bus'   => 6.4,
-        'Executive Van' => 9.2,
-        'VIP SUV'       => 10.5,
-    ];
-
-     
-
-
     protected static array $modeWeights = [
         'fastest' => [
             'time'     => 0.70,
@@ -75,101 +65,24 @@ class RouteThinkEngine {
 
 
     public static function getVehicleSpecs(?string $vehicleIdentifier): array {
-        $default = [
-            'id'                  => null,
-            'name'                => 'Tour Bus (Grand View 45s)',
-            'type'                => 'Tour Bus',
-            'fuel_type'           => 'Diesel',
-            'capacity'            => 45,
-            'fuel_capacity'       => 250,
-            'baseline_km_per_liter' => 3.8,
-            'weight_class'        => 3,
-        ];
-
-        if (empty($vehicleIdentifier)) {
-            return $default;
-        }
-
-        try {
-            $pdo = db();
-            $stmt = $pdo->prepare(
-                "SELECT id, plate_number, type, brand, model, capacity, fuel_type, fuel_capacity, avg_fuel_km 
-                 FROM vehicles 
-                 WHERE id = ? OR plate_number = ? OR CONCAT(brand, ' ', model) LIKE ? OR type LIKE ? 
-                 LIMIT 1"
-            );
-            $search = '%' . trim($vehicleIdentifier) . '%';
-            $stmt->execute([$vehicleIdentifier, $vehicleIdentifier, $search, $search]);
-            $row = $stmt->fetch();
-
-            if ($row) {
-                 
-                $kmL = 6.0;
-                if (!empty($row['avg_fuel_km']) && preg_match('/([\d\.]+)/', $row['avg_fuel_km'], $m)) {
-                    $kmL = (float)$m[1];
-                } else {
-                    foreach (self::$baselineEconomy as $k => $val) {
-                        if (stripos($row['type'], $k) !== false) {
-                            $kmL = $val;
-                            break;
-                        }
-                    }
-                }
-
-                $weightClass = 1;
-                if (stripos($row['type'], 'Bus') !== false) $weightClass = 3;
-                elseif (stripos($row['type'], 'Coaster') !== false) $weightClass = 2;
-
-                return [
-                    'efficiency_available' => vehicle_efficiency_value((string)$row['avg_fuel_km']) !== null,
-                    'id'                  => $row['id'],
-                    'name'                => "{$row['brand']} {$row['model']} ({$row['plate_number']})",
-                    'type'                => $row['type'],
-                    'fuel_type'           => $row['fuel_type'] ?: 'Diesel',
-                    'capacity'            => (int)$row['capacity'] ?: 14,
-                    'fuel_capacity'       => (int)$row['fuel_capacity'] ?: 70,
-                    'baseline_km_per_liter' => $kmL > 0 ? $kmL : 6.0,
-                    'weight_class'        => $weightClass,
-                ];
-            }
-        } catch (Throwable $e) {
-             
-        }
-
-         
-        $kmL = 6.0;
-        $type = 'Executive Van';
-        $weightClass = 1;
-        $capacity = 14;
-
-        foreach (self::$baselineEconomy as $k => $val) {
-            if (stripos($vehicleIdentifier, $k) !== false) {
-                $kmL = $val;
-                $type = $k;
-                if ($k === 'Tour Bus') { $weightClass = 3; $capacity = 45; }
-                elseif ($k === 'Coaster Bus') { $weightClass = 2; $capacity = 29; }
-                elseif ($k === 'VIP SUV') { $weightClass = 1; $capacity = 7; }
-                break;
-            }
-        }
-
-        return [
-            'id'                  => null,
-            'name'                => $vehicleIdentifier,
-            'type'                => $type,
-            'fuel_type'           => 'Diesel',
-            'capacity'            => $capacity,
-            'fuel_capacity'       => 100,
-            'baseline_km_per_liter' => $kmL,
-            'weight_class'        => $weightClass,
-        ];
+        $default = ['id'=>null, 'name'=>'Assigned cargo vehicle unavailable', 'type'=>'',
+            'fuel_type'=>'', 'capacity'=>0, 'fuel_capacity'=>null,
+            'baseline_km_per_liter'=>0, 'efficiency_available'=>false,
+            'payload_capacity_kg'=>null, 'weight_class'=>1, 'is_cargo'=>true];
+        if (!$vehicleIdentifier) return $default;
+        $q = db()->prepare("SELECT * FROM vehicles WHERE id=? OR plate_number=? OR
+            CONCAT(type, ' - ', brand, ' ', model, ' (', plate_number, ')')=? LIMIT 1");
+        $q->execute([$vehicleIdentifier,$vehicleIdentifier,$vehicleIdentifier]);
+        $row = $q->fetch();
+        if (!$row) return $default;
+        $economy = vehicle_efficiency_value((string)$row['avg_fuel_km']);
+        return array_replace($default, [
+            'id'=>$row['id'], 'name'=>"{$row['brand']} {$row['model']} ({$row['plate_number']})",
+            'type'=>$row['type'], 'fuel_type'=>$row['fuel_type'],
+            'fuel_capacity'=>$row['fuel_capacity'], 'payload_capacity_kg'=>$row['payload_capacity_kg'] ?? null,
+            'baseline_km_per_liter'=>$economy ?? 0, 'efficiency_available'=>$economy !== null,
+        ]);
     }
-
-     
-
-
-
-
 
     public static function calculateKinematicFuel(
         float $distanceKm,
@@ -190,7 +103,7 @@ class RouteThinkEngine {
          
         $capacity = max(1, (int)($vehicleSpecs['capacity'] ?? 14));
         $effectivePax = min($capacity, max(0, $passengerCount));
-        $loadRatio = $effectivePax / $capacity;
+        $loadRatio = isset($vehicleSpecs['cargo_load_ratio']) ? (float)$vehicleSpecs['cargo_load_ratio'] : $effectivePax / $capacity;
         $payloadFactor = 1.0 + (self::PAYLOAD_LOAD_COEFFICIENT * $loadRatio);
 
          
@@ -286,6 +199,11 @@ class RouteThinkEngine {
         $weights = self::$modeWeights[$optimizationMode] ?? self::$modeWeights['balanced'];
         $activeFuelModel = self::getActiveModel('fuel_liters');
         $activeDurationModel = self::getActiveModel('duration_mins');
+        // Preserve deployed passenger models, but do not reinterpret their load feature as cargo.
+        $isCargo = !empty($vehicleSpecs['is_cargo']) || array_key_exists('cargo_load_ratio', $vehicleSpecs);
+        foreach (['activeFuelModel','activeDurationModel'] as $modelName) {
+            if ($isCargo && isset(${$modelName}['weights']['passenger_load_ratio'])) ${$modelName} = null;
+        }
         $learningStats = [];
         try { $learningStats = ai_learning_stats(db()); }
         catch (Throwable $e) { /* Preserve baseline/legacy predictions if learning storage is unavailable. */ }
@@ -328,7 +246,7 @@ class RouteThinkEngine {
                 'waypoint_count'          => $waypointCount,
                 'baseline_km_per_liter'   => (float)$vehicleSpecs['baseline_km_per_liter'],
                 'vehicle_weight_class'    => (int)$vehicleSpecs['weight_class'],
-                'passenger_load_ratio'    => round($passengerCount / max(1, $vehicleSpecs['capacity']), 3),
+                ($isCargo ? 'cargo_load_ratio' : 'passenger_load_ratio') => $isCargo ? (float)($vehicleSpecs['cargo_load_ratio'] ?? 0) : round($passengerCount / max(1, $vehicleSpecs['capacity']), 3),
                 'highway_ratio'           => $highwayRatio,
             ];
 
@@ -365,7 +283,7 @@ class RouteThinkEngine {
                 'baseDurationMins'      => $baseDurationMins,
                 'trafficDurationMins'   => $trafficDurationMins,
                 'trafficDelayRatio'     => $trafficRatio,
-                'fuelEstimateLiters'    => $effectiveFuel,
+                'fuelEstimateLiters'    => !empty($vehicleSpecs['efficiency_available']) ? $effectiveFuel : null,
                 'fuelCost'              => $fuelCost,
                 'tollEstimate'          => $tollEstimate,
                 'totalTripCost'         => $totalCost,
@@ -385,7 +303,7 @@ class RouteThinkEngine {
             $rawDistances[] = $exactDistanceMeters;
             $rawTimes[]     = $exactDurationSecs;
             $rawFuels[]     = $exactFuelScore;
-            $rawCosts[]     = $totalCost;
+            $rawCosts[]     = $totalCost ?? 0;
         }
 
          
@@ -408,7 +326,7 @@ class RouteThinkEngine {
             $normDist = ($count = count($evaluated)) > 1 ? ($item['exactDistanceMeters'] - $minDist) / $distSpan : 0.0;
             $normTime = $count > 1 ? ($item['exactDurationSecs'] - $minTime) / $timeSpan : 0.0;
             $normFuel = $count > 1 ? ($item['exactFuelScore'] - $minFuel) / $fuelSpan : 0.0;
-            $normCost = $count > 1 ? ($item['totalTripCost'] - $minCost) / $costSpan : 0.0;
+            $normCost = $count > 1 ? (($item['totalTripCost'] ?? 0) - $minCost) / $costSpan : 0.0;
 
             $penalty = ($weights['time'] * $normTime)
                      + ($weights['fuel'] * $normFuel)
@@ -460,7 +378,7 @@ class RouteThinkEngine {
             $item['durationFormatted'] = $h > 0 ? "{$h} hr" . ($h > 1 ? 's ' : ' ') . "{$m} min" . ($m > 1 ? 's' : '') : "{$m} mins";
             $item['distanceFormatted'] = number_format($item['distanceKm'], 1) . " km";
             $item['fuelFormatted']     = !empty($vehicleSpecs['efficiency_available']) ? number_format($item['fuelEstimateLiters'], 1) . " L" : 'Vehicle fuel efficiency data unavailable';
-            $item['costFormatted']     = $item['totalTripCost']===null ? 'Not Available' : "₱" . number_format($item['totalTripCost']);
+            $item['costFormatted']     = $item['totalTripCost']===null ? 'Estimate Unavailable' : "₱" . number_format($item['totalTripCost']);
             $item['tollFormatted']     = 'Not Included in Estimate';
         }
         unset($item);
@@ -489,6 +407,7 @@ class RouteThinkEngine {
         array $vehicleSpecs
     ): string {
         $count = count($allCandidates);
+        if (empty($vehicleSpecs['efficiency_available'])) return 'Selected '.$winner['summary'].' using available road distance and travel time. Fuel and transportation cost estimates are unavailable without verified vehicle efficiency.';
         $summary = $winner['summary'];
 
         if ($count <= 1) {

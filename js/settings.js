@@ -46,6 +46,25 @@ document.querySelectorAll('form.settings-card').forEach((form) => {
 });
 
 const logoInput = document.getElementById('company-logo');
+const performanceWeightsForm = document.querySelector('[data-performance-weights]');
+if (performanceWeightsForm) {
+  const inputs = Array.from(performanceWeightsForm.querySelectorAll('input[type="number"]'));
+  const totalLabel = performanceWeightsForm.querySelector('[data-weight-total]');
+  const updateTotal = () => {
+    const total = inputs.reduce((sum, input) => sum + Number(input.value), 0);
+    const valid = inputs.every(input => input.value !== '' && Number.isInteger(Number(input.value)) && Number(input.value) >= 0 && Number(input.value) <= 100) && total === 100;
+    totalLabel.textContent = `Total: ${total}%${valid ? '' : ' — must equal 100%'}`;
+    totalLabel.classList.toggle('text-danger', !valid);
+    inputs[0].setCustomValidity(valid ? '' : 'The six evaluation weights must total exactly 100%.');
+    return valid;
+  };
+  inputs.forEach(input => input.addEventListener('input', updateTotal));
+  performanceWeightsForm.querySelector('[data-settings-cancel]').addEventListener('click', updateTotal);
+  performanceWeightsForm.addEventListener('submit', event => {
+    if (!updateTotal()) { event.preventDefault(); inputs[0].reportValidity(); }
+  });
+  updateTotal();
+}
 let logoPreviewUrl;
 logoInput?.addEventListener('change', () => {
   const file = logoInput.files[0];

@@ -4,6 +4,7 @@ require_once dirname(__DIR__) . '/includes/bootstrap.php';
 require_once ROOT_PATH . '/includes/vehicle_document.php';
 require_once ROOT_PATH . '/includes/vehicle_photo.php';
 require_once ROOT_PATH . '/includes/vehicle_efficiency.php';
+require_once ROOT_PATH . '/includes/vehicle_specs.php';
 require_login();
 require_permission('vehicles.manage');
 
@@ -130,9 +131,7 @@ try {
     $variantId = filter_var($_POST['variant_id'] ?? null, FILTER_VALIDATE_INT);
     $variantId = $variantId ?: null;
     $year = filter_var($_POST['year'] ?? null, FILTER_VALIDATE_INT);
-    $capacity = filter_var($_POST['capacity'] ?? null, FILTER_VALIDATE_INT);
     $fuelCapacity = null;
-    $fuelType = trim((string)($_POST['fuel_type'] ?? ''));
     $currentYear = (int)date('Y');
     if (!$typeId || !$brandId || !$modelId) {
         throw new InvalidArgumentException('Select a supported vehicle type, brand, and model.');
@@ -140,26 +139,29 @@ try {
     if (!$year || $year < 1980 || $year > $currentYear + 1) {
         throw new InvalidArgumentException('Enter a valid vehicle model year.');
     }
-    if (!$capacity || $capacity < 1 || $capacity > 100) {
-        throw new InvalidArgumentException('Passenger capacity must be between 1 and 100.');
-    }
-    $allowedFuelTypes = ['Diesel', 'Gasoline', 'Hybrid', 'Electric'];
-    if (!in_array($fuelType, $allowedFuelTypes, true)) {
-        throw new InvalidArgumentException('Select a supported fuel type.');
-    }
+    // Logistics 2: cargo specifications replace passenger capacity for new registrations.
+    $cargoSpecs = vehicle_cargo_spec_validate($_POST);
 
     $pdo = db();
+    // Fuel type is only ever the document's stated value or the Admin's own selection, and it
+    // must be explicitly confirmed before the vehicle is registered.
+    if (!vehicle_fuel_type_confirmed($_POST)) {
+        throw new InvalidArgumentException('Confirm the fuel type before registering the vehicle.');
+    }
+    $fuelType = vehicle_fuel_type_resolve($pdo, $_POST);
+    $fuelTypeSource = vehicle_fuel_type_source($_POST);
     $catalog = $pdo->prepare(
         "SELECT vt.name AS type_name, b.name AS brand_name, m.model_name
            FROM vehicle_models m
            JOIN vehicle_types vt ON vt.id = m.vehicle_type_id AND vt.status = 'Active'
            JOIN vehicle_brands b ON b.id = m.brand_id AND b.status = 'Active'
-          WHERE m.id = ? AND b.id = ? AND vt.id = ? AND m.status = 'Active'"
+          WHERE m.id = ? AND b.id = ? AND vt.id = ? AND m.status = 'Active'
+            AND vt.service_category = 'Cargo'"
     );
     $catalog->execute([$modelId, $brandId, $typeId]);
     $selection = $catalog->fetch();
     if (!$selection) {
-        throw new InvalidArgumentException('The selected vehicle catalog combination is unsupported or inactive.');
+        throw new InvalidArgumentException('Select an active cargo vehicle type, brand, and model combination from the catalog.');
     }
     $modelName = $selection['model_name'];
     $extractedModel = trim((string)($extraction['series_model'] ?? ''));
@@ -185,6 +187,13 @@ try {
         $fuelCapacity = $variantData['fuel_tank_capacity'] !== null
             ? (int)$variantData['fuel_tank_capacity']
             : null;
+    }
+
+    $efficiency = '—';
+    try {
+        $efficiency = vehicle_efficiency_default($selection['type_name']);
+    } catch (InvalidArgumentException $efficiencyMissing) {
+        // A newly configured cargo type without a planning assumption must not block registration.
     }
 
     $duplicate = $pdo->prepare('SELECT 1 FROM vehicles WHERE plate_number = ?');
@@ -218,19 +227,23 @@ try {
 
     $pdo->beginTransaction();
     $vid = next_available_sequential_id($pdo, 'vehicles', 'id', 'VEH-');
-    $vehicle = $pdo->prepare(
-        'INSERT INTO vehicles (id, plate_number, type, brand, model, year, capacity, status,
-                               fuel_type, fuel_capacity, current_fuel, odometer, maintenance_status,
-                               location, total_trips, total_km, avg_fuel_km, operating_cost_km,
-                               variant_id, created_by, reg_document)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 100, 0, ?, ?, 0, 0, ?, ?, ?, ?, ?)'
-    );
-    $vehicle->execute([
-        $vid, $plate, $selection['type_name'], $selection['brand_name'],
-        trim($modelName . ' ' . ($variantName ?? '')), $year, $capacity,
-        'Available', $fuelType, $fuelCapacity, 'Healthy', 'Central Depot', vehicle_efficiency_default($selection['type_name']), '—',
-        $variantId, $current_user['id'], $documentIds['registration'],
+    vehicle_cargo_insert($pdo, [
+        'id' => $vid,
+        'plate_number' => $plate,
+        'type' => $selection['type_name'],
+        'brand' => $selection['brand_name'],
+        'model' => trim($modelName . ' ' . ($variantName ?? '')),
+        'year' => $year,
+        'fuel_type' => $fuelType,
+        'fuel_capacity' => $fuelCapacity,
+        'efficiency' => $efficiency,
+        'variant_id' => $variantId,
+        'created_by' => $current_user['id'],
+        'registration_document' => $documentIds['registration'],
+        'specs' => $cargoSpecs,
     ]);
+
+    $pdo->prepare('UPDATE vehicles SET gross_vehicle_weight_kg=?,requires_trailer_license=?::boolean WHERE id=?')->execute([$cargoSpecs['gross_vehicle_weight_kg'], $cargoSpecs['requires_trailer_license'] ? 'true' : 'false', $vid]);
 
     $document = $pdo->prepare(
         'INSERT INTO vehicle_documents
@@ -265,7 +278,17 @@ try {
         json_encode([
             'vehicle' => trim($selection['brand_name'] . ' ' . $modelName . ' ' . ($variantName ?? '')),
             'plate_number' => $plate,
+            'service_category' => 'Cargo',
+            'fuel_type' => $fuelType,
+            'fuel_type_source' => $fuelTypeSource,
+            'fuel_type_confirmed' => true,
             'document_id' => $documentIds['registration'],
+            'payload_capacity_kg' => $cargoSpecs['payload_capacity_kg'],
+            'cargo_volume_m3' => $cargoSpecs['cargo_volume_m3'],
+            'cargo_dimensions_m' => $cargoSpecs['cargo_length_m'] !== null
+                ? [$cargoSpecs['cargo_length_m'], $cargoSpecs['cargo_width_m'], $cargoSpecs['cargo_height_m']]
+                : null,
+            'cargo_specs_note' => vehicle_cargo_specs_note($cargoSpecs),
         ], JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES),
     ]);
     foreach ($documents as $uploadedDocument) {
@@ -315,10 +338,6 @@ try {
             'vehicle_match_statuses' => array_column(array_filter($documents, static fn(array $document): bool => isset($document['vehicle_match_status'])), 'vehicle_match_status', 'type'),
         ], JSON_UNESCAPED_SLASHES),
     ]);
-    $photoVehicle = ['id'=>$vid, 'brand'=>$selection['brand_name'], 'model'=>trim($modelName . ' ' . ($variantName ?? '')), 'type'=>$selection['type_name'], 'year'=>$year];
-    $photoCatalogPath = ROOT_PATH . '/assets/images/vehicle-samples/manifest.json';
-    $photoCatalog = is_file($photoCatalogPath) ? (json_decode(file_get_contents($photoCatalogPath), true) ?: []) : [];
-    vehicle_photo_seed_sample($pdo, $photoVehicle, $photoCatalog);
     if ($photoStored) vehicle_photo_save_actual($pdo, $vid, $photoStored, (string)$current_user['id']);
     $pdo->commit();
     $storedFiles = [];

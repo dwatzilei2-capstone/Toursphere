@@ -3,7 +3,7 @@
 /** Online baseline calibration: cumulative sufficient statistics, not batch retraining. */
 function ai_learning_context(array $features): string
 {
-    return 'weight:' . (int)$features['vehicle_weight_class'] . ':traffic:'
+    return (array_key_exists('cargo_load_ratio', $features) ? 'cargo:' : '') . 'weight:' . (int)$features['vehicle_weight_class'] . ':traffic:'
         . ((float)$features['traffic_delay_ratio'] >= 1.5 ? 'heavy' : ((float)$features['traffic_delay_ratio'] > 1.1 ? 'moderate' : 'light'));
 }
 
@@ -12,19 +12,20 @@ function ai_learning_observations(array $row): array
     $f = json_decode($row['pre_trip_features_json'] ?? '', true);
     $routeData = json_decode($row['route_data_json'] ?? '', true);
     if (!is_array($f) || !empty($routeData['demo']) || str_contains(strtolower($row['model_version'] ?? ''), 'demo')) return [];
-    foreach (['distance_km', 'base_duration_mins', 'traffic_delay_ratio', 'baseline_km_per_liter', 'vehicle_weight_class', 'passenger_load_ratio', 'waypoint_count', 'highway_ratio'] as $key) {
+    $loadFeature = array_key_exists('cargo_load_ratio', $f) ? 'cargo_load_ratio' : 'passenger_load_ratio';
+    foreach (['distance_km', 'base_duration_mins', 'traffic_delay_ratio', 'baseline_km_per_liter', 'vehicle_weight_class', $loadFeature, 'waypoint_count', 'highway_ratio'] as $key) {
         if (!isset($f[$key]) || !is_numeric($f[$key]) || !is_finite((float)$f[$key])) return [];
     }
     if ($f['distance_km'] <= 0 || $f['base_duration_mins'] <= 0 || $f['baseline_km_per_liter'] <= 0
         || $f['traffic_delay_ratio'] < 0.5 || $f['traffic_delay_ratio'] > 4
-        || $f['passenger_load_ratio'] < 0 || $f['passenger_load_ratio'] > 1
+        || $f[$loadFeature] < 0 || $f[$loadFeature] > 1
         || $f['waypoint_count'] < 0 || $f['waypoint_count'] > 15
         || $f['vehicle_weight_class'] < 1 || $f['vehicle_weight_class'] > 4
         || $f['highway_ratio'] < 0 || $f['highway_ratio'] > 1) return [];
     $duration = $f['base_duration_mins'] * $f['traffic_delay_ratio'];
     $fuel = RouteThinkEngine::calculateKinematicFuel((float)$f['distance_km'], (float)$f['base_duration_mins'], $duration,
-        ['baseline_km_per_liter' => $f['baseline_km_per_liter'], 'capacity' => 1000],
-        (int)$f['waypoint_count'], (int)round($f['passenger_load_ratio'] * 1000));
+        ['baseline_km_per_liter' => $f['baseline_km_per_liter'], 'capacity' => 1000, 'cargo_load_ratio' => $f[$loadFeature]],
+        (int)$f['waypoint_count'], (int)round($f[$loadFeature] * 1000));
     $result = [];
     foreach (['duration_mins' => $duration, 'fuel_liters' => $fuel] as $target => $baseline) {
         if ($target === 'fuel_liters' && (int)($row['actual_fuel_verified'] ?? 0) !== 1) continue;

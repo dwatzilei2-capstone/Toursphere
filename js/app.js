@@ -547,29 +547,26 @@ const App = {
   renderVehiclePhoto(photo, name, extraClass = "") {
     const e = (value) => this.escapeHtml(value);
     const placeholder = `${window.TC_BASE_URL || ""}/assets/images/vehicle-placeholder.svg`;
-    const p = photo || {src:placeholder,source:"placeholder",placeholderSrc:placeholder,label:"Vehicle photo unavailable"};
-    return `<span class="vehicle-photo ${e(extraClass)}" data-photo-source="${e(p.source)}"><img src="${e(p.src)}" alt="${e(name)} — ${e(p.label)}" loading="lazy" decoding="async" onload="this.parentElement.dataset.photoLoaded=1" data-vehicle-photo data-source="${e(p.source)}" data-sample-src="${e(p.sampleSrc || "")}" data-placeholder-src="${e(p.placeholderSrc || placeholder)}" onerror="App.handleVehiclePhotoError(this)"><span class="vehicle-photo-label" title="${e(p.label)}">${p.source === "sample" ? "Sample" : p.source === "placeholder" ? "No photo" : ""}</span></span>`;
+    const p = photo || {src:placeholder,source:"placeholder",placeholderSrc:placeholder,label:"No vehicle photo uploaded"};
+    return `<span class="vehicle-photo ${e(extraClass)}" data-photo-source="${e(p.source)}"><img src="${e(p.src)}" alt="${e(name)} — ${e(p.label)}" loading="lazy" decoding="async" onload="this.parentElement.dataset.photoLoaded=1" data-vehicle-photo data-source="${e(p.source)}" data-placeholder-src="${e(p.placeholderSrc || placeholder)}" onerror="App.handleVehiclePhotoError(this)"><span class="vehicle-photo-label" title="${e(p.label)}">${p.source === "placeholder" ? "No photo" : ""}</span></span>`;
   },
 
   handleVehiclePhotoError(image) {
     const wrapper = image.closest(".vehicle-photo");
     if (wrapper) delete wrapper.dataset.photoLoaded;
     const label = wrapper?.querySelector(".vehicle-photo-label");
-    let source = "placeholder";
-    if (image.dataset.source === "actual" && image.dataset.sampleSrc) {
-      source = "sample";
-      image.src = image.dataset.sampleSrc;
-    } else if (image.dataset.source !== "placeholder") {
+    if (image.dataset.source !== "placeholder") {
+      // Uploaded image is unavailable: fall back to the clean placeholder.
+      image.dataset.source = "placeholder";
       image.src = image.dataset.placeholderSrc;
     } else {
       // Inline neutral icon remains visible even if the placeholder asset fails.
       image.hidden = true;
       wrapper?.insertAdjacentHTML("afterbegin", '<i class="bi bi-truck-front" aria-hidden="true"></i>');
     }
-    image.dataset.source = source;
-    if (wrapper) wrapper.dataset.photoSource = source;
-    image.alt = source === "sample" ? "Sample vehicle illustration — not actual fleet" : "Vehicle photo unavailable";
-    if (label) { label.textContent = source === "sample" ? "Sample" : "No photo"; label.title = image.alt; }
+    if (wrapper) wrapper.dataset.photoSource = image.dataset.source;
+    image.alt = "No vehicle photo uploaded";
+    if (label) { label.textContent = "No photo"; label.title = image.alt; }
   },
 
   viewVehicleDetails(vehicleId) {
@@ -651,7 +648,13 @@ const App = {
             <tr><td class="text-muted-custom">Vehicle ID:</td><td class="fw-semibold">${v.id}</td></tr>
             <tr><td class="text-muted-custom">Plate Number:</td><td><span class="badge bg-light text-dark border">${v.plateNumber}</span></td></tr>
             <tr><td class="text-muted-custom">Vehicle Type:</td><td class="fw-semibold">${v.type}</td></tr>
-            <tr><td class="text-muted-custom">Passenger Capacity:</td><td>${v.capacity} Persons</td></tr>
+            <tr><td class="text-muted-custom">Service Category:</td><td>${v.specs && v.specs.category === "Cargo" ? "Cargo Delivery (Logistics 2)" : "Passenger Transport"}</td></tr>
+            <tr><td class="text-muted-custom">Fuel Type:</td><td>${this.escapeHtml(v.fuelTypeLabel || v.fuelType || "Not recorded")}</td></tr>
+            ${v.specs && v.specs.category === "Cargo"
+              ? `<tr><td class="text-muted-custom">Maximum Payload:</td><td class="fw-semibold">${this.escapeHtml(v.specs.primary)}</td></tr>
+                 <tr><td class="text-muted-custom">Cargo Volume:</td><td>${this.escapeHtml(v.specs.volume || "Not recorded")}</td></tr>
+                 <tr><td class="text-muted-custom">Cargo Dimensions (L × W × H):</td><td>${this.escapeHtml(v.specs.dimensions || "Not recorded")}</td></tr>`
+              : `<tr><td class="text-muted-custom">Passenger Capacity:</td><td>${v.capacity} Persons</td></tr>`}
             <tr><td class="text-muted-custom">Current Status:</td><td><span class="status-badge ${v.status === 'Available' ? 'status-available' : 'status-ontrip'}">${v.status}</span></td></tr>
             <tr><td class="text-muted-custom">Operational Status:</td><td><strong class="${v.operational.operational ? 'text-success' : 'text-danger'}">${this.escapeHtml(v.operational.status)}</strong>${v.operational.reason ? `<div class="small text-danger mt-1">${this.escapeHtml(v.operational.reason)}</div>` : v.operational.test_data ? '<div class="small text-muted-custom mt-1">TEST ONLY data</div>' : ''}</td></tr>
             <tr><td class="text-muted-custom">Odometer:</td><td>${Number(v.odometer).toLocaleString()} km</td></tr>
@@ -709,7 +712,7 @@ const App = {
         <h5 class="fw-bold mb-2 small text-uppercase text-muted-custom">Licensing & Credentials</h5>
         <div class="bg-light p-2 rounded small mb-3">
           <div><strong>Driver License:</strong> ${payload.licenseNo}</div>
-          <div class="mt-1"><strong>License Class:</strong> ${payload.licenseClass}</div>
+          <div class="mt-1"><strong>License Qualification:</strong> <span${payload.licenseDev || String(payload.licenseClass).startsWith('Verified Professional') ? ' class="text-success"' : ''}>${App.escapeHtml(payload.licenseClass)}</span>${payload.licenseDev ? ' <span class="small text-muted-custom ms-1" title="Development display only; actual LTO qualifications remain unverified.">Dev</span>' : ''}</div>
           <div class="mt-1"><strong>License Expiry:</strong> ${payload.expiration}</div>
           <div class="mt-1"><strong>Contact Phone:</strong> ${payload.phone}</div>
         </div>
@@ -717,16 +720,18 @@ const App = {
         <h5 class="fw-bold mb-2 small text-uppercase text-muted-custom">Operational Metrics</h5>
         <div class="row g-2 small text-center mb-3">
           <div class="col-4 p-2 bg-light rounded"><div class="fw-bold fs-6">${payload.tripCount}</div><div class="text-muted-custom">Total Trips</div></div>
-          <div class="col-4 p-2 bg-light rounded"><div class="fw-bold fs-6 text-success">${payload.onTimeRate}</div><div class="text-muted-custom">On-Time</div></div>
+          <div class="col-4 p-2 bg-light rounded"><div class="fw-bold fs-6 text-success">${payload.onTimeRate}</div><div class="text-muted-custom">${this.escapeHtml(payload.onTimeMetricLabel || "On-Time")}</div></div>
           <div class="col-4 p-2 bg-light rounded"><div class="fw-bold fs-6 text-primary">${payload.safetyScore}</div><div class="text-muted-custom">Safety Pts</div></div>
         </div>
 
-        <h5 class="fw-bold mb-2 small text-uppercase text-muted-custom">Customer Ratings</h5>
+        <h5 class="fw-bold mb-2 small text-uppercase text-muted-custom">${Object.hasOwn(payload, 'performanceScore') ? 'Trip Performance' : 'Requester Ratings'}</h5>
         <div class="p-2 border rounded small mb-3">
-          ${payload.ratingCount > 0
+          ${Object.hasOwn(payload, 'performanceScore')
+            ? `<div class="d-flex justify-content-between align-items-center"><strong>${payload.performanceScore == null ? 'Not evaluated' : `${Number(payload.performanceScore).toFixed(2)}/100`}</strong><span class="text-muted-custom">${Number(payload.evaluatedTrips) || 0} evaluated trips</span></div><div class="text-muted-custom mt-1">Average overall score from finalized Trip Performance evaluations.</div>`
+            : payload.ratingCount > 0
             ? `<div class="d-flex justify-content-between align-items-center"><strong class="text-warning"><i class="bi bi-star-fill me-1"></i>${Number(payload.rating).toFixed(2)}/5</strong><span class="text-muted-custom">${payload.ratingCount} rating${payload.ratingCount === 1 ? "" : "s"}</span></div>
                ${(payload.recentReviews || []).length ? `<div class="mt-2 pt-2 border-top">${payload.recentReviews.map((review) => `<div class="mb-2"><span class="text-warning">${"★".repeat(Number(review.stars))}${"☆".repeat(5 - Number(review.stars))}</span>${review.feedback ? `<div class="text-muted-custom">${this.escapeHtml(review.feedback)}</div>` : ""}</div>`).join("")}</div>` : ""}`
-            : `<span class="text-muted-custom">No customer ratings yet.</span>`}
+            : `<span class="text-muted-custom">No requester ratings yet.</span>`}
         </div>
 
         <h5 class="fw-bold mb-2 small text-uppercase text-muted-custom">Assigned Vehicle</h5>
@@ -770,22 +775,23 @@ const App = {
         <div class="mb-3">
           <div class="d-flex justify-content-between align-items-center bg-light p-2 rounded">
             <div>
-              <div class="fw-bold text-primary-custom">${r.id} - ${r.clientName}</div>
-              <div class="small text-muted-custom">${r.origin} → ${r.destination}</div>
+              <div class="fw-bold text-primary-custom">${this.escapeHtml(r.id)} - ${this.escapeHtml(r.clientName)}</div>
+              <div class="small text-muted-custom">${this.escapeHtml(r.origin)} → ${this.escapeHtml(r.destination)}</div>
             </div>
-            <span class="badge bg-primary">${r.passengerCount} Passengers</span>
+            <span class="badge bg-primary">${r.requestKind==='Cargo' ? this.escapeHtml(r.cargoWeightKg)+' kg · '+this.escapeHtml(r.cargoVolumeM3)+' m³' : Number(r.passengerCount)+' Passengers'}</span>
           </div>
         </div>
         <div class="row g-3 small">
           <div class="col-md-6"><span class="text-muted-custom">Required Vehicle Type:</span> <strong>${this.escapeHtml(r.requiredVehicleType || "Not recorded")}</strong></div>
-          <div class="col-md-6"><span class="text-muted-custom">Required Capacity:</span> <strong>${r.requiredCapacity ? Number(r.requiredCapacity) + " passengers" : "Not recorded"}</strong></div>
+          <div class="col-md-6"><span class="text-muted-custom">${r.requestKind==='Cargo' ? 'Cargo / Quantity' : 'Required Capacity'}:</span> <strong>${r.requestKind==='Cargo' ? this.escapeHtml(r.cargoType)+' · '+this.escapeHtml(r.cargoQuantity)+' units' : r.requiredCapacity ? Number(r.requiredCapacity) + " passengers" : "Not recorded"}</strong></div>
           <div class="col-md-6"><span class="text-muted-custom">Assigned Vehicle:</span> <strong>${r.assignedVehicle || "Pending"}</strong></div>
           <div class="col-md-6"><span class="text-muted-custom">Assigned Driver:</span> <strong>${r.assignedDriver || "Pending"}</strong></div>
           <div class="col-md-6"><span class="text-muted-custom">Departure Time:</span> <strong>${r.departureDate} ${r.departureTime}</strong></div>
           <div class="col-md-6"><span class="text-muted-custom">Estimated Cost:</span> <strong class="text-primary-custom">${r.estimatedCost}</strong></div>
           <div class="col-md-6"><span class="text-muted-custom">Trip Type:</span> <strong>${r.tripType || "Standard"}</strong></div>
           <div class="col-md-6"><span class="text-muted-custom">Contact:</span> <strong>${r.contactPhone || "—"}</strong></div>
-          <div class="col-12"><span class="text-muted-custom">Notes:</span> <p class="mb-0 mt-1 p-2 bg-light rounded">${r.notes || "No special instructions provided."}</p></div>
+          <div class="col-12"><span class="text-muted-custom">Notes:</span> <p class="mb-0 mt-1 p-2 bg-light rounded">${this.escapeHtml(r.notes || "No special instructions provided.")}</p></div>
+          ${r.requestKind==='Cargo' ? '<div class="col-12">Special handling: '+this.escapeHtml(r.specialHandling || 'None')+'</div>' : ''}
         </div>
         <div class="d-flex justify-content-end gap-2 mt-4">
           <button type="button" class="tc-btn tc-btn-secondary" onclick="App.closeModal('modal-dispatch')">Close</button>
@@ -817,9 +823,10 @@ const App = {
       <input type="hidden" name="reassignment_from" value="">
       <div class="assignment-form-content">
         <section class="assignment-summary" aria-label="Reservation summary">
-          <div class="assignment-summary-heading"><div class="assignment-summary-identity"><span class="assignment-reservation-id">${esc(r.id)}</span><span class="assignment-status is-available">${esc(r.status)}</span></div><span class="assignment-status assignment-passengers"><i class="bi bi-people-fill" aria-hidden="true"></i> ${Number(r.passengerCount)} Passengers</span></div>
+          <div class="assignment-summary-heading"><div class="assignment-summary-identity"><span class="assignment-reservation-id">${esc(r.id)}</span><span class="assignment-status is-available">${esc(r.status)}</span></div><span class="assignment-status assignment-passengers">${r.requestKind === 'Cargo' ? esc(r.cargoWeightKg)+' kg · '+esc(r.cargoVolumeM3)+' m³' : Number(r.passengerCount)+' Passengers'}</span></div>
           <strong class="assignment-customer">${esc(r.clientName)}</strong>
-          <div class="assignment-summary-bottom"><span class="assignment-route"><i class="bi bi-geo-alt" aria-hidden="true"></i> ${esc(r.origin)} → ${esc(r.destination)}</span><div class="assignment-requirements"><span><i class="bi bi-truck" aria-hidden="true"></i> ${esc(r.requiredVehicleType || "Any vehicle type")}</span><span><i class="bi bi-people" aria-hidden="true"></i> Minimum <span data-minimum>${Number(r.requiredCapacity || r.passengerCount)} seats</span></span></div></div>
+          <div class="assignment-summary-bottom"><span class="assignment-route"><i class="bi bi-geo-alt" aria-hidden="true"></i> ${esc(r.origin)} → ${esc(r.destination)}</span><div class="assignment-requirements"><span><i class="bi bi-truck" aria-hidden="true"></i> ${esc(r.requiredVehicleType || (r.requestKind==='Cargo' ? 'Cargo vehicle' : 'Any vehicle type'))}</span><span>${r.requestKind==='Cargo' ? esc(r.cargoType)+' · '+esc(r.cargoQuantity)+' units' : 'Minimum <span data-minimum>'+Number(r.requiredCapacity || r.passengerCount)+' seats</span>'}</span></div></div>
+          ${r.requestKind==='Cargo' ? '<p class="small mb-0">Special handling: '+esc(r.specialHandling || 'None')+'</p>' : ''}
         </section>
         <section><h5><i class="bi bi-truck" aria-hidden="true"></i> Vehicle Assignment</h5><div data-assignment-message role="status" aria-live="polite">Checking fleet and driver availability…</div><div data-vehicle-options></div></section>
         <section><h5><i class="bi bi-person-badge" aria-hidden="true"></i> Assigned Driver</h5><div class="assigned-driver-info" data-driver-info>Select a vehicle to resolve its designated driver.</div></section>
@@ -888,10 +895,10 @@ const App = {
         <span class="assignment-vehicle-content">
           ${recommended ? '<span class="assignment-recommendation-label"><span class="assignment-recommended-badge"><i class="bi bi-star-fill" aria-hidden="true"></i> Recommended</span><span class="assignment-match-badge">Best Match</span></span>' : ''}
           <span class="assignment-vehicle-heading"><strong>${esc(v.name)}</strong><span class="assignment-status ${statusClass}">${esc(v.status)}</span></span>
-          <span class="assignment-vehicle-meta">${esc(v.id)} · ${esc(v.plate)}${recommended ? '' : ` · ${v.capacity} seats · ${esc(v.type)}`}</span>
-          ${recommended ? `<span class="assignment-vehicle-meta">${v.capacity} seats · ${esc(v.type)}</span>` : ''}
+          <span class="assignment-vehicle-meta">${esc(v.id)} · ${esc(v.plate)}${recommended ? '' : ` · ${r.requestKind==='Cargo' ? esc(v.cargoWeightKg)+' kg · '+esc(v.cargoVolumeM3)+' m³' : v.capacity+' seats'} · ${esc(v.type)}`}</span>
+          ${recommended ? `<span class="assignment-vehicle-meta">${r.requestKind==='Cargo' ? esc(v.cargoWeightKg)+' kg · '+esc(v.cargoVolumeM3)+' m³' : v.capacity+' seats'} · ${esc(v.type)}</span>` : ''}
           <span class="assignment-vehicle-driver">${recommended ? 'Assigned Driver' : 'Driver'}: <span class="${!v.driver ? 'assignment-driver-none' : ''}">${esc(v.driver?.name || 'None')}</span></span>
-          ${v.reasons.length ? `<span class="assignment-picker-reason">${esc(v.reasons.join(' · '))}</span>` : recommended ? `<span class="assignment-reason"><i class="bi bi-info-circle-fill" aria-hidden="true"></i> ${r.requiredVehicleType ? 'Matches required type and capacity.' : 'Meets required passenger capacity.'} ${v.driver ? 'Vehicle and designated driver are available.' : 'Select an eligible driver.'}</span>` : ''}
+          ${v.reasons.length ? `<span class="assignment-picker-reason">${esc(v.reasons.join(' · '))}</span>` : recommended ? `<span class="assignment-reason"><i class="bi bi-info-circle-fill" aria-hidden="true"></i> ${r.requestKind==='Cargo' ? 'Meets cargo weight and volume requirements; review special handling.' : r.requiredVehicleType ? 'Matches required type and capacity.' : 'Meets required passenger capacity.'} ${v.driver ? 'Vehicle and designated driver are available.' : 'Select an eligible driver.'}</span>` : ''}
         </span></button>`;
     };
     const refresh = async () => {
@@ -906,7 +913,8 @@ const App = {
         if (token!==request || !form.isConnected) return;
         if (!response.ok || data.error) throw new Error(data.error || 'Could not check availability.');
         snapshot=data;
-        form.querySelector('[data-minimum]').textContent=`${data.minimum_capacity} seats`;
+        const minimumLabel=form.querySelector('[data-minimum]');
+        if(minimumLabel)minimumLabel.textContent=`${data.minimum_capacity} seats`;
         const recommended = data.vehicles.find(v=>v.id===data.recommended_id);
         message.textContent=locked ? 'Dispatch uses the saved vehicle and driver only.' : recommended ? 'System recommended a suitable vehicle based on your reservation requirements.' : 'No valid vehicle-driver combination is available. Review the restrictions below.';
         const alternatives = data.vehicles.filter(v=>v.eligible && v.id!==data.recommended_id);
@@ -1042,7 +1050,7 @@ const App = {
           <label class="tc-form-label">Cancellation Reason <span class="text-danger">*</span></label>
           <select class="tc-form-select" name="cancellation_reason" required onchange="App.toggleOtherCancellationReason(this)">
             <option value="">-- Select a reason --</option>
-            <option>Customer Request</option><option>Trip Cancelled</option><option>Schedule Changed</option>
+            <option>Requester Request</option><option>Trip Cancelled</option><option>Schedule Changed</option>
             <option>Duplicate Reservation</option><option>Vehicle Availability Issue</option>
             <option>Booking Information Error</option><option>Other</option>
           </select>
@@ -1270,7 +1278,8 @@ const App = {
         const yScale = {};
         if (cfg.min !== undefined) yScale.min = cfg.min;
         if (cfg.max !== undefined) yScale.max = cfg.max;
-        yScale.ticks = cfg.max !== undefined ? { callback: (v) => v + "%" } : undefined;
+        yScale.ticks = cfg.max !== undefined ? { callback: (v) => cfg.unit === 'score' ? v : v + "%" } : undefined;
+        if (cfg.unit === 'score') yScale.title = {display: true, text: 'Score / 100'};
         chartCfg = {
           type: "bar",
           data: {

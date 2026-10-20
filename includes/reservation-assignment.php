@@ -4,17 +4,11 @@ require_once __DIR__ . '/driver_vehicle_assignment.php';
 require_once __DIR__ . '/schedules.php';
 require_once __DIR__ . '/vehicle_photo.php';
 
+require_once __DIR__.'/driver_license.php';
+require_once __DIR__.'/logistics_requests.php';
 function assignment_driver_class_matches(array $vehicle, array $driver): bool
 {
-    $type = strtolower((string)$vehicle['type']);
-    $class = ((int)$vehicle['capacity'] > 30 || str_contains($type, 'bus') || str_contains($type, 'coach')) ? 3 : 2;
-    preg_match_all('/(?:class|restriction)\s*(\d+(?:\s*[,\/&]\s*\d+)*)/i', (string)($driver['license_class'] ?? ''), $groups);
-    $codes = [];
-    foreach ($groups[1] as $group) {
-        preg_match_all('/\d+/', $group, $numbers);
-        $codes = array_merge($codes, array_map('intval', $numbers[0]));
-    }
-    return in_array(3, $codes, true) || ($class === 2 && in_array(2, $codes, true));
+    return driver_license_eligibility($vehicle, $driver) === '';
 }
 
 function assignment_resource_conflict(PDO $pdo, array $r, string $column, string $id, string $departure, bool $reassignment = false): bool
@@ -61,9 +55,11 @@ function assignment_options(PDO $pdo, array $r, string $departure): array
         if (filter_var($v['is_archived'] ?? false, FILTER_VALIDATE_BOOLEAN)) continue;
         $reasons = [];
         if (!in_array($v['status'], ['Available','Assigned'], true)) $reasons[] = 'Vehicle '.$v['status'];
-        if ((int)$v['capacity'] < $minimum) $reasons[] = 'Not enough seats: '.$v['capacity'].' available; '.$minimum.' required';
+        if (($r['request_kind'] ?? 'Passenger')==='Cargo') {
+            if($issue=logistics_vehicle_issue($r,$v))$reasons[]=$issue;
+        } elseif ((int)$v['capacity'] < $minimum) $reasons[] = 'Not enough seats: '.$v['capacity'].' available; '.$minimum.' required';
         if (!empty($r['vehicle_requested']) && $v['type'] !== $r['vehicle_requested']) $reasons[] = 'Booking requires '.$r['vehicle_requested'].'; this vehicle is '.$v['type'];
-        $maintenance = $pdo->prepare("SELECT 1 FROM maintenance_orders WHERE vehicle_id=? AND status IN ('Scheduled','In Repair') LIMIT 1");
+        $maintenance = $pdo->prepare("SELECT 1 FROM maintenance_orders WHERE vehicle_id=? AND (status='In Repair' OR (status='Scheduled' AND (notes LIKE 'Driver issue report:%' OR source_trip_id IS NOT NULL))) LIMIT 1");
         $maintenance->execute([$v['id']]);
         if ($maintenance->fetchColumn()) $reasons[] = 'Under maintenance';
         $compliance = vehicle_operational_compliance($pdo, $v['id']);
@@ -75,7 +71,7 @@ function assignment_options(PDO $pdo, array $r, string $departure): array
             $current = array_values(array_filter($vehicles, fn($other) => $other['assigned_driver_id'] === $d['id']));
             $reassign = count($current) > 0 && $current[0]['id'] !== $v['id'];
             $issue = !in_array($d['status'], ['Active','Assigned'], true) ? 'Driver '.$d['status'] : '';
-            if (!$issue && !assignment_driver_class_matches($v,$d)) $issue = 'Not available for this vehicle';
+            if (!$issue) $issue = driver_license_eligibility($v,$d,substr($departure,0,10));
             if (!$issue && !empty($d['license_expiration']) && $d['license_expiration'] < substr($departure,0,10)) $issue = 'License expires on '.$d['license_expiration'].'; departure is '.substr($departure,0,10);
             if (!$issue && $conflict('driver_id',$d['id'],$reassign)) $issue = 'Driver has an active trip or another assignment overlapping this departure and dispatch buffer';
             if (!$issue && $reassign) foreach ($current as $previous) {
@@ -93,6 +89,7 @@ function assignment_options(PDO $pdo, array $r, string $departure): array
         if (!$v['assigned_driver_id'] && !$eligible) $reasons[] = 'No compatible available driver';
         $priority = $designated ? 1 : ((!empty($eligible) && !$eligible[0]['reassignment']) ? 2 : 3);
         $result[] = ['photo'=>vehicle_photo_present($v['id'], $photos[$v['id']] ?? []),'id'=>$v['id'],'name'=>trim($v['brand'].' '.$v['model']),'plate'=>$v['plate_number'],'type'=>$v['type'],'capacity'=>(int)$v['capacity'],'driver'=>$designated,'drivers'=>$designated ? [] : $eligible,'unavailable_drivers'=>$unavailableDrivers,'eligible'=>!$reasons,'reasons'=>array_values(array_unique($reasons)),'priority'=>$priority,
+            'cargoWeightKg'=>(float)($v['payload_capacity_kg']??0),'cargoVolumeM3'=>(float)($v['cargo_volume_m3']??0),
             'status'=>$reasons ? 'Unavailable' : ($designated ? 'Available' : ($priority===2 ? 'Driver Required' : 'Reassignment Required'))];
     }
     usort($result,fn($a,$b)=>($b['eligible']<=>$a['eligible']) ?: ($a['priority']<=>$b['priority']) ?: ($a['capacity']<=>$b['capacity']) ?: strcmp($a['id'],$b['id']));

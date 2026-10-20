@@ -8,6 +8,7 @@ if ($_SERVER['REQUEST_METHOD'] !== 'POST') { http_response_code(405); exit('Meth
 $return = BASE_URL . '/modules/customer-portal/reservations.php';
 $id = trim($_POST['reservation_id'] ?? '');
 try {
+    if(!is_string($_POST['csrf']??null)||empty($_SESSION['customer_reservation_csrf'])||!hash_equals($_SESSION['customer_reservation_csrf'],$_POST['csrf']))throw new RuntimeException('Session expired. Refresh the page.');
     $pdo = db(); $pdo->beginTransaction();
     $stmt = $pdo->prepare('SELECT * FROM reservations WHERE id=? AND customer_id=? FOR UPDATE');
     $stmt->execute([$id, $current_user['id']]); $r = $stmt->fetch();

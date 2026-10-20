@@ -50,10 +50,10 @@ require ROOT_PATH . '/includes/header.php';
       <thead>
         <tr>
           <th>Trip ID</th>
-          <th>Client / Tour Group</th>
+          <th>Requester / Client</th>
           <th>Origin & Destination</th>
           <th>Departure</th>
-          <th>Pax</th>
+          <th>Cargo / Load</th>
           <th>Status</th>
           <th class="text-end">Action</th>
         </tr>
@@ -73,7 +73,7 @@ require ROOT_PATH . '/includes/header.php';
               <div class="small fw-medium"><i class="bi bi-flag text-danger me-1"></i><?= e($r['destination']) ?></div>
             </td>
             <td><?= e($r['departure_date']) ?><br><span class="text-muted-custom small"><?= e($r['departure_time']) ?></span></td>
-            <td><span class="badge bg-light text-dark border"><?= (int)$r['passenger_count'] ?> pax</span></td>
+            <td><span class="badge bg-light text-dark border"><?php if (($r['request_kind'] ?? 'Passenger') === 'Cargo'): ?><?= $r['cargo_weight_kg'] !== null ? e(rtrim(rtrim(number_format((float)$r['cargo_weight_kg'], 3, '.', ''), '0'), '.')).' kg' : 'Weight unavailable' ?> · <?= $r['cargo_volume_m3'] !== null ? e(rtrim(rtrim(number_format((float)$r['cargo_volume_m3'], 3, '.', ''), '0'), '.')).' m³' : 'Volume unavailable' ?><?php else: ?><?= (int)$r['passenger_count'] ?> passengers<?php endif; ?></span></td>
             <td><span class="status-badge <?= status_badge_class($r['status']) ?>"><?= e($r['status']) ?></span><?php $driverFundingTripId=$r['trip_id']; require ROOT_PATH.'/includes/driver-funding-ui.php'; ?></td>
             <td class="text-end">
               <?php if ($r['status'] !== 'Completed' && !empty($r['assigned_vehicle_id'])): ?>
@@ -117,7 +117,7 @@ require ROOT_PATH . '/includes/header.php';
                   <input type="hidden" name="reservation_id" value="<?= e($r['id']) ?>">
                   <input type="hidden" name="status" value="Returning to Depot">
                   <input type="hidden" name="return" value="<?= e(BASE_URL . '/modules/driver-portal/driver-trips.php') ?>">
-                  <button type="submit" class="tc-btn tc-btn-primary tc-btn-sm"><i class="bi bi-arrow-return-left"></i> Passenger Drop-off / Return</button>
+                  <button type="submit" class="tc-btn tc-btn-primary tc-btn-sm"><i class="bi bi-arrow-return-left"></i> <?= ($r['request_kind'] ?? 'Passenger') === 'Cargo' ? 'Delivery Drop-off / Return' : 'Passenger Drop-off / Return' ?></button>
                 </form>
               <?php else: ?>
                 <a class="tc-btn tc-btn-primary tc-btn-sm me-1" href="<?= BASE_URL ?>/modules/ai-route-optimization/ai-route-planner.php?trip_id=<?= urlencode($r['trip_id'] ?? '') ?>&return=1">

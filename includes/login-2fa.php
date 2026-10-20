@@ -2,6 +2,9 @@
 
 require_once __DIR__ . '/recovery-delivery.php';
 
+// Temporary login bypass for every role. Set to true to restore the existing 2FA policy.
+const LOGIN_2FA_ENABLED = false;
+
 const LOGIN_2FA_EXPIRY_SECONDS = 300;
 const LOGIN_2FA_RESEND_SECONDS = 60;
 const LOGIN_2FA_MAX_ATTEMPTS = 5;

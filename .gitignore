@@ -41,3 +41,18 @@ database/backups/
 /tmp_verify_next_vehicle.php
 
 /storage/private/fuel-receipts/
+
+# Generated verification captures and Python cache
+/storage/*.png
+__pycache__/
+*.py[cod]
+
+# Private runtime records, uploaded evidence and local database backups
+/storage/private/*
+!/storage/private/.htaccess
+
+# Local split database exports for manual imports
+/defense_import_parts/
+/defense_import_ready/
+/defense_import_under_1mb/
+/defense_population_validation.json

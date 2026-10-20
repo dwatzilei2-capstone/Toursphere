@@ -343,6 +343,7 @@ require ROOT_PATH . '/includes/header.php';
 </div>
 
  
+<?php require ROOT_PATH . '/includes/dashboard-operations-ui.php'; ?>
 <div class="row g-3 mb-4">
   <div class="col-lg-8">
     <div class="tc-card h-100">

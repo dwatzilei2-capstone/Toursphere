@@ -1,32 +1,34 @@
 <?php
 if(PHP_SAPI!=='cli'){http_response_code(404);exit;}
-$cases=['generated','applied','read_only','view_preview','other_driver','stale_revision','navigation_replace','navigation_progress','reroute_mode','reroute_same_mode','free_reroute_same_mode','changed_inputs','start_admin','start_dispatcher','start_driver','start_no_apply','start_resume','start_changed_assignment','start_free_resume','start_return','custom_role_write','prepare_applied','prepare_no_apply'];
+$cases=['generated','applied','read_only','view_preview','other_driver','stale_revision','navigation_replace','navigation_progress','reroute_mode','reroute_same_mode','free_reroute_same_mode','changed_inputs','start_admin','start_dispatcher','start_driver','start_no_apply','start_resume','start_changed_assignment','start_free_resume','start_return','custom_role_write','prepare_applied','prepare_no_apply','second_apply','applied_replace','monitor_generate','undispatched_start','evaluate_driver','evaluate_admin','evaluate_monitor','evaluate_admin_trip','start_free_admin'];
 if(!isset($argv[1])){
  foreach($cases as $case){$output=[];exec(escapeshellarg(PHP_BINARY).' '.escapeshellarg(__FILE__).' '.escapeshellarg($case),$output,$code);if($code!==0)throw new RuntimeException($case.': '.implode("\n",$output));}
  echo count($cases)." route persistence and navigation action cases passed using isolated temporary tables.\n";exit;
 }
 require dirname(__DIR__).'/includes/bootstrap.php';require ROOT_PATH.'/includes/route_planner_state.php';
 $case=$argv[1];$pdo=db();
-foreach(['route_planner_states','route_history','ai_route_candidates_log','trips','reservations','vehicles','drivers','maintenance_orders','vehicle_documents','trip_timeline','audit_logs'] as $table){
+foreach(['route_planner_states','route_history','ai_route_candidates_log','trips','reservations','vehicles','drivers','maintenance_orders','vehicle_documents','trip_timeline','audit_logs','ai_model_registry','ai_learning_stats','fuel_price_history'] as $table){
  $pdo->exec("CREATE TEMP TABLE $table (LIKE public.$table INCLUDING DEFAULTS INCLUDING CONSTRAINTS INCLUDING INDEXES INCLUDING IDENTITY)");
  $defaults=$pdo->prepare("SELECT column_name FROM information_schema.columns WHERE table_schema='public' AND table_name=? AND column_default LIKE 'nextval%' AND is_identity='NO'");$defaults->execute([$table]);
  foreach($defaults->fetchAll(PDO::FETCH_COLUMN) as $column){$sequence='test_'.$table.'_'.$column;$pdo->exec("CREATE TEMP SEQUENCE $sequence; ALTER TABLE $table ALTER COLUMN $column SET DEFAULT nextval('pg_temp.$sequence')");}
 }
 $fixture=json_decode(file_get_contents(ROOT_PATH.'/tmp/route-planner-evaluations.json'),true);
 function action_route($fixture,$mode){$evaluation=$fixture['modeEvaluations'][$mode];$candidate=$evaluation['selectedCandidate'];$id='test-generation:'.$mode.':'.$evaluation['selectedIndex'];return ['routeId'=>$id,'mode'=>$mode,'directions'=>$fixture['directions'],'evaluation'=>$evaluation,'data'=>['routeId'=>$id,'mode'=>$mode,'distanceKm'=>$candidate['distanceKm'],'durationMins'=>$candidate['durationMins'],'fuelEstimateLiters'=>$candidate['fuelEstimateLiters'],'routeScore'=>'99 / 100','modelVersion'=>'v0-kinematic']];}
-$route=action_route($fixture,'fastest');$state=['inputs'=>['origin'=>'Origin','destination'=>'Destination','vehicleId'=>'TEST-V','vehicle'=>'Test vehicle','waypoints'=>[]],'directions'=>$fixture['directions'],'selected'=>$route,'applied'=>$route];
+$testMode=$argv[2]??'fastest';
+$route=action_route($fixture,$testMode);$state=['inputs'=>['origin'=>'Origin','destination'=>'Destination','vehicleId'=>'TEST-V','vehicle'=>'Test vehicle','waypoints'=>[]],'directions'=>$fixture['directions'],'selected'=>$route,'applied'=>$route];
 $pdo->exec("INSERT INTO drivers(id,name,status,user_id,license_class,license_expiration) VALUES('TEST-D','Test driver','Active',1,'Class 3','2099-12-31'); INSERT INTO vehicles(id,plate_number,type,brand,model,year,capacity,fuel_type,avg_fuel_km) VALUES('TEST-V','TEST','Van','Test','Vehicle',2026,15,'Diesel','9.5 km/L'); INSERT INTO reservations(id,client_name,passenger_count,origin,destination,departure_date,departure_time,status,assigned_vehicle_id,assigned_driver_id) VALUES('TEST-R','Test',5,'Origin','Destination','2030-01-10','07:00','Dispatched','TEST-V','TEST-D'); INSERT INTO trips(id,reservation_id,origin,destination,vehicle_id,driver_id,passengers,status) VALUES('TEST-T','TEST-R','Origin','Destination','TEST-V','TEST-D',5,'Dispatched')");
 $doc=$pdo->prepare("INSERT INTO vehicle_documents(id,vehicle_id,document_type,extracted_data,extraction_status,stored_filename,original_filename,mime_type,file_size) VALUES(md5(random()::text),'TEST-V',?,?,'extracted',md5(random()::text),'test.pdf','application/pdf',1)");
 foreach(['registration','insurance','ltfrb_permit'] as $type)$doc->execute([$type,json_encode(['vehicle_match_status'=>'MATCHED','document_type_status'=>'MATCHED','expiration_date'=>'2099-12-31'])]);
 $current_user=['id'=>1,'role_code'=>'fleet_admin'];$current_permissions=['ai.view','ai.manage'];
 $_SESSION['route_state_csrf']='test-csrf';$_SERVER['REQUEST_METHOD']='POST';$_GET=[];
-$key='trip:TEST-T:outbound';$life='APPLIED';$tripId='TEST-T';$phase='outbound';$existing=!in_array($case,['generated','applied'],true);
+$pdo->exec("UPDATE reservations SET request_kind='Cargo',customer_id=1,request_purpose='Cargo Transport',cargo_type='Test cargo',cargo_quantity=1,passenger_count=0,cargo_weight_kg=500,cargo_volume_m3=2; UPDATE vehicles SET type='Cargo Truck',payload_capacity_kg=2000; UPDATE drivers SET license_no='ISOLATED-TEST',license_verification_notes='Connection-local test fixture only',license_type='Professional',authorized_dl_codes='[\"C\"]'::jsonb,license_verification_status='Verified',license_document_filename='isolated-test.pdf',license_verified_by=1,license_verified_at=NOW(); UPDATE vehicles SET service_category='Cargo'; UPDATE trips SET passengers=0");
+$key='trip:TEST-T:outbound';$life='APPLIED';$tripId='TEST-T';$phase='outbound';$existing=!in_array($case,['generated','applied','evaluate_driver','evaluate_admin','evaluate_monitor','evaluate_admin_trip'],true);
 if($case==='read_only'){$current_user['role_code']='fleet_manager';$current_permissions=['ai.view'];}
 if(in_array($case,['start_driver','other_driver'],true)){$current_user['role_code']='driver';$current_permissions=['ai.view','ai.navigate'];if($case==='other_driver')$current_user['id']=2;}
-if(!in_array($case,['start_admin','start_dispatcher','start_free_resume','changed_inputs','free_reroute_same_mode','read_only','view_preview','custom_role_write','prepare_applied','prepare_no_apply'],true))$current_user['role_code']='driver';
+if(!in_array($case,['start_admin','start_dispatcher','start_free_resume','start_free_admin','changed_inputs','free_reroute_same_mode','read_only','view_preview','custom_role_write','prepare_applied','prepare_no_apply'],true))$current_user['role_code']='driver';
 if($case==='custom_role_write'){$current_user['role_code']='custom_route_viewer';$current_permissions=['dispatch.view','ai.view','ai.manage','ai.navigate'];}
 if($case==='start_dispatcher')$current_user['role_code']='dispatcher';
-if(in_array($case,['changed_inputs','start_free_resume','free_reroute_same_mode'],true)){$tripId='';$key='account:1:outbound';}
+if(in_array($case,['changed_inputs','start_free_resume','start_free_admin','free_reroute_same_mode'],true)){$tripId='';$key='account:1:outbound';}
 if(in_array($case,['navigation_replace','navigation_progress','reroute_mode','reroute_same_mode','free_reroute_same_mode','start_resume','start_free_resume'],true))$life='NAVIGATING';
 if(in_array($case,['start_no_apply','prepare_no_apply'],true)){$state['applied']=null;$life='GENERATED';}
 if($case==='start_return'){
@@ -41,6 +43,8 @@ if(in_array($case,['start_resume','start_free_resume','reroute_same_mode','free_
 $_POST=['trip_id'=>$tripId,'phase'=>$phase,'csrf'=>'test-csrf','lifecycle'=>'APPLIED','revision'=>$existing?'1':'0','state'=>json_encode($state)];
 if($case==='navigation_progress'){$_POST['lifecycle']='NAVIGATING';$state['navigation']=['leg'=>0,'step'=>1,'hasReachedPickup'=>true];}
 if($case==='view_preview'){$current_user['role_code']='fleet_manager';$current_permissions=['ai.view'];$_POST['lifecycle']='GENERATED';$state['selected']=action_route($fixture,'shortest');$state['applied']=null;}
+if($case==='monitor_generate'){$current_user['role_code']='dispatcher';$tripId='';$_POST['trip_id']='';$_POST['lifecycle']='GENERATED';$state['applied']=null;}
+if($case==='applied_replace')$state['applied']=$state['selected']=action_route($fixture,$testMode==='shortest'?'balanced':'shortest');
 if($case==='generated'){$_POST['lifecycle']='GENERATED';$state['applied']=null;}
 if($case==='stale_revision')$_POST['revision']='0';
 if(in_array($case,['navigation_replace','reroute_mode'],true)){$state['applied']=$state['selected']=action_route($fixture,'shortest');$_POST['lifecycle']='NAVIGATING';}
@@ -48,28 +52,40 @@ if(in_array($case,['reroute_mode','reroute_same_mode','free_reroute_same_mode'],
 if(in_array($case,['reroute_same_mode','free_reroute_same_mode'],true)){$_POST['lifecycle']='NAVIGATING';$state['applied']['routeId']=$state['applied']['data']['routeId']='rerouted:fastest:0';$state['selected']=$state['applied'];}
 if($case==='changed_inputs'){$state['inputs']['origin']='New origin';$state['applied']=null;$_POST['lifecycle']='GENERATED';}
 $_POST['state']=json_encode($state);
-$isStart=str_starts_with($case,'start_');
+$isStart=str_starts_with($case,'start_') || $case==='undispatched_start';
+if($case==='undispatched_start')$pdo->exec("UPDATE trips SET status='Assigned'; UPDATE reservations SET status='Assigned'");
 if($isStart){$_POST=['trip_id'=>$tripId,'reservation_id'=>$tripId?'TEST-R':'','route_phase'=>$phase,'state_csrf'=>'test-csrf','route_id'=>$route['routeId'],'mode'=>'shortest','distance_km'=>'9999','duration_mins'=>'9999','fuel_liters'=>'9999','vehicle'=>'Forged preview'];}
 if($case==='start_changed_assignment')$pdo->exec("UPDATE trips SET destination='Changed destination'");
 if(str_starts_with($case,'prepare_')){
  $pdo->exec("UPDATE trips SET status='Assigned'; UPDATE reservations SET status='Assigned'; CREATE TEMP TABLE trip_funding_requests (LIKE public.trip_funding_requests INCLUDING DEFAULTS INCLUDING IDENTITY)");
  $_SESSION['route_prepare_csrf']='test-csrf';$_POST=['trip_id'=>'TEST-T','csrf'=>'test-csrf','vehicle_id'=>'TEST-V','origin'=>'Origin','destination'=>'Destination','route_id'=>$route['routeId'],'distance_km'=>'9999','strategy'=>'shortest'];
 }
-$reject=in_array($case,['read_only','view_preview','custom_role_write','start_admin','start_dispatcher','other_driver','stale_revision','navigation_replace','reroute_mode','start_no_apply','start_changed_assignment','prepare_no_apply'],true);
-ob_start();register_shutdown_function(function()use($pdo,$case,$reject,$key,$isStart,$route){
+$isEvaluation=str_starts_with($case,'evaluate_');
+if($isEvaluation){
+ $current_user['role_code']=$case==='evaluate_driver'?'driver':($case==='evaluate_monitor'?'dispatcher':'fleet_admin');
+ $_POST=['trip_id'=>$case==='evaluate_admin'||$case==='evaluate_monitor'?'':'TEST-T','origin'=>'Origin','destination'=>'Destination','vehicle'=>'TEST-V','mode'=>$testMode,'candidates'=>json_encode(array_column($fixture['modeEvaluations']['fastest']['candidates'],'rawRoute'))];
+}
+$reject=in_array($case,['read_only','view_preview','custom_role_write','start_admin','start_dispatcher','other_driver','stale_revision','navigation_replace','reroute_mode','reroute_same_mode','free_reroute_same_mode','changed_inputs','second_apply','applied_replace','monitor_generate','undispatched_start','evaluate_monitor','evaluate_admin_trip','start_no_apply','start_changed_assignment','prepare_no_apply'],true);
+ob_start();register_shutdown_function(function()use($pdo,$case,$reject,$key,$isStart,$route,$testMode,$isEvaluation){
  $body=ob_get_clean();$result=json_decode($body,true);
  try{
   if(!$result)throw new RuntimeException('Invalid response: '.$body);
   if((bool)($result['ok']??false)===$reject)throw new RuntimeException($body);
+  if($isEvaluation){
+   if(!$reject && (($result['data']['mode']??'')!==$testMode || count($result['data']['modeEvaluations']??[])!==4))throw new RuntimeException('Missing mode evaluation');
+   return;
+  }
   if(!$reject){
    $saved=route_planner_load($pdo,$key);
+   if($case==='applied' && ($saved['state_data']['applied']!=$route || $saved['state_data']['selected']!=$route))throw new RuntimeException('Applied mode or exact geometry was not persisted');
    if($isStart){
+    if($case==='start_free_admin' && ($pdo->query("SELECT status FROM trips WHERE id='TEST-T'")->fetchColumn()!=='Dispatched' || $pdo->query("SELECT status FROM reservations WHERE id='TEST-R'")->fetchColumn()!=='Dispatched' || $pdo->query("SELECT status FROM drivers WHERE id='TEST-D'")->fetchColumn()!=='Active'))throw new RuntimeException('Admin testing affected operational records');
     if($saved['lifecycle']!=='NAVIGATING')throw new RuntimeException('Navigation state not saved');
     $rows=$pdo->query('SELECT * FROM route_history')->fetchAll();
     if(count($rows)!==1)throw new RuntimeException('Duplicate/missing navigation history');
     if(!in_array($case,['start_resume','start_free_resume'],true)){
      $snapshot=json_decode($rows[0]['route_data_json'],true);
-     if($snapshot['mode']!=='fastest'||$snapshot['route']['distanceKm']!==$route['data']['distanceKm']||(int)$rows[0]['predicted_duration_mins']!==$route['data']['durationMins'])throw new RuntimeException('Navigation trusted forged preview metrics');
+     if($snapshot['mode']!==$testMode||$snapshot['route']['distanceKm']!==$route['data']['distanceKm']||(int)$rows[0]['predicted_duration_mins']!==$route['data']['durationMins'])throw new RuntimeException('Navigation trusted forged preview metrics');
     }
    }elseif($case==='view_preview' && ($saved['lifecycle']!=='APPLIED'||$saved['state_data']['applied']['mode']!=='fastest'))throw new RuntimeException('Read-only preview discarded the applied route');
    elseif($case==='navigation_progress' && ($saved['lifecycle']!=='NAVIGATING'||$saved['state_data']['navigation']['step']!==1))throw new RuntimeException('Navigation progress not preserved');
@@ -80,7 +96,7 @@ ob_start();register_shutdown_function(function()use($pdo,$case,$reject,$key,$isS
    }elseif($case==='prepare_applied'){
     if((float)$pdo->query("SELECT distance_km FROM trips WHERE id='TEST-T'")->fetchColumn()!==50.0)throw new RuntimeException('Funding preparation trusted forged preview distance');
    }
-  }elseif((int)$pdo->query('SELECT count(*) FROM route_history')->fetchColumn()!==0)throw new RuntimeException('Rejected navigation changed records');
+  }elseif((int)$pdo->query('SELECT count(*) FROM route_history')->fetchColumn()!==(in_array($case,['reroute_same_mode','free_reroute_same_mode'],true)?1:0))throw new RuntimeException('Rejected navigation changed records');
  }catch(Throwable $e){fwrite(STDERR,$case.': '.$e->getMessage()."\n");exit(1);}
 });
-require ROOT_PATH.'/actions/'.($isStart?'route-start.php':(str_starts_with($case,'prepare_')?'route-preparation.php':'route-planner-state.php'));
+require ROOT_PATH.'/actions/'.($isEvaluation?'route_ai.php':($isStart?'route-start.php':(str_starts_with($case,'prepare_')?'route-preparation.php':'route-planner-state.php')));

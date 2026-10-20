@@ -45,7 +45,7 @@ try {
             ->execute([password_hash($password, PASSWORD_DEFAULT), $user['id']]);
     }
 
-    if (login_2fa_required((string)$user['role_code'])) {
+    if (LOGIN_2FA_ENABLED && login_2fa_required((string)$user['role_code'])) {
         unset($_SESSION['user_id'], $_SESSION['user_name'], $_SESSION['login_2fa'], $_SESSION['login_2fa_message']);
         $ip = $_SERVER['REMOTE_ADDR'] ?? 'unknown';
         try {
@@ -61,6 +61,7 @@ try {
         redirect_to(BASE_URL . '/verify-login.php');
     }
 
+    unset($_SESSION['login_2fa'], $_SESSION['login_2fa_csrf'], $_SESSION['login_2fa_message']);
     audit_security('LOGIN_SUCCEEDED', $user);
     session_regenerate_id(true);
     $_SESSION['user_id'] = (int)$user['id'];

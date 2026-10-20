@@ -19,7 +19,7 @@ if (has_role('customer')) {
 }
 $stmt = $pdo->prepare(
     "SELECT t.*, v.plate_number, v.model AS vehicle_model, v.brand AS vehicle_brand, v.type AS vehicle_type,
-            d.name AS driver_name, r.client_name
+            d.name AS driver_name, r.client_name, r.request_kind, r.cargo_type, r.cargo_weight_kg, r.cargo_volume_m3, r.cargo_quantity, r.special_handling
        FROM trips t
        LEFT JOIN vehicles v ON v.id = t.vehicle_id
        LEFT JOIN drivers d  ON d.id = t.driver_id
@@ -52,7 +52,8 @@ require ROOT_PATH . '/includes/header.php';
 <div class="d-flex justify-content-between align-items-center mb-4">
   <div>
     <h1 class="mb-1">Trip Details: <?= e($trip['id']) ?></h1>
-    <p class="text-muted-custom mb-0"><?= e($trip['origin']) ?> → <?= e($trip['destination']) ?> (<?= (int)$trip['passengers'] ?> Passengers)</p>
+    <p class="text-muted-custom mb-0"><?= e($trip['origin']) ?> → <?= e($trip['destination']) ?> (<?= ($trip['request_kind']??'Passenger')==='Cargo' ? e($trip['cargo_type']).' · '.e($trip['cargo_weight_kg']).' kg · '.e($trip['cargo_volume_m3']).' m³ · '.(int)$trip['cargo_quantity'].' units' : (int)$trip['passengers'].' Passengers' ?>)</p>
+    <?php if(($trip['request_kind']??'Passenger')==='Cargo' && $trip['special_handling']): ?><p class="small text-muted-custom mt-2 mb-0">Special handling: <?= e($trip['special_handling']) ?></p><?php endif; ?>
   </div>
   <a class="tc-btn tc-btn-secondary tc-btn-sm" href="<?= BASE_URL ?>/dashboard.php">← Back to Dashboard</a>
 </div>

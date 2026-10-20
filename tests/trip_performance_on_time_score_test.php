@@ -1,0 +1,21 @@
+<?php
+if(PHP_SAPI!=='cli')exit;
+ob_start();require __DIR__.'/trip_performance_document_assessment_test.php';ob_end_clean();$checks=0;
+$saved['on_time']['score']=80;
+$pdo->prepare("UPDATE trip_performance_evaluations SET status='Finalized',finalized_by=1,finalized_at=CURRENT_TIMESTAMP,scores=?::jsonb WHERE trip_id='T-PERF'")->execute([json_encode($saved)]);
+$data=$input;$data['cargo_type']='Packaged goods';$res=logistics_create_mock_request($pdo,$data,$actor);
+$pdo->prepare("UPDATE reservations SET status='Completed' WHERE id=?")->execute([$res]);
+$pdo->prepare("INSERT INTO trips(id,reservation_id,driver_id,vehicle_id,origin,destination,status,current_step,actual_arrival) VALUES ('T-SCORE-2',?,'D-CARGO','V-CARGO','Origin','Destination','Completed','Verified Completed',CURRENT_TIMESTAMP)")->execute([$res]);
+$pdo->prepare("INSERT INTO reservation_events(reservation_id,actor_id,status,reason) VALUES (?,1,'Verified Completed','Isolated score chart fixture')")->execute([$res]);
+$scores=['on_time'=>['score'=>70,'delivery_outcome'=>'on_time']];
+$pdo->prepare("INSERT INTO trip_performance_evaluations(trip_id,driver_id,weights,scores,status,overall_score,finalized_by,finalized_at) VALUES ('T-SCORE-2','D-CARGO',?::jsonb,?::jsonb,'Finalized',70,1,CURRENT_TIMESTAMP)")->execute([json_encode(PERFORMANCE_DEFAULT_WEIGHTS),json_encode($scores)]);
+$k=performance_delivery_kpis($pdo);
+perf_check($k['on_time_score']===75.0,'Scores 80 and 70 average to 75, not 100 from On time confirmations');
+perf_check($k['on_time_score_count']===2&&$k['on_time_score_by_driver']['D-CARGO']['average']===75.0,'Count and driver average use finalized numeric scores');
+$scores['on_time']['score']=0;$pdo->prepare("UPDATE trip_performance_evaluations SET scores=?::jsonb WHERE trip_id='T-SCORE-2'")->execute([json_encode($scores)]);
+perf_check(performance_delivery_kpis($pdo)['on_time_score']===40.0,'A real zero score counts in average');
+$scores['on_time']['score']=null;$pdo->prepare("UPDATE trip_performance_evaluations SET scores=?::jsonb WHERE trip_id='T-SCORE-2'")->execute([json_encode($scores)]);
+perf_check(performance_delivery_kpis($pdo)['on_time_score']===80.0,'Unscored criterion is not converted to zero');
+$pdo->exec("UPDATE trip_performance_evaluations SET status='Submitted',submitted_by=1,submitted_at=CURRENT_TIMESTAMP,finalized_by=NULL,finalized_at=NULL");
+perf_check(performance_delivery_kpis($pdo)['on_time_score']===null,'No finalized scores displays No data');
+echo "$checks numeric On-Time score checks passed using temporary tables only.\n";

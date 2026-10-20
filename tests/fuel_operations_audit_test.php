@@ -1,0 +1,21 @@
+<?php
+if(PHP_SAPI!=='cli')exit;
+ob_start();require __DIR__.'/fuel_operations_test.php';ob_end_clean();
+require_once ROOT_PATH.'/includes/audit-ui.php';
+$authorization=ops_tx(fn()=>fuel_ops_authorize($pdo,'T-OPS',array_replace($assess,['maximum_amount'=>100,'estimated_liters'=>1]),$dispatcher));
+$name=bin2hex(random_bytes(24)).'.png';$auditPath=ROOT_PATH.'/storage/private/fuel-receipts/'.$name;$files[]=$auditPath;file_put_contents($auditPath,file_get_contents($path).'audit-fixture');
+$file=['filename'=>$name,'name'=>'isolated-audit.png','mime'=>'image/png','size'=>filesize($auditPath),'sha256'=>hash_file('sha256',$auditPath)];
+$receipt=array_replace($submission,['liters'=>1,'total_cost'=>60,'odometer'=>120,'receipt_no'=>'AUDIT-TEST']);
+$tx=ops_tx(fn()=>fuel_ops_submission($pdo,$authorization,$receipt,$driver,$file));
+ops_tx(fn()=>fuel_ops_review($pdo,$tx,'confirm','Audit test',1,$dispatcher));
+ops_tx(fn()=>fuel_ops_review($pdo,$tx,'reject','Audit rejection test',2,$admin));
+$before=(int)$pdo->query('SELECT count(*) FROM audit_logs')->fetchColumn();
+$q=$pdo->query("SELECT DISTINCT action FROM audit_logs WHERE entity_type='fuel_operations'");$logged=$q->fetchAll(PDO::FETCH_COLUMN);
+foreach(['Fuel Receipt Submitted','Fuel Pending Verification','Fuel Verified','Fuel Returned','Fuel Submission Corrected','Fuel Rejected'] as $action)ops_check(in_array($action,$logged,true),'Audit retains '.$action);
+ops_check(audit_ui_module('fuel_operations')==='Fuel Management','Fuel operation history is in the existing Fuel Management audit filter');
+$current_user=$admin+['role_name'=>'Fleet Administrator','emp_id'=>'TEST','avatar'=>null];$current_permissions=['fuel.view'];$_SESSION['last_valid_activity']=time();$_SERVER['REQUEST_METHOD']='GET';$_GET=['module'=>'Fuel Management'];
+ob_start();require ROOT_PATH.'/audit-log.php';$html=ob_get_clean();
+ops_check(str_contains($html,'id="audit-activities"')&&str_contains($html,'Fuel Management'),'Existing Audit Log renders fuel activity');
+ops_check(str_contains($html,'Fuel Rejected')&&str_contains($html,'Audit rejection test'),'Rejection and supporting reason are accessible in audit details');
+ops_check((int)$pdo->query('SELECT count(*) FROM audit_logs')->fetchColumn()===$before,'Audit Log view does not modify or remove audit records');
+echo "Fuel audit integration checks passed: submissions, confirmations, returns, corrections, verification and rejection remain in the existing Audit Log. Temporary tables only.\n";

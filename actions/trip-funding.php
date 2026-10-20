@@ -18,7 +18,7 @@ try {
    funding_revise(db(),$id);echo json_encode(['ok'=>true,'data'=>funding_payload(db(),funding_trip(db(),$id))],JSON_UNESCAPED_UNICODE);exit;
   }
   if(($_POST['action']??'request')!=='request')throw new DomainException('Invalid funding action.');
-  $f=funding_create(db(),$id,(string)($_POST['funding_method']??''),(string)($_POST['requested_amount']??''));
+  $f=funding_create(db(),$id,(string)($_POST['funding_method']??''),(string)($_POST['requested_amount']??''),isset($_POST['requested_fuel_amount'])?(string)$_POST['requested_fuel_amount']:null,trim((string)($_POST['expected_km_per_liter']??''))!==''?['value'=>$_POST['expected_km_per_liter'],'source'=>$_POST['efficiency_reference']??'']:null);
   session_write_close();ignore_user_abort(true);
   if($f['status']==='Pending Finance Approval'){
    // PostgreSQL's deadline prevents early approval even across concurrent/replayed requests.

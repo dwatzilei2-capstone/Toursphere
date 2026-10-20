@@ -2,6 +2,7 @@
  
 require_once dirname(__DIR__, 2) . '/includes/bootstrap.php';
 require_once ROOT_PATH . '/includes/vehicle_compliance.php';
+require_once ROOT_PATH . '/includes/driver_license.php';
 require_login();
 require_permission('vehicles.assign');
 
@@ -11,7 +12,7 @@ $preselected_vehicle = $_GET['vehicle'] ?? '';
 
  
 $vehicles = $pdo->query(
-    "SELECT v.id, v.plate_number, v.brand, v.model, v.type, v.capacity, v.status,
+    "SELECT v.id, v.plate_number, v.brand, v.model, v.type, v.capacity, v.payload_capacity_kg, v.status, v.service_category, v.gross_vehicle_weight_kg, v.requires_trailer_license,
             (v.status = 'Maintenance' OR EXISTS (
                 SELECT 1 FROM maintenance_orders active_mo
                  WHERE active_mo.vehicle_id = v.id AND active_mo.status = 'In Repair'
@@ -32,19 +33,19 @@ foreach ($vehicles as &$vehicle) {
 }
 unset($vehicle);
 
-function required_license_class(array $vehicle): string
-{
-    $type = strtolower((string)($vehicle['type'] ?? ''));
-    return ((int)$vehicle['capacity'] > 30 || str_contains($type, 'bus') || str_contains($type, 'coach')) ? 'Class 3' : 'Class 2';
-}
-
  
 $drivers = $pdo->query(
-    "SELECT id, name, license_class, safety_score, status
+    "SELECT *
        FROM drivers
       WHERE status IN ('Active','Assigned')
       ORDER BY safety_score DESC"
 )->fetchAll();
+$drivers = array_values(array_filter($drivers, fn($d)=>driver_license_active($d) || driver_license_development_eligible($d)));
+foreach ($drivers as &$driver) {
+    $driver['license_class'] = driver_license_development_eligible($driver) ? 'Verified (Dev)' : 'Professional - DL ' . implode(', ', driver_dl_codes($driver['authorized_dl_codes']));
+}
+unset($driver);
+foreach($drivers as &$driver){$driver['eligible_vehicle_ids']=array_column(array_values(array_filter($vehicles,fn($v)=>driver_license_eligibility($v,$driver)==='')),'id');}unset($driver);
 
 $active_page = 'vehicle-assignment';
 $body_class = trim(($body_class ?? '') . ' fleet-vehicles-module fleet-vehicle-assignment-page');
@@ -78,23 +79,22 @@ require ROOT_PATH . '/includes/header.php';
         <div class="va-table-wrap" role="region" aria-label="Vehicle list" tabindex="0">
           <table class="va-table">
             <caption class="visually-hidden">Select one vehicle to assign a driver. Vehicles in transit or maintenance are excluded.</caption>
-            <thead><tr><th scope="col">Select</th><th scope="col">Plate No.</th><th scope="col">Vehicle</th><th scope="col">Capacity</th><th scope="col">Required License</th><th scope="col">Default Driver</th><th scope="col">Status</th><th scope="col">Action</th></tr></thead>
+            <thead><tr><th scope="col">Select</th><th scope="col">Plate No.</th><th scope="col">Vehicle</th><th scope="col">Payload Capacity (kg)</th><th scope="col">Default Driver</th><th scope="col">Status</th><th scope="col">Action</th></tr></thead>
             <tbody>
             <?php if (empty($vehicles)): ?>
-              <tr><td colspan="8"><div class="va-empty"><i class="bi bi-truck" aria-hidden="true"></i><h3>No vehicles available for assignment</h3><p>Vehicles will appear here when their status is Available or Assigned.</p></div></td></tr>
+              <tr><td colspan="7"><div class="va-empty"><i class="bi bi-truck" aria-hidden="true"></i><h3>No vehicles available for assignment</h3><p>Vehicles will appear here when their status is Available or Assigned.</p></div></td></tr>
             <?php else: foreach ($vehicles as $v): $underMaintenance = filter_var($v['is_under_maintenance'], FILTER_VALIDATE_BOOLEAN); $operational = $v['operational_compliance']['operational']; $unavailable = $underMaintenance || !$operational; ?>
               <tr class="va-vehicle-row <?= $unavailable ? 'opacity-75' : '' ?>" data-status="<?= $underMaintenance ? 'Maintenance' : e($v['status']) ?>">
                 <td><label class="va-select"><input type="radio" name="vehicle_id" value="<?= e($v['id']) ?>" required <?= (!$unavailable && $preselected_vehicle === $v['id']) ? 'checked' : '' ?> <?= $unavailable ? 'disabled' : '' ?> data-plate="<?= e($v['plate_number']) ?>" data-model="<?= e($v['brand'] . ' ' . $v['model']) ?>" data-capacity="<?= (int)$v['capacity'] ?>" data-current-driver="<?= e($v['assigned_driver_name'] ?? '') ?>"><span class="visually-hidden"><?= $unavailable ? 'Unavailable' : 'Select' ?><span> <?= e($v['plate_number']) ?></span></span></label></td>
-                <td><strong><?= e($v['plate_number']) ?></strong></td><td><?= e($v['brand'] . ' ' . $v['model']) ?><span class="va-reference"><?= e($v['id']) ?></span></td>
-                <td><?= (int)$v['capacity'] ?><span class="va-secondary">passengers</span></td>
-                <td><span class="va-license-badge"><?= e(required_license_class($v)) ?></span></td>
+                <td><strong><?= e($v['plate_number']) ?></strong></td><td class="va-col-vehicle"><span class="va-vehicle-name" title="<?= e($v['brand'] . ' ' . $v['model']) ?>"><?= e($v['brand'] . ' ' . $v['model']) ?></span><span class="va-reference"><?= e($v['id']) ?></span></td>
+                <td><?php if ($v['payload_capacity_kg'] !== null): ?><?= number_format((float)$v['payload_capacity_kg']) ?><span class="va-secondary">kg</span><?php else: ?><span class="va-secondary">Not recorded</span><?php endif; ?></td>
                 <td><?= e($v['assigned_driver_name'] ?: 'Unassigned') ?></td>
                 <td><?php if ($underMaintenance): ?><span class="badge bg-danger-subtle text-danger border border-danger-subtle"><i class="bi bi-tools me-1"></i>Under Maintenance</span><?php else: ?><span class="va-status <?= $v['status'] === 'Available' ? 'va-available' : 'va-assigned' ?>"><?= e($v['status']) ?></span><?php endif; ?><?php if (!$operational): ?><div class="small text-danger mt-1" title="<?= e($v['operational_compliance']['reason']) ?>">Not operational: <?= e($v['operational_compliance']['reason']) ?></div><?php else: ?><div class="small text-success mt-1"><?= e($v['operational_compliance']['status']) ?></div><?php endif; ?></td>
                 <td><?php if ($v['assigned_driver_name']): $unassignBlocked = filter_var($v['assignment_has_active_trip'], FILTER_VALIDATE_BOOLEAN); ?><button type="submit" class="tc-btn tc-btn-outline-danger tc-btn-sm va-unassign" name="unassign_vehicle_id" value="<?= e($v['id']) ?>" formaction="<?= BASE_URL ?>/actions/unassign-vehicle.php" formmethod="post" formnovalidate data-confirm="Are you sure you want to unassign <?= e($v['assigned_driver_name']) ?> from <?= e($v['plate_number']) ?>?" <?= $unassignBlocked ? 'disabled title="Complete or cancel the active trip first."' : '' ?>>Unassign</button><?php else: ?><span class="text-muted-custom">—</span><?php endif; ?></td>
 
               </tr>
             <?php endforeach; endif; ?>
-            <tr id="va-no-results" hidden><td colspan="8" class="va-no-results">No matching vehicles. Try another search or clear the filters.</td></tr>
+            <tr id="va-no-results" hidden><td colspan="7" class="va-no-results">No matching vehicles. Try another search or clear the filters.</td></tr>
             </tbody>
           </table>
         </div>
@@ -113,16 +113,16 @@ require ROOT_PATH . '/includes/header.php';
           <select class="tc-form-select va-driver-native" id="va-driver" name="driver_id" required aria-describedby="va-driver-help" tabindex="-1" aria-hidden="true">
             <option value="">Choose a driver</option>
             <?php foreach ($drivers as $d): ?>
-              <option value="<?= e($d['id']) ?>" data-license="<?= e($d['license_class']) ?>" data-score="<?= (int)$d['safety_score'] ?>" data-status="<?= e($d['status']) ?>"><?= e($d['name']) ?><?= $d['status'] === 'Assigned' ? ' — currently assigned' : '' ?></option>
+              <option value="<?= e($d['id']) ?>" data-eligible-vehicles="<?= e(json_encode($d['eligible_vehicle_ids'])) ?>" data-license="<?= e($d['license_class']) ?>" data-score="<?= (int)$d['safety_score'] ?>" data-status="<?= e($d['status']) ?>"><?= e($d['name']) ?><?= $d['status'] === 'Assigned' ? ' — currently assigned' : '' ?></option>
             <?php endforeach; ?>
           </select>
           <div class="va-driver-picker" id="va-driver-picker">
             <div class="va-driver-trigger-wrap"><input type="search" class="tc-form-control va-driver-trigger" placeholder="Search or choose a driver" autocomplete="off" aria-haspopup="listbox" aria-expanded="false"><i class="bi bi-search" aria-hidden="true"></i></div>
             <div class="va-driver-menu" role="listbox" hidden>
-              <?php foreach ($drivers as $d): ?><button type="button" role="option" data-value="<?= e($d['id']) ?>" data-license="<?= e($d['license_class']) ?>" data-score="<?= (int)$d['safety_score'] ?>" data-status="<?= e($d['status']) ?>"><?= e($d['name']) ?><?= $d['status'] === 'Assigned' ? ' <span>Currently assigned</span>' : '' ?></button><?php endforeach; ?>
+              <?php foreach ($drivers as $d): ?><button type="button" role="option" data-value="<?= e($d['id']) ?>" data-eligible-vehicles="<?= e(json_encode($d['eligible_vehicle_ids'])) ?>" data-license="<?= e($d['license_class']) ?>" data-score="<?= (int)$d['safety_score'] ?>" data-status="<?= e($d['status']) ?>"><?= e($d['name']) ?><?= $d['status'] === 'Assigned' ? ' <span>Currently assigned</span>' : '' ?></button><?php endforeach; ?>
             </div>
           </div>
-          <p class="va-help" id="va-driver-help"><?= empty($drivers) ? 'No eligible drivers are available. Check driver availability before assigning a vehicle.' : 'Drivers with Active or Assigned status are listed.' ?></p>
+          <p class="va-help" id="va-driver-help"><?= empty($drivers) ? 'No drivers meet the license requirements for assignment.' : (count(array_filter($drivers, fn($d)=>driver_license_development_eligible($d))) ? 'Verified Dev drivers are enabled for simulated assignments in this development environment.' : 'Drivers with verified, unexpired Professional licenses and DL Code C are listed.') ?></p>
           <dl class="va-driver-details" id="va-driver-details" hidden><div><dt>License class</dt><dd id="va-license"></dd></div><div><dt>Safety score</dt><dd id="va-score"></dd></div></dl>
           <div class="va-notice" id="va-reassignment" role="status" hidden></div>
           <div class="va-checklist"><h3>Before you assign</h3><p>Check that the driver’s license covers the vehicle class and that availability matches the planned trip.</p><p>A driver can only be assigned to one vehicle at a time. Saving updates the vehicle assignment; it does not dispatch a trip.</p></div>

@@ -143,7 +143,7 @@ require ROOT_PATH . '/includes/header.php';
 
 <div class="tc-card mb-4">
   <div class="tc-card-header">
-    <h3 class="mb-0 fs-6 fw-bold"><i class="bi bi-star-fill me-2 text-warning"></i>My Customer Rating</h3>
+    <h3 class="mb-0 fs-6 fw-bold"><i class="bi bi-star-fill me-2 text-warning"></i>My Requester Rating</h3>
     <span class="small text-muted-custom"><?= $driver_rating_count ?> rating<?= $driver_rating_count === 1 ? '' : 's' ?></span>
   </div>
   <div class="tc-card-body">
@@ -187,7 +187,7 @@ require ROOT_PATH . '/includes/header.php';
           <?php endif; ?>
           <div class="row g-2 small">
             <div class="col-6"><span class="text-muted-custom">Type:</span> <strong><?= e($vehicle['type']) ?></strong></div>
-            <div class="col-6"><span class="text-muted-custom">Capacity:</span> <strong><?= (int)$vehicle['capacity'] ?> pax</strong></div>
+            <div class="col-6"><span class="text-muted-custom">Capacity:</span> <strong><?= ($vehicle['service_category']??'Passenger')==='Cargo' ? e($vehicle['payload_capacity_kg']).' kg' : (int)$vehicle['capacity'].' pax' ?></strong></div>
             <div class="col-6"><span class="text-muted-custom">Odometer:</span> <strong><?= number_format((int)$vehicle['odometer']) ?> km</strong></div>
             <div class="col-12"><span class="text-muted-custom">Status:</span> <span class="status-badge status-available"><?= e($vehicle['status']) ?></span></div>
           </div>
@@ -215,7 +215,7 @@ require ROOT_PATH . '/includes/header.php';
               <th>Trip</th>
               <th>Route</th>
               <th>Departure</th>
-              <th>Pax</th>
+              <th>Load</th>
               <th>Status</th>
             </tr>
           </thead>
@@ -230,7 +230,7 @@ require ROOT_PATH . '/includes/header.php';
                   <div class="small fw-medium"><i class="bi bi-flag text-danger me-1"></i><?= e(explode(',', $r['destination'])[0]) ?></div>
                 </td>
                 <td><?= e($r['departure_date']) ?> <span class="text-muted-custom small">(<?= e($r['departure_time']) ?>)</span></td>
-                <td><span class="badge bg-light text-dark border"><?= (int)$r['passenger_count'] ?> pax</span></td>
+                <td><span class="badge bg-light text-dark border"><?= ($r['request_kind']??'Passenger')==='Cargo' ? e($r['cargo_weight_kg']).' kg · '.e($r['cargo_volume_m3']).' m³' : (int)$r['passenger_count'].' pax' ?></span></td>
                 <td><span class="status-badge <?= status_badge_class($r['status']) ?>"><?= e($r['status']) ?></span></td>
               </tr>
             <?php endforeach; endif; ?>

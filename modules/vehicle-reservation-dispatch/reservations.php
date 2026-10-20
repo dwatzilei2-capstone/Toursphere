@@ -6,6 +6,7 @@ require_login();
 require_permission('dispatch.view');
 
 $pdo = db();
+$_SESSION['reservation_review_csrf'] ??= bin2hex(random_bytes(32));
 
 $dispatchVehicles = $pdo->query(
   "SELECT v.id, v.plate_number, v.brand, v.model, v.type, v.capacity, v.status,
@@ -59,6 +60,15 @@ $dispatch_data = [
         FROM drivers d ORDER BY d.name")->fetchAll(),
 ];
 
+// Compact table formatting only; detail payloads retain the original values.
+function reservation_measurement($value): string {
+    return rtrim(rtrim(number_format((float)$value, 3, '.', ''), '0'), '.') ?: '0';
+}
+function reservation_schedule_label($date, $time): string {
+    if (!$date || !$time) return 'Not set';
+    try { return (new DateTimeImmutable($date.' '.$time))->format('M j, Y · g:i A'); }
+    catch (Exception $e) { return 'Not set'; }
+}
 $active_page = 'reservations';
 $body_class = trim(($body_class ?? '') . ' reservation-dispatch-module reservations-page');
 $page_title  = 'Reservations — Vehicle Reservation & Dispatch System';
@@ -69,7 +79,7 @@ require ROOT_PATH . '/includes/header.php';
 <div class="d-flex flex-wrap justify-content-between align-items-center mb-4 gap-2">
   <div>
     <h1 class="mb-1">Vehicle Reservation & Dispatch System (VRDS)</h1>
-    <p class="text-muted-custom mb-0">Manage tour client bookings, passenger capacity matching, vehicle allocation, and dispatch lifecycles.</p>
+    <p class="text-muted-custom mb-0">Review cargo transportation requests, match vehicle capacity, assign drivers, and manage dispatch.</p>
   </div>
   <div class="d-flex gap-2">
     <a class="tc-btn tc-btn-secondary tc-btn-sm" href="<?= BASE_URL ?>/modules/vehicle-reservation-dispatch/dispatch-board.php"><i class="bi bi-kanban"></i> Open Dispatch Board</a>
@@ -79,17 +89,17 @@ require ROOT_PATH . '/includes/header.php';
 
 <div class="tc-card mb-4">
   <div class="tc-card-header">
-    <h4 class="mb-0 fw-bold fs-6">Tour & Group Reservations Queue</h4>
+    <h4 class="mb-0 fw-bold fs-6">Transportation Requests Queue</h4>
   </div>
-  <div class="tc-table-container border-0">
-    <table class="tc-table">
+  <div class="tc-table-container border-0 reservation-table-scroll">
+    <table class="tc-table reservation-queue-table">
       <thead>
         <tr>
           <th>Reservation ID</th>
-          <th>Client / Tour Group</th>
-          <th>Origin & Destination</th>
-          <th>Departure Date & Time</th>
-          <th>Pax</th>
+          <th>Requester</th>
+          <th>Pickup → Destination</th>
+          <th>Delivery Schedule</th>
+          <th>Cargo / Load</th>
           <th>Status</th>
           <th>Allocated Resource</th>
           <th class="text-end reservation-actions-heading">Actions</th>
@@ -104,6 +114,7 @@ require ROOT_PATH . '/includes/header.php';
               'clientName' => $r['client_name'],
               'contactPhone' => $r['contact_phone'],
               'passengerCount' => (int)$r['passenger_count'],
+              'requestKind' => $r['request_kind'], 'cargoType'=>$r['cargo_type'], 'cargoWeightKg'=>$r['cargo_weight_kg'], 'cargoVolumeM3'=>$r['cargo_volume_m3'], 'cargoQuantity'=>$r['cargo_quantity'], 'specialHandling'=>$r['special_handling'],
               'requiredVehicleType' => $r['vehicle_requested'],
               'requiredCapacity' => $r['required_capacity'] === null ? null : (int)$r['required_capacity'],
               'scheduledPassengerDemand' => (int)$r['scheduled_passenger_demand'],
@@ -121,22 +132,22 @@ require ROOT_PATH . '/includes/header.php';
           ], JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES)) ?>">
             <td><span class="fw-semibold text-primary-custom"><?= e($r['id']) ?></span></td>
             <td>
-              <div class="fw-semibold"><?= e($r['client_name']) ?></div>
-              <div class="text-muted-custom small"><i class="bi bi-telephone me-1"></i><?= e($r['contact_phone']) ?></div>
+              <div class="fw-semibold reservation-cell-text" title="<?= e($r['client_name']) ?>"><?= e($r['client_name']) ?></div>
+              <?php if($r['request_kind']==='Cargo'): ?><div class="small text-muted-custom reservation-cell-line" title="<?= e($r['source_system'].' · '.$r['integration_mode']) ?>"><?= e($r['source_system']) ?> · <?= e($r['integration_mode']) ?></div><?php endif; ?>
+              <div class="text-muted-custom small reservation-cell-line"><i class="bi bi-telephone me-1"></i><?= e($r['contact_phone']) ?></div>
             </td>
             <td>
-              <div class="small fw-medium"><i class="bi bi-geo-alt text-success me-1"></i><?= e($r['origin']) ?></div>
-              <div class="small fw-medium"><i class="bi bi-flag text-danger me-1"></i><?= e($r['destination']) ?></div>
+              <div class="reservation-cell-text" title="<?= e($r['origin'].' → '.$r['destination']) ?>"><?= e(explode(',', $r['origin'])[0].' → '.explode(',', $r['destination'])[0]) ?></div>
             </td>
             <td>
-              <div><?= e($r['departure_date']) ?></div>
-              <div class="text-muted-custom small"><?= e($r['departure_time']) ?></div>
+              <div class="reservation-cell-line" title="Scheduled pickup">Pickup: <?= e(reservation_schedule_label($r['departure_date'],$r['departure_time'])) ?></div>
+              <?php if($r['request_kind']==='Cargo'): ?><div class="text-muted-custom small reservation-cell-line" title="Estimated delivery">Delivery: <?= e(reservation_schedule_label($r['return_date'],$r['return_time'])) ?></div><?php endif; ?>
             </td>
-            <td><span class="badge bg-light text-dark border"><?= (int)$r['passenger_count'] ?> pax</span></td>
-            <td><span class="status-badge <?= status_badge_class($r['status']) ?>"><?= e($r['status']) ?></span><?php if ($r['rejection_reason']): ?><div class="small text-danger mt-1">Reason: <?= e($r['rejection_reason']) ?></div><?php endif; ?><?php if ($r['cancellation_reason']): ?><div class="small text-muted-custom mt-1">Reason: <?= e($r['cancellation_reason']) ?></div><?php endif; ?></td>
+            <td><?php if($r['request_kind']==='Cargo'): ?><div class="reservation-cell-text" title="<?= e($r['cargo_type'].' · '.(int)$r['cargo_quantity'].' units') ?>"><?= e($r['cargo_type']) ?> · <?= (int)$r['cargo_quantity'] ?> units</div><span class="small text-muted-custom reservation-measurements"><?= reservation_measurement($r['cargo_weight_kg']) ?> kg · <?= reservation_measurement($r['cargo_volume_m3']) ?> m³</span><?php else: ?><span class="badge bg-light text-dark border"><?= (int)$r['passenger_count'] ?> pax</span><?php endif; ?></td>
+            <td><span class="status-badge <?= status_badge_class($r['status']) ?>"><?= e($r['status']) ?></span><?php if ($r['rejection_reason']): ?><div class="small text-danger reservation-cell-line" title="<?= e($r['rejection_reason']) ?>">Reason: <?= e($r['rejection_reason']) ?></div><?php endif; ?><?php if ($r['cancellation_reason']): ?><div class="small text-muted-custom reservation-cell-line" title="<?= e($r['cancellation_reason']) ?>">Reason: <?= e($r['cancellation_reason']) ?></div><?php endif; ?></td>
             <td>
-              <div class="small fw-medium"><?= $r['assigned_vehicle_id'] ? e($r['assigned_vehicle_id']) . ' (' . e($r['plate_number']) . ')' : '<span class="text-muted-custom">Pending</span>' ?></div>
-              <div class="text-muted-custom small"><?= e($r['driver_name'] ?? 'Pending') ?></div>
+              <div class="reservation-cell-line" title="<?= e(($r['assigned_vehicle_id']??'Pending').' '.($r['plate_number']??'')) ?>"><?= $r['assigned_vehicle_id'] ? e($r['assigned_vehicle_id']) . ' (' . e($r['plate_number']) . ')' : '<span class="text-muted-custom">Pending</span>' ?></div>
+              <div class="text-muted-custom small reservation-cell-line" title="<?= e($r['driver_name'] ?? 'Pending') ?>"><?= e($r['driver_name'] ?? 'Pending') ?></div>
             </td>
             <td class="reservation-actions-cell">
               <div class="reservation-actions">
@@ -152,7 +163,7 @@ require ROOT_PATH . '/includes/header.php';
                 <button type="button" class="tc-btn tc-btn-secondary tc-btn-sm" onclick="TripFunding.open('<?= e($r['id']) ?>')">View Trip Funding</button>
               <?php endif; ?>
               <?php if (has_role(['fleet_admin','dispatcher']) && $r['status'] === 'Pending Approval'): ?>
-                <form method="post" action="<?= BASE_URL ?>/actions/reservation-review.php" class="d-inline"><input type="hidden" name="reservation_id" value="<?= e($r['id']) ?>"><input type="hidden" name="decision" value="approve"><button class="tc-btn tc-btn-primary tc-btn-sm" type="submit">Approve</button></form>
+                <form method="post" action="<?= BASE_URL ?>/actions/reservation-review.php" class="d-inline"><input type="hidden" name="csrf" value="<?= e($_SESSION['reservation_review_csrf']) ?>"><input type="hidden" name="reservation_id" value="<?= e($r['id']) ?>"><input type="hidden" name="decision" value="approve"><button class="tc-btn tc-btn-primary tc-btn-sm" type="submit">Approve</button></form>
                 <button class="tc-btn tc-btn-outline-danger tc-btn-sm" type="button" onclick="openReservationReject('<?= e($r['id']) ?>')">Reject</button>
               <?php elseif (can('dispatch.manage') && in_array($r['status'], ['Approved', 'Assigned', 'Confirmed'], true)): ?>
                 <?php if (has_role(['fleet_admin','dispatcher']) && in_array($r['status'],['Assigned','Confirmed'],true)): ?>
@@ -221,7 +232,8 @@ require ROOT_PATH . '/includes/header.php';
       <div class="tc-card-body">
         <input type="hidden" name="reservation_id" id="reservation-reject-id">
         <input type="hidden" name="decision" value="reject">
-        <p class="small text-muted-custom">Provide a reason for rejecting <strong id="reservation-reject-reference"></strong>. The customer will see this reason.</p>
+        <input type="hidden" name="csrf" value="<?= e($_SESSION['reservation_review_csrf']) ?>">
+        <p class="small text-muted-custom">Provide a reason for rejecting <strong id="reservation-reject-reference"></strong>. The requester will see this reason.</p>
         <label class="tc-form-label" for="reservation-reject-reason">Rejection Reason *</label>
         <textarea class="tc-form-control" id="reservation-reject-reason" name="reason" rows="3" maxlength="2000" required></textarea>
       </div>
@@ -273,7 +285,7 @@ function renderReservationDetails(data) {
   heading.append(title, subtitle);
   body.append(heading);
 
-  const fields = [
+  let fields = [
     ['Contact person', reservation.contact_person || '—'],
     ['Contact number', reservation.contact_phone || '—'],
     ['Route', reservation.origin + ' → ' + reservation.destination],
@@ -292,6 +304,16 @@ function renderReservationDetails(data) {
     ['Total booking fare', reservation.total_booking_fare || reservation.estimated_cost || '—'],
     ['Fare status', reservation.fare_status || '—'],
     ['Special requests', reservation.notes || 'None'],
+  ];
+  if(reservation.request_kind === 'Cargo') fields = [
+    ['Contact person',reservation.contact_person],['Contact number',reservation.contact_phone],
+    ['Pickup location',reservation.origin],['Delivery destination',reservation.destination],
+    ['Requested schedule',reservation.departure_date+' '+reservation.departure_time],
+    ['Request type',reservation.request_purpose],['Cargo type',reservation.cargo_type],
+    ['Cargo weight',reservation.cargo_weight_kg+' kg'],['Cargo volume',reservation.cargo_volume_m3+' m³'],
+    ['Quantity',String(reservation.cargo_quantity)],['Special handling',reservation.special_handling||'None'],
+    ['Request source',reservation.source_system+' · '+reservation.integration_mode+' (submitted locally; no live integration)'],
+    ['Special requests',reservation.notes||'None']
   ];
   const grid = document.createElement('div');
   grid.className = 'row g-3 small mb-4';
@@ -321,14 +343,14 @@ function renderReservationDetails(data) {
   const summary = document.createElement('div');
   summary.className = 'alert ' + (ready ? 'alert-success' : 'alert-warning') + ' py-2';
   summary.textContent = ready
-    ? 'A vehicle with enough passenger seats and a driver are available for this schedule. Their assignment still needs to be confirmed before dispatch.'
+    ? (availability.cargo ? 'A cargo vehicle with sufficient payload and space and an eligible driver are available for this schedule. Assignment still needs confirmation before dispatch.' : 'A vehicle with enough passenger seats and a driver are available for this schedule. Their assignment still needs to be confirmed before dispatch.')
     : 'An available vehicle and driver could not be confirmed for this schedule. Review the reasons below before approving the reservation.';
   body.append(summary);
 
   const resourceGrid = document.createElement('div');
   resourceGrid.className = 'row g-3';
-  appendAvailabilityGroup(resourceGrid, 'Vehicle', availability.vehicles);
-  appendAvailabilityGroup(resourceGrid, 'Driver', availability.drivers);
+  appendAvailabilityGroup(resourceGrid, 'Vehicle', availability.vehicles, Boolean(availability.cargo));
+  appendAvailabilityGroup(resourceGrid, 'Driver', availability.drivers, Boolean(availability.cargo));
   body.append(resourceGrid);
 
   const note = document.createElement('p');
@@ -341,7 +363,7 @@ function renderReservationDetails(data) {
     approveForm.method = 'post';
     approveForm.action = '<?= BASE_URL ?>/actions/reservation-review.php';
     approveForm.className = 'd-inline';
-    [['reservation_id', reservation.id], ['decision', 'approve']].forEach(([name, value]) => {
+    [['reservation_id', reservation.id], ['decision', 'approve'], ['csrf', <?= json_encode($_SESSION['reservation_review_csrf']) ?>]].forEach(([name, value]) => {
       const input = document.createElement('input');
       input.type = 'hidden';
       input.name = name;
@@ -365,7 +387,7 @@ function renderReservationDetails(data) {
   }
 }
 
-function appendAvailabilityGroup(parent, title, resource) {
+function appendAvailabilityGroup(parent, title, resource, cargo = false) {
   const column = document.createElement('div');
   column.className = 'col-md-6';
   const section = document.createElement('section');
@@ -378,7 +400,7 @@ function appendAvailabilityGroup(parent, title, resource) {
   if (typeof resource.matched_count === 'number') {
     const matched = document.createElement('div');
     matched.className = 'small text-muted-custom mb-2';
-    matched.textContent = resource.matched_count + ' match the required vehicle type and passenger capacity.';
+    matched.textContent = resource.matched_count + (cargo ? ' match the requested cargo weight and volume.' : ' match the required vehicle type and passenger capacity.');
     section.append(matched);
   }
   if (resource.available_items.length) {
@@ -460,6 +482,7 @@ function openReservationReject(reservationId) {
       return [
           'id' => $r['id'], 'clientName' => $r['client_name'], 'contactPhone' => $r['contact_phone'],
           'passengerCount' => (int)$r['passenger_count'], 'requiredVehicleType' => $r['vehicle_requested'],
+          'requestKind'=>$r['request_kind'],'cargoType'=>$r['cargo_type'],'cargoWeightKg'=>$r['cargo_weight_kg'],'cargoVolumeM3'=>$r['cargo_volume_m3'],'cargoQuantity'=>$r['cargo_quantity'],'specialHandling'=>$r['special_handling'],
           'requiredCapacity' => $r['required_capacity'] === null ? null : (int)$r['required_capacity'], 'origin' => $r['origin'], 'destination' => $r['destination'],
           'scheduledPassengerDemand' => (int)$r['scheduled_passenger_demand'],
           'departureScheduleInstanceId' => $r['departure_schedule_instance_id'], 'departureDate' => $r['departure_date'], 'departureTime' => $r['departure_time'],

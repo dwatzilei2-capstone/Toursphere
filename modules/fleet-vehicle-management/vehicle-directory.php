@@ -3,6 +3,7 @@
 require_once dirname(__DIR__, 2) . '/includes/bootstrap.php';
 require_once ROOT_PATH . '/includes/vehicle_document.php';
 require_once ROOT_PATH . '/includes/vehicle_photo.php';
+require_once ROOT_PATH . '/includes/vehicle_specs.php';
 require_once ROOT_PATH . '/includes/vehicle_compliance.php';
 require_once ROOT_PATH . '/includes/archive.php';
 require_login();
@@ -63,9 +64,11 @@ if ($vehicles) {
 }
 
 $vehicle_types = [];
+$fuel_types = [];
 $next_vehicle_id_preview = null;
 if (can('vehicles.manage')) {
-    $vehicle_types = $pdo->query("SELECT id, name FROM vehicle_types WHERE status = 'Active' ORDER BY name")->fetchAll();
+    $vehicle_types = vehicle_cargo_types($pdo);
+    $fuel_types = vehicle_fuel_type_options($pdo);
     $next_vehicle_id_preview = preview_next_available_sequential_id($pdo, 'vehicles', 'id', 'VEH-');
     $_SESSION['vehicle_csrf_token'] ??= bin2hex(random_bytes(32));
 }
@@ -89,11 +92,13 @@ foreach ($vehicles as $v) {
         'brand' => $v['brand'],
         'model' => $v['model'],
         'year' => (int)$v['year'],
-        'capacity' => (int)$v['capacity'],
+        'capacity' => $v['capacity'] !== null ? (int)$v['capacity'] : null,
+        'specs' => vehicle_specs_summary($v),
         'status' => $v['status'],
         'assignedDriver' => $v['assigned_driver_name'] ?? null,
         'driverId' => $v['assigned_driver_id'],
         'fuelType' => $v['fuel_type'],
+        'fuelTypeLabel' => vehicle_fuel_type_label($v['fuel_type']),
         'odometer' => (int)$v['odometer'],
         'maintenanceStatus' => $v['maintenance_status'],
         'nextMaintenance' => $v['next_maintenance'],
@@ -131,7 +136,7 @@ require ROOT_PATH . '/includes/header.php';
 <div class="d-flex flex-wrap justify-content-between align-items-center mb-4 gap-2">
   <div>
     <h1 class="mb-1">Fleet & Vehicle Management (FVM)</h1>
-    <p class="text-muted-custom mb-0">Comprehensive vehicle directory, capacity details, assigned drivers, and compliance status.</p>
+    <p class="text-muted-custom mb-0">Comprehensive vehicle directory, cargo and passenger specifications, assigned drivers, and compliance status.</p>
   </div>
   <div class="d-flex gap-2">
     <a class="tc-btn tc-btn-secondary tc-btn-sm" href="<?= BASE_URL ?>/modules/fleet-vehicle-management/maintenance.php"><i class="bi bi-tools"></i> Maintenance Info</a>
@@ -160,19 +165,20 @@ require ROOT_PATH . '/includes/header.php';
       <a class="tc-btn tc-btn-light tc-btn-sm <?= $filter === 'maintenance' ? 'active' : '' ?>" href="<?= BASE_URL ?>/modules/fleet-vehicle-management/vehicle-directory.php?filter=maintenance">Maintenance</a>
     </div>
     <div class="text-muted-custom small">
-      Showing <strong><?= count($vehicles) ?></strong> registered tour fleet vehicles
+      Showing <strong><?= count($vehicles) ?></strong> registered fleet vehicles
       <?php if ($q !== ''): ?><span class="ms-1">for "<strong><?= e($q) ?></strong>" <a href="<?= BASE_URL ?>/modules/fleet-vehicle-management/vehicle-directory.php" class="text-primary text-decoration-none">(clear)</a></span><?php endif; ?>
     </div>
   </div>
 
-  <div class="tc-table-container border-0">
-    <table class="tc-table">
+  <div class="tc-table-container vehicle-directory-table-scroll border-0" tabindex="0" role="region" aria-label="Vehicle Directory table; scroll horizontally to view all columns">
+    <table class="tc-table vehicle-directory-table">
       <thead>
         <tr>
           <th>Vehicle ID</th>
           <th>Plate & Type</th>
           <th>Make & Model</th>
-          <th>Capacity</th>
+          <th>Specs</th>
+          <th>Fuel</th>
           <th>Current Status</th>
           <th>Assigned Driver</th>
           <th>Odometer</th>
@@ -183,7 +189,7 @@ require ROOT_PATH . '/includes/header.php';
       </thead>
       <tbody>
         <?php if (empty($vehicles)): ?>
-          <tr><td colspan="10" class="text-center text-muted-custom py-4">No vehicles match the selected filter.</td></tr>
+          <tr><td colspan="11" class="text-center text-muted-custom py-4">No vehicles match the selected filter.</td></tr>
         <?php else: foreach ($vehicles as $v):
           $operational = $operational_by_vehicle[$v['id']];
           $needs_repair = $v['maintenance_status'] && strpos(strtolower($v['maintenance_status']), 'repair') !== false;
@@ -193,25 +199,30 @@ require ROOT_PATH . '/includes/header.php';
             <td><strong class="text-primary-custom"><?= e($v['id']) ?></strong></td>
             <td>
               <div class="fw-semibold"><?= e($v['plate_number']) ?></div>
-              <div class="text-muted-custom small"><?= e($v['type']) ?></div>
+              <div class="text-muted-custom small vehicle-directory-text" title="<?= e($v['type']) ?>"><?= e($v['type']) ?></div>
             </td>
             <td>
               <div class="vehicle-directory-identity">
                 <?= vehicle_photo_html($vehicle_json[$v['id']]['photo'], trim($v['brand'].' '.$v['model']), 'vehicle-directory-thumbnail') ?>
-                <div><div><?= e($v['brand']) ?> <?= e($v['model']) ?></div>
+                <div><div class="vehicle-directory-text vehicle-directory-name" title="<?= e(trim($v['brand'].' '.$v['model'])) ?>"><?= e($v['brand']) ?> <?= e($v['model']) ?></div>
                 <div class="text-muted-custom small"><?= (int)$v['year'] ?> Model</div></div>
               </div>
             </td>
-            <td><span class="badge bg-light text-dark border"><?= (int)$v['capacity'] ?> Seats</span></td>
+            <td>
+              <?php $spec = vehicle_specs_summary($v); ?>
+              <span class="badge bg-light text-dark border"><?= e($spec['primary']) ?></span>
+              <?php if (!empty($spec['secondary'])): ?><div class="text-muted-custom small mt-1 vehicle-directory-text" title="<?= e($spec['secondary']) ?>"><?= e($spec['secondary']) ?></div><?php endif; ?>
+            </td>
+            <td><span class="badge bg-light text-dark border"><?= e(vehicle_fuel_type_label($v['fuel_type'])) ?></span></td>
             <td><span class="status-badge <?= status_badge_class($v['status']) ?>"><?= e($v['status']) ?></span></td>
-            <td><?= e($v['assigned_driver_name'] ?? '— Unassigned —') ?></td>
+            <td><span class="vehicle-directory-text" title="<?= e($v['assigned_driver_name'] ?? '— Unassigned —') ?>"><?= e($v['assigned_driver_name'] ?? '— Unassigned —') ?></span></td>
             <td><?= number_format((int)$v['odometer']) ?> km</td>
             <td>
               <span class="badge <?= $operational['operational'] ? 'bg-success-subtle text-success' : 'bg-danger-subtle text-danger' ?> border"
                     title="<?= e($operational['reason'] ?: ($operational['test_data'] ? 'Test fixture documents in development only.' : 'Required compliance documents are valid.')) ?>">
                 <?= e($operational['status']) ?>
               </span>
-              <?php if (!$operational['operational']): ?><div class="small text-danger mt-1"><?= e($operational['reason']) ?></div><?php endif; ?>
+              <?php if (!$operational['operational']): ?><div class="small text-danger mt-1 vehicle-directory-text" title="<?= e($operational['reason']) ?>"><?= e($operational['reason']) ?></div><?php endif; ?>
             </td>
             <td>
               <span class="badge <?= $needs_repair ? 'bg-danger-subtle text-danger' : 'bg-success-subtle text-success' ?> border">
@@ -262,7 +273,7 @@ require ROOT_PATH . '/includes/header.php';
 <div id="modal-add-vehicle" class="tc-modal-backdrop">
   <div class="tc-modal vehicle-registration-modal">
     <div class="tc-card-header">
-      <h4 class="mb-0 fw-bold fs-6"><i class="bi bi-plus-circle me-2 text-primary-custom"></i>Register New Tour Vehicle</h4>
+      <h4 class="mb-0 fw-bold fs-6"><i class="bi bi-plus-circle me-2 text-primary-custom"></i>Register New Cargo Vehicle</h4>
       <button type="button" class="btn-close" onclick="App.closeModal('modal-add-vehicle')"></button>
     </div>
     <div class="tc-card-body">
@@ -369,18 +380,44 @@ require ROOT_PATH . '/includes/header.php';
             <div class="vehicle-step-label">Steps 6–7 — Review auto-filled specifications</div>
             <div class="row g-3">
               <div class="col-md-6">
-                <label class="tc-form-label">Passenger Capacity</label>
-                <input type="number" name="capacity" class="tc-form-control" min="1" max="100" required>
+                <label class="tc-form-label" for="vehicle-payload">Maximum Payload Capacity (kg)</label>
+                <input id="vehicle-payload" type="number" name="payload_capacity_kg" class="tc-form-control" min="0.01" max="60000" step="0.01" required>
               </div>
               <div class="col-md-6">
-                <label class="tc-form-label">Fuel Type</label>
-                <select name="fuel_type" class="tc-form-select" required>
+                <label class="tc-form-label" for="vehicle-cargo-volume">Cargo Volume (m³)</label>
+                <input id="vehicle-cargo-volume" type="number" name="cargo_volume_m3" class="tc-form-control" min="0.001" max="200" step="0.001" required>
+                <div class="vehicle-source-note" id="vehicle-cargo-volume-note">Cross-checked against Length × Width × Height when dimensions are recorded.</div>
+              </div>
+              <div class="col-12">
+                <label class="tc-form-label">Cargo Dimensions (Length × Width × Height)</label>
+                <div class="row g-2">
+                  <div class="col-4"><input type="number" name="cargo_length_m" class="tc-form-control" min="0.01" max="30" step="0.01" placeholder="Length (m)" aria-label="Cargo length in metres"></div>
+                  <div class="col-4"><input type="number" name="cargo_width_m" class="tc-form-control" min="0.01" max="30" step="0.01" placeholder="Width (m)" aria-label="Cargo width in metres"></div>
+                  <div class="col-4"><input type="number" name="cargo_height_m" class="tc-form-control" min="0.01" max="30" step="0.01" placeholder="Height (m)" aria-label="Cargo height in metres"></div>
+                </div>
+              </div>
+              <div class="col-12">
+                <label class="tc-form-label" for="vehicle-gvw">Registered Gross Vehicle Weight (kg)</label>
+                <input id="vehicle-gvw" type="number" name="gross_vehicle_weight_kg" class="tc-form-control mb-2" min="1" max="100000" step="0.01">
+                <label class="small mb-3"><input type="checkbox" name="requires_trailer_license" value="1"> Truck-trailer / articulated combination (requires DL Code CE)</label>
+                <p class="small text-muted-custom">Use the registered gross weight, not payload. Trucks without a recorded gross weight require C pending confirmation.</p>
+                <label class="tc-form-label" for="vehicle-fuel-type">Fuel Type</label>
+                <select id="vehicle-fuel-type" name="fuel_type" class="tc-form-select" required>
                   <option value="">Select fuel type</option>
-                  <option value="Diesel">Diesel</option>
-                  <option value="Gasoline">Gasoline</option>
-                  <option value="Hybrid">Hybrid</option>
-                  <option value="Electric">Electric</option>
+                  <?php foreach ($fuel_types as $fuel_type): ?>
+                    <option value="<?= e($fuel_type) ?>"><?= e(vehicle_fuel_type_label($fuel_type)) ?></option>
+                  <?php endforeach; ?>
                 </select>
+                <input type="hidden" name="fuel_type_source" id="vehicle-fuel-type-source" value="manual">
+                <div class="vehicle-source-note" id="vehicle-fuel-type-note">Select the fuel type stated by the uploaded document, or correct it here. Fuel type is never inferred from the brand or model.</div>
+                <div class="mt-2" id="vehicle-fuel-other-field" hidden>
+                  <label class="tc-form-label" for="vehicle-fuel-other">Describe the fuel type <span class="fw-normal text-muted-custom">(Optional, up to 22 characters)</span></label>
+                  <input id="vehicle-fuel-other" type="text" name="fuel_type_other" class="tc-form-control" maxlength="22" autocomplete="off" placeholder="e.g. Hydrogen">
+                </div>
+                <label class="vehicle-source-note d-block mt-2" for="vehicle-fuel-confirmed">
+                  <input id="vehicle-fuel-confirmed" name="fuel_type_confirmed" value="1" type="checkbox" required>
+                  I confirm the fuel type is correct.
+                </label>
               </div>
             </div>
             <div class="vehicle-source-note">Variant details are loaded from the catalog when available. Confirm the remaining unit specifications before registration.</div>

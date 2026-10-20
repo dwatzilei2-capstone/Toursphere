@@ -1,5 +1,9 @@
 <?php
-/** Shared visual identity only. Never used to determine operational eligibility. */
+/**
+ * Shared visual identity only. Never used to determine operational eligibility.
+ * Resolution is image → clean placeholder. The built-in passenger illustrations were
+ * removed with the Logistics 2 cargo change, so unmatched vehicles show the placeholder.
+ */
 function vehicle_photo_storage(): string { return ROOT_PATH . '/storage/private/vehicle-photos'; }
 function vehicle_photo_placeholder(): string { return BASE_URL . '/assets/images/vehicle-placeholder.svg'; }
 
@@ -22,33 +26,23 @@ function vehicle_photo_actual_path(?string $filename): ?string
     return is_file($path) && is_readable($path) ? $path : null;
 }
 
-function vehicle_photo_sample_path(?string $filename): ?string
-{
-    if (!$filename || !preg_match('/^[a-f0-9]{20}\.png$/D', $filename)) return null;
-    $path = ROOT_PATH . '/assets/images/vehicle-samples/' . $filename;
-    return is_file($path) && is_readable($path) ? $path : null;
-}
-
 function vehicle_photo_present(string $id, array $record = []): array
 {
     $actual = vehicle_photo_actual_path($record['actual_filename'] ?? null);
-    $sample = vehicle_photo_sample_path($record['sample_filename'] ?? null);
-    $sampleUrl = $sample ? BASE_URL . '/assets/images/vehicle-samples/' . $record['sample_filename'] : null;
-    $source = $actual ? 'actual' : ($sample ? 'sample' : 'placeholder');
     return [
-        'vehicleId' => $id, 'source' => $source,
+        'vehicleId' => $id, 'source' => $actual ? 'actual' : 'placeholder',
         'hasActual' => !empty($record['actual_filename']),
-        'src' => $actual ? BASE_URL . '/actions/vehicle-photo.php?vehicle=' . rawurlencode($id) . '&v=' . rawurlencode($record['actual_filename']) : ($sampleUrl ?: vehicle_photo_placeholder()),
-        'sampleSrc' => $sampleUrl, 'placeholderSrc' => vehicle_photo_placeholder(),
-        'label' => $source === 'actual' ? 'Actual vehicle photo' : ($source === 'sample' ? 'Sample illustration — not actual fleet' : 'Vehicle photo unavailable'),
+        'src' => $actual ? BASE_URL . '/actions/vehicle-photo.php?vehicle=' . rawurlencode($id) . '&v=' . rawurlencode($record['actual_filename']) : vehicle_photo_placeholder(),
+        'placeholderSrc' => vehicle_photo_placeholder(),
+        'label' => $actual ? 'Actual vehicle photo' : 'No vehicle photo uploaded',
     ];
 }
 
 function vehicle_photo_html(array $photo, string $name, string $class = ''): string
 {
     return '<span class="vehicle-photo ' . e($class) . '" data-photo-source="' . e($photo['source']) . '">' .
-        '<img src="' . e($photo['src']) . '" alt="' . e($name . ' — ' . $photo['label']) . '" loading="lazy" decoding="async" onload="this.parentElement.dataset.photoLoaded=1" data-vehicle-photo data-source="' . e($photo['source']) . '" data-sample-src="' . e($photo['sampleSrc'] ?? '') . '" data-placeholder-src="' . e($photo['placeholderSrc']) . '" onerror="if(typeof App!==\'undefined\') App.handleVehiclePhotoError(this)">' .
-        '<span class="vehicle-photo-label" title="' . e($photo['label']) . '">' . ($photo['source'] === 'sample' ? 'Sample' : ($photo['source'] === 'placeholder' ? 'No photo' : '')) . '</span></span>';
+        '<img src="' . e($photo['src']) . '" alt="' . e($name . ' — ' . $photo['label']) . '" loading="lazy" decoding="async" onload="this.parentElement.dataset.photoLoaded=1" data-vehicle-photo data-source="' . e($photo['source']) . '" data-placeholder-src="' . e($photo['placeholderSrc']) . '" onerror="if(typeof App!==\'undefined\') App.handleVehiclePhotoError(this)">' .
+        '<span class="vehicle-photo-label" title="' . e($photo['label']) . '">' . ($photo['source'] === 'placeholder' ? 'No photo' : '') . '</span></span>';
 }
 
 /** Validate the raster independently so tests do not need to bypass HTTP upload provenance. */
@@ -97,19 +91,3 @@ function vehicle_photo_save_actual(PDO $pdo, string $id, array $file, string $us
         ->execute([$userId,$id,json_encode(['mime'=>$file['mime'],'size'=>$file['size']])]);
 }
 
-function vehicle_photo_sample_key(array $vehicle): string
-{
-    return substr(hash('sha256', implode('|', array_map(static fn($field)=>(string)($vehicle[$field] ?? ''), ['brand','model','variant_name','type','year']))), 0, 20);
-}
-
-function vehicle_photo_seed_sample(PDO $pdo, array $vehicle, array $catalog): bool
-{
-    $key = vehicle_photo_sample_key($vehicle);
-    foreach ($catalog as $sample) {
-        if ($sample['key'] !== $key || !vehicle_photo_sample_path($sample['filename'])) continue;
-        $pdo->prepare('INSERT INTO vehicle_photos (vehicle_id,sample_filename,sample_label) VALUES (?,?,?) ON CONFLICT (vehicle_id) DO UPDATE SET sample_filename=EXCLUDED.sample_filename,sample_label=EXCLUDED.sample_label,updated_at=now()')
-            ->execute([$vehicle['id'],$sample['filename'],trim($vehicle['brand'].' '.$vehicle['model']).' — sample illustration']);
-        return true;
-    }
-    return false;
-}

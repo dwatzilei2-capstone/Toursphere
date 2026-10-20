@@ -13,12 +13,13 @@ const fixture=JSON.parse(php('create'));
   const page=await ctx.newPage(),errors=[];page.on('pageerror',e=>errors.push(e.message));
   await page.goto(directory);await page.evaluate(()=>document.querySelectorAll('[data-vehicle-photo]').forEach(i=>i.loading='eager'));
   await page.waitForFunction(()=>Array.from(document.querySelectorAll('.vehicle-directory-thumbnail img')).every(i=>i.complete&&i.naturalWidth>0));
-  check(await page.locator('.vehicle-directory-thumbnail').count()===16,'All current fleet and fixture thumbnails loaded');
   const data=await page.evaluate(()=>window.TC_VEHICLES_DATA);
+  check(await page.locator('.vehicle-directory-thumbnail').count()===Object.keys(data).length,'Every directory row has a loaded thumbnail');
   for(const [id,v] of Object.entries(data)){
    check(v.photo.vehicleId===id,'Directory photo belongs to '+id);
-   check(v.photo.source==='sample','Sample source labeled '+id);
-   check(await page.locator(`[data-vehicle-id="${id}"] .vehicle-photo-label`).textContent()==='Sample','Visible sample label '+id);
+   check(v.photo.source===(v.photo.hasActual?'actual':'placeholder'),'Uploaded photo or clean placeholder labeled '+id);
+   check(!('sampleSrc' in v.photo),'Built-in passenger illustrations retired '+id);
+   check(await page.locator(`[data-vehicle-id="${id}"] .vehicle-photo-label`).textContent()===(v.photo.hasActual?'':'No photo'),'Visible source label '+id);
   }
   check(!(await page.locator('#vehicle-photo').getAttribute('required')),'Add Vehicle photo remains optional');
   check(await page.locator('#vehicle-photo').getAttribute('name')==='vehicle_photo','Separate Add Vehicle upload field');
@@ -33,31 +34,31 @@ const fixture=JSON.parse(php('create'));
   }
   await page.setViewportSize({width:1366,height:900});await page.evaluate(id=>App.viewVehicleDetails(id),fixture.id);
   const csrf=await page.locator('.vehicle-photo-profile [name="csrf_token"]').inputValue();
-  const sample=fs.readFileSync(path.join(root,'assets/images/vehicle-samples',data[fixture.id].photo.sampleSrc.split('/').pop()));
+  const sample=Buffer.from(await page.evaluate(()=>{const canvas=document.createElement('canvas');canvas.width=80;canvas.height=50;const c=canvas.getContext('2d');c.fillStyle='#286ac6';c.fillRect(0,0,80,50);return canvas.toDataURL('image/png').split(',')[1];}),'base64');
   const upload=async(name,mimeType,buffer,token=csrf,request=ctx.request)=>request.post(base+'/actions/vehicle-photo-upload.php',{maxRedirects:0,multipart:{vehicle_id:fixture.id,csrf_token:token,vehicle_photo:{name,mimeType,buffer}}});
-  const before=JSON.parse(php('inspect')).photo;
+  const photoState=()=>{const state=JSON.parse(php('inspect'));return {...state,actual:state.photo?.actual_filename??null,mime:state.photo?.actual_mime??null};};
+  const beforeActual=photoState().actual;
   await upload('test.png','image/png',sample,'wrong-token');
-  check(JSON.parse(php('inspect')).photo.actual_filename===before.actual_filename,'Invalid CSRF cannot update photo');
+  check(photoState().actual===beforeActual,'Invalid CSRF cannot update photo');
   await upload('test.php','image/png',sample);
-  check(!JSON.parse(php('inspect')).photo.actual_filename,'Executable extension rejected through HTTP');
+  check(!photoState().actual,'Executable extension rejected through HTTP');
   await upload('fake.png','image/png',Buffer.from('<?php echo "fake";'));
-  check(!JSON.parse(php('inspect')).photo.actual_filename,'Fake PNG rejected through HTTP');
+  check(!photoState().actual,'Fake PNG rejected through HTTP');
   await upload('large.png','image/png',Buffer.alloc(5*1024*1024+1));
-  check(!JSON.parse(php('inspect')).photo.actual_filename,'Oversize upload rejected through HTTP');
+  check(!photoState().actual,'Oversize upload rejected through HTTP');
   const low=await browser.newContext();await low.addCookies([{name:'PHPSESSID',value:sessions.driver,domain:'localhost',path:'/'}]);
   await upload('test.png','image/png',sample,csrf,low.request);
-  check(!JSON.parse(php('inspect')).photo.actual_filename,'Unauthorized driver cannot update vehicle photo');await low.close();
+  check(!photoState().actual,'Unauthorized driver cannot update vehicle photo');await low.close();
   const formats=await page.evaluate(()=>{const canvas=document.createElement('canvas');canvas.width=80;canvas.height=50;const c=canvas.getContext('2d');c.fillStyle='#286ac6';c.fillRect(0,0,80,50);return {jpg:canvas.toDataURL('image/jpeg').split(',')[1],webp:canvas.toDataURL('image/webp').split(',')[1]};});
   let previous=null;
   for(const [name,mime,buffer] of [['fixture.png','image/png',sample],['fixture.jpg','image/jpeg',Buffer.from(formats.jpg,'base64')],['fixture.webp','image/webp',Buffer.from(formats.webp,'base64')]]){
    const response=await upload(name,mime,buffer);check(response.status()===302,'Successful actual upload '+mime);
-   const state=JSON.parse(php('inspect'));
-   check(state.photo.actual_mime===mime,'Detected MIME stored '+mime);
-   check(/^[a-f0-9]{48}\.(png|jpg|webp)$/.test(state.photo.actual_filename),'Safe unique filename '+mime);
-   check(state.photo.sample_filename===before.sample_filename,'Sample preserved '+mime);
+   const state=photoState();
+   check(state.mime===mime,'Detected MIME stored '+mime);
+   check(/^[a-f0-9]{48}\.(png|jpg|webp)$/.test(state.actual),'Safe unique filename '+mime);
    check(state.vehicle.status===fixture.initial.status&&state.vehicle.type===fixture.initial.type&&state.vehicle.capacity===fixture.initial.capacity&&state.vehicle.assigned_driver_id===null,'Operational fields unchanged '+mime);
    if(previous)check(!fs.existsSync(path.join(root,'storage/private/vehicle-photos',previous)),'Previous actual file removed');
-   previous=state.photo.actual_filename;
+   previous=state.actual;
    await page.goto(directory+'?vehicle='+fixture.id);
    check(await page.locator('.vehicle-photo-profile button').textContent()==='Change Photo','Profile changes control after actual upload');
    const photo=await page.evaluate(id=>window.TC_VEHICLES_DATA[id].photo,fixture.id);
@@ -66,11 +67,23 @@ const fixture=JSON.parse(php('create'));
    const served=await ctx.request.get('http://localhost'+photo.src);check(served.headers()['content-type']===mime,'Image endpoint serves correct MIME');
    check(served.headers()['x-content-type-options'].includes('nosniff'),'Image content cannot be sniffed');
    check((await served.body()).equals(buffer),'Uploaded image served without alteration');
-   const denied=await ctx.request.get(base+'/storage/private/vehicle-photos/'+state.photo.actual_filename);check(denied.status()===403,'Stored originals inaccessible directly');
+   const denied=await ctx.request.get(base+'/storage/private/vehicle-photos/'+state.actual);check(denied.status()===403,'Stored originals inaccessible directly');
   }
   const savedPhoto=await page.evaluate(id=>window.TC_VEHICLES_DATA[id].photo,fixture.id);
   await page.goto(base+'/modules/vehicle-reservation-dispatch/reservations.php');
-  const live=await page.evaluate(async()=>{const r=window.TC_KANBAN_RESERVATIONS.find(r=>['Approved','Assigned','Confirmed'].includes(r.status));if(!r)return null;const response=await fetch('/fleet/actions/reservation-assignment-options.php?reservation_id='+encodeURIComponent(r.id));return {id:r.id,data:await response.json()};});
+  // Several live reservations currently have no eligible vehicle (compliance/schedule state), so pick
+  // the first candidate that actually offers one; the card layout is what this section verifies.
+  const live=await page.evaluate(async()=>{
+   const candidates=window.TC_KANBAN_RESERVATIONS.filter(r=>['Approved','Assigned','Confirmed'].includes(r.status));
+   let fallback=null;
+   for(const r of candidates){
+    const response=await fetch('/fleet/actions/reservation-assignment-options.php?reservation_id='+encodeURIComponent(r.id));
+    const data=await response.json();
+    if(!fallback)fallback={id:r.id,data};
+    if(data.vehicles&&data.vehicles.some(v=>v.eligible))return {id:r.id,data};
+   }
+   return fallback;
+  });
   check(!!live,'Live assignment available for shared-source verification');
   const selected=live.data.vehicles.find(v=>v.id===fixture.id);check(selected.photo.src===savedPhoto.src&&selected.photo.source==='actual','Assignment reads same updated actual source');
   for(const v of live.data.vehicles) check(v.photo.vehicleId===v.id,'Assignment photo belongs to '+v.id);
@@ -95,13 +108,14 @@ const fixture=JSON.parse(php('create'));
    check(await page.locator('.assignment-vehicle-thumbnail').count()===live.data.vehicles.length,'Every recommendation/eligible/unavailable card has a photo '+width);
    await page.evaluate(()=>App.closeModal('modal-dispatch'));
   }
-  // Exercise browser-side actual→sample→placeholder recovery independently of disk timing.
+  // Exercise browser-side actual→placeholder recovery independently of disk timing.
   const fallbacks=await page.evaluate(()=>{
-   const sample=window.TC_BASE_URL+'/assets/images/vehicle-samples/76eb74da9a4a84f2e4f7.png';
-   const host=document.createElement('div');host.innerHTML=App.renderVehiclePhoto({source:'actual',src:'/missing-actual',sampleSrc:sample,placeholderSrc:window.TC_BASE_URL+'/assets/images/vehicle-placeholder.svg',label:'Actual vehicle photo'},'Test');document.body.append(host);const img=host.querySelector('img');App.handleVehiclePhotoError(img);const first={src:img.getAttribute('src'),source:img.dataset.source,label:host.querySelector('.vehicle-photo-label').textContent};App.handleVehiclePhotoError(img);const second={src:img.getAttribute('src'),source:img.dataset.source};host.remove();return {first,second};
+   const placeholder=window.TC_BASE_URL+'/assets/images/vehicle-placeholder.svg';
+   const host=document.createElement('div');host.innerHTML=App.renderVehiclePhoto({source:'actual',src:'/missing-actual',placeholderSrc:placeholder,label:'Actual vehicle photo'},'Test');document.body.append(host);const img=host.querySelector('img');App.handleVehiclePhotoError(img);const first={src:img.getAttribute('src'),source:img.dataset.source,label:host.querySelector('.vehicle-photo-label').textContent};App.handleVehiclePhotoError(img);const second={src:img.getAttribute('src'),source:img.dataset.source,icon:!!host.querySelector('i'),hidden:img.hidden};host.remove();return {first,second};
   });
-  check(fallbacks.first.source==='sample'&&fallbacks.first.label==='Sample','Browser falls back actual→labeled sample');
-  check(fallbacks.second.source==='placeholder'&&fallbacks.second.src.endsWith('vehicle-placeholder.svg'),'Browser falls back sample→placeholder');
+  check(fallbacks.first.source==='placeholder'&&fallbacks.first.src.endsWith('vehicle-placeholder.svg'),'Browser falls back a missing upload to the placeholder');
+  check(fallbacks.first.label==='No photo','Fallback labels the placeholder');
+  check(fallbacks.second.icon===true&&fallbacks.second.hidden===true,'Failed placeholder falls back to the inline icon');
   check(errors.length===0,'No browser errors: '+errors.join('; '));
   console.log(`${checks} vehicle photo browser, upload, authorization, shared-source, and responsive checks passed.`);
  }finally{if(browser)await browser.close();console.log(php('clean').trim());}

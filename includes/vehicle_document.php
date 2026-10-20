@@ -167,6 +167,49 @@ function read_vehicle_document_text(string $path, string $mime): ?string
     }
 }
 
+/**
+ * Normalise a fuel value that a vehicle document states explicitly.
+ * Returns the canonical fuel type only when exactly one recognisable fuel is present;
+ * ambiguous values such as "DIESEL / GASOLINE" or "NATURAL GAS" return null so the Admin
+ * selects the fuel manually. Fuel is never inferred from brand, model, variant, or type.
+ */
+function vehicle_document_normalize_fuel_type(string $raw): ?string
+{
+    $text = strtoupper(trim((string)preg_replace('/\s+/', ' ', $raw)));
+    if ($text === '') return null;
+    // Drop qualifiers and noise: "DIESEL (TURBO)" -> DIESEL, "DIESEL, 2.5L" -> DIESEL 2 5L.
+    $text = (string)preg_replace('/\([^)]*\)/', ' ', $text);
+    $text = (string)preg_replace('/[^A-Z0-9\/ .\-]+/', ' ', $text);
+    $text = trim((string)preg_replace('/\s+/', ' ', $text));
+    if ($text === '') return null;
+
+    // Aliases ordered longest-first so BIO-DIESEL wins over DIESEL and
+    // COMPRESSED NATURAL GAS wins over the bare NATURAL GAS wording.
+    $aliases = [
+        'Ethanol / Flex Fuel' => ['FLEXIBLE FUEL', 'FLEX FUEL', 'FLEXFUEL', 'FLEX-FUEL', 'ETHANOL', 'E85', 'E20', 'E15', 'E10'],
+        'LPG'                 => ['LIQUEFIED PETROLEUM GAS', 'LIQUIFIED PETROLEUM GAS', 'AUTO GAS', 'AUTOGAS', 'PROPANE', 'LPG'],
+        'CNG'                 => ['COMPRESSED NATURAL GAS', 'CNG'],
+        'LNG'                 => ['LIQUEFIED NATURAL GAS', 'LIQUIFIED NATURAL GAS', 'LNG'],
+        'Biodiesel'           => ['BIO-DIESEL', 'BIO DIESEL', 'BIODIESEL', 'B100'],
+        'Diesel'              => ['TURBO DIESEL', 'DIESEL FUEL', 'COMMON RAIL DIESEL', 'DIESEL', 'CRDI'],
+        'Gasoline'            => ['PREMIUM GASOLINE', 'REGULAR GASOLINE', 'UNLEADED', 'GASOLINE', 'PETROL'],
+        'Electric'            => ['BATTERY ELECTRIC', 'ELECTRIC', 'BEV', 'EV'],
+        'Hybrid'              => ['PLUG-IN HYBRID', 'PLUG IN HYBRID', 'MILD HYBRID', 'HYBRID', 'PHEV', 'HEV'],
+    ];
+    $matches = [];
+    foreach ($aliases as $canonical => $words) {
+        foreach ($words as $word) {
+            $pattern = '/(?<![A-Z0-9])' . preg_quote($word, '/') . '(?![A-Z0-9])/';
+            if (!preg_match($pattern, $text)) continue;
+            $matches[$canonical] = true;
+            // Consume the matched wording so shorter aliases cannot match inside it.
+            $text = (string)preg_replace($pattern, ' ', $text, 1);
+            break;
+        }
+    }
+    return count($matches) === 1 ? (string)array_key_first($matches) : null;
+}
+
 function vehicle_document_is_test_fixture(string $text): bool
 {
     return preg_match('/\b(?:FICTIONAL|NON[- ]OFFICIAL|NOT VALID FOR .* USE|TEST(?:ING)? ONLY|TEST COPY|NO INSURANCE COVERAGE)\b/i', $text) === 1;
@@ -352,8 +395,14 @@ function extract_vehicle_document_data(string $path, string $mime, string $docum
             'brand_make' => ['BRAND / MAKE', 'BRAND/MAKE', 'MAKE / BRAND', 'MAKE/BRAND', 'MAKE', 'BRAND'],
             'series_model' => ['SERIES / MODEL', 'SERIES/MODEL', 'SERIES', 'MODEL'],
             'body_type' => ['BODY TYPE', 'VEHICLE TYPE'],
-            'fuel_type' => ['FUEL TYPE', 'FUEL'],
+            'fuel_type' => ['FUEL TYPE', 'TYPE OF FUEL', 'FUEL USED', 'FUEL KIND', 'FUEL'],
             'passenger_capacity' => ['PASSENGER CAPACITY', 'SEATING CAPACITY', 'NUMBER OF PASSENGERS'],
+            // Logistics 2 cargo units: payload, volume, and dimensions when the document states them.
+            'payload_capacity_kg' => ['MAXIMUM PAYLOAD', 'MAX PAYLOAD', 'PAYLOAD CAPACITY', 'PAYLOAD'],
+            'cargo_volume_m3' => ['CARGO VOLUME', 'VOLUME CAPACITY', 'CARGO CAPACITY'],
+            'cargo_length_m' => ['CARGO LENGTH', 'BED LENGTH', 'INTERNAL LENGTH'],
+            'cargo_width_m' => ['CARGO WIDTH', 'BED WIDTH', 'INTERNAL WIDTH'],
+            'cargo_height_m' => ['CARGO HEIGHT', 'BED HEIGHT', 'INTERNAL HEIGHT'],
             'color' => ['COLOR', 'COLOUR'],
             'classification' => ['CLASSIFICATION'],
         ];
@@ -372,20 +421,24 @@ function extract_vehicle_document_data(string $path, string $mime, string $docum
                 unset($data['passenger_capacity']);
             }
         }
-        if (isset($data['fuel_type'])) {
-            $fuelType = strtolower(trim((string)$data['fuel_type']));
-            $fuelTypes = [
-                'diesel' => 'Diesel',
-                'gasoline' => 'Gasoline',
-                'petrol' => 'Gasoline',
-                'hybrid' => 'Hybrid',
-                'electric' => 'Electric',
-            ];
-            if (isset($fuelTypes[$fuelType])) {
-                $data['fuel_type'] = $fuelTypes[$fuelType];
+        // Normalise extracted cargo numbers so the form receives saveable values.
+        foreach (['payload_capacity_kg' => 60000.0, 'cargo_volume_m3' => 200.0,
+                  'cargo_length_m' => 30.0, 'cargo_width_m' => 30.0, 'cargo_height_m' => 30.0] as $specKey => $specMax) {
+            if (!isset($data[$specKey])) continue;
+            if (preg_match('/(\\d+(?:[.,]\\d+)?)/', (string)$data[$specKey], $specMatch)) {
+                $specValue = (float)str_replace(',', '', $specMatch[1]);
+                if ($specValue > 0 && $specValue <= $specMax) $data[$specKey] = $specValue;
+                else unset($data[$specKey]);
             } else {
-                unset($data['fuel_type']);
+                unset($data[$specKey]);
             }
+        }
+        if (isset($data['fuel_type'])) {
+            // Explicit document wording only; ambiguous or unknown values stay unset so the
+            // Admin selects them, and nothing is ever inferred from brand or model.
+            $normalizedFuel = vehicle_document_normalize_fuel_type((string)$data['fuel_type']);
+            if ($normalizedFuel !== null) $data['fuel_type'] = $normalizedFuel;
+            else unset($data['fuel_type']);
         }
         if (preg_match('/\b(?:YEAR\s*MODEL|MODEL\s*YEAR|YEAR)\s*[:\-]?\s*(?:\n\s*)?((?:19|20)\d{2})\b/i', $text, $yearMatch)) {
             $data['year_model'] = (int)$yearMatch[1];

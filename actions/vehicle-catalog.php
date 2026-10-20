@@ -45,7 +45,8 @@ try {
             if (!$parentId || !$year) throw new InvalidArgumentException('A vehicle model and year are required.');
             $stmt = $pdo->prepare(
                 "SELECT id, variant_name AS name, model_year, passenger_capacity,
-                        fuel_tank_capacity, fuel_type
+                        fuel_tank_capacity, fuel_type,
+                        payload_capacity_kg, cargo_volume_m3
                    FROM vehicle_variants
                   WHERE model_id = ? AND model_year = ? AND status = 'Active'
                   ORDER BY variant_name, model_year DESC"

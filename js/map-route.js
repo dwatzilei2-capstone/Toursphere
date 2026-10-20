@@ -69,9 +69,6 @@ class AIRouteEngine {
     this.directionsRequestCooldownMs = 10000;
     this.currentEvaluationData = null;
     this.evaluationRequestId = 0;
-    this.revenueRequestId = 0;
-    this.revenueScopeTimer = null;
-    this.revenueScopeListenersBound = false;
     this.savedRouteSignature = null;
     this.routeSaveInFlight = null;
     this.routeContextInitialized = false;
@@ -86,12 +83,6 @@ class AIRouteEngine {
     this.persistQueue = Promise.resolve();
     
      
-    this.vehicleFuelEconomy = {
-      "Tour Bus": 3.8,
-      "Coaster Bus": 6.4,
-      "Executive Van": 9.2,
-      "VIP SUV": 10.5
-    };
     this.fuelPricePerLiter = null;
   }
 
@@ -121,11 +112,9 @@ class AIRouteEngine {
 
      
     this.bindInputValidationListeners();
-    this.bindRevenueScopeListeners();
     this.applyOperationalRouteContext();
     if (window.TC_ROUTE_CONTEXT?.readOnly) {
       this.lockTripRouteViewer();
-      this.refreshRevenueCard();
       return;
     }
 
@@ -135,7 +124,6 @@ class AIRouteEngine {
     if (!window.TC_ROUTE_CONTEXT?.isDriver && window.TC_INITIAL_PRESET && typeof window.TC_INITIAL_PRESET === "string" && window.TC_INITIAL_PRESET.trim() !== "") {
       if (!this.plannerRestorePending && !this.cachedDirectionsResponse) this.loadPresetInputs(window.TC_INITIAL_PRESET);
     } else {
-      this.refreshRevenueCard();
     }
   }
 
@@ -159,7 +147,7 @@ class AIRouteEngine {
   }
 
   invalidatePreparedRoute() {
-    if (this.applyingRoute || this.navigationStarting || this.isNavigating) return;
+    if (this.appliedRoute || this.applyingRoute || this.navigationStarting || this.isNavigating) return;
     this.routeSelectionConfirmed=false;
     this.cachedDirectionsResponse=null;this.currentRouteData=null;this.currentEvaluationData=null;
     this.currentDirectionsResult=null;this.currentRouteSummary=null;this.appliedRoute=null;
@@ -175,98 +163,9 @@ class AIRouteEngine {
     const badge=document.getElementById('ai-res-badge');if(badge)badge.textContent='Generate a Route';
     document.getElementById('ai-itinerary-list')?.replaceChildren();
     for(const id of ['ai-res-title','ai-res-distance','ai-res-duration','ai-res-fuel','ai-res-toll','ai-res-cost','ai-res-score','ai-res-reason']){
-      if(id==='ai-res-cost' && ['driver','admin'].includes(window.TC_ROUTE_REVENUE?.role))continue;
       const element=document.getElementById(id);if(element)element.textContent=id==='ai-res-title'?'Generate a route for the updated inputs.':'—';
     }
     this.updateApplyButton();
-  }
-
-  bindRevenueScopeListeners() {
-    const revenue = window.TC_ROUTE_REVENUE;
-    if (this.revenueScopeListenersBound || revenue?.role !== "admin") return;
-    this.revenueScopeListenersBound = true;
-
-    const scheduleRefresh = () => {
-      window.clearTimeout(this.revenueScopeTimer);
-      this.revenueScopeTimer = window.setTimeout(() => this.refreshRevenueCard(), 350);
-    };
-    ["route-origin-input", "route-dest-input"].forEach((id) => {
-      const input = document.getElementById(id);
-      if (input) input.addEventListener("input", scheduleRefresh);
-    });
-    const date = document.getElementById("route-revenue-date");
-    if (date) date.addEventListener("change", scheduleRefresh);
-  }
-
-  async refreshRevenueCard() {
-    const config = window.TC_ROUTE_REVENUE;
-    if (!config || !["driver", "admin"].includes(config.role)) return;
-
-    const value = document.getElementById("ai-res-cost");
-    const context = document.getElementById("ai-res-cost-context");
-    if (!value || !context) return;
-
-    const params = new URLSearchParams();
-    let scopeLabel = "";
-    if (config.role === "driver") {
-      if (!config.tripId) {
-        value.textContent = "—";
-        context.textContent = "No assigned trip selected.";
-        return;
-      }
-      params.set("trip_id", config.tripId);
-      scopeLabel = "Assigned trip " + config.tripId;
-    } else {
-      const origin = document.getElementById("route-origin-input")?.value.trim() || "";
-      const destination = document.getElementById("route-dest-input")?.value.trim() || "";
-      const date = document.getElementById("route-revenue-date")?.value || "";
-      if (!origin || !destination || !date) {
-        value.textContent = "—";
-        context.textContent = "Select a route and date.";
-        return;
-      }
-      params.set("origin", origin);
-      params.set("destination", destination);
-      params.set("date", date);
-      scopeLabel = `${origin} → ${destination} · ${date}`;
-    }
-
-    const requestId = ++this.revenueRequestId;
-    value.textContent = "…";
-    context.textContent = scopeLabel;
-    try {
-      const {data} = await this.routeJsonRequest(`${config.endpoint}?${params.toString()}`, {
-        credentials: "same-origin",
-        cache: "no-store",
-        headers: { Accept: "application/json" },
-      });
-      if (requestId !== this.revenueRequestId) return;
-
-      if (!data.hasRevenue) {
-        value.textContent = "—";
-        context.textContent = config.role === "driver"
-          ? `No eligible reservations for ${data.tripId}.`
-          : `No eligible reservations · ${data.origin} → ${data.destination} · ${data.date}`;
-        return;
-      }
-
-      value.textContent = new Intl.NumberFormat("en-PH", {
-        style: "currency",
-        currency: "PHP",
-        minimumFractionDigits: 2,
-      }).format(Number(data.revenue));
-      if (config.role === "driver") {
-        const passengerLabel = Number(data.passengers) === 1 ? "Assigned Passenger" : "Assigned Passengers";
-        context.textContent = `${Number(data.passengers).toLocaleString("en-PH")} ${passengerLabel} · ${data.tripId}`;
-      } else {
-        const tripLabel = Number(data.tripCount) === 1 ? "trip" : "trips";
-        context.textContent = `${Number(data.passengers).toLocaleString("en-PH")} passengers across ${Number(data.tripCount).toLocaleString("en-PH")} ${tripLabel} · ${data.origin} → ${data.destination} · ${data.date}`;
-      }
-    } catch {
-      if (requestId !== this.revenueRequestId) return;
-      value.textContent = "—";
-      context.textContent = "Revenue is temporarily unavailable.";
-    }
   }
 
   applyOperationalRouteContext() {
@@ -344,7 +243,7 @@ class AIRouteEngine {
     }
 
      
-    this.renderTouristDestinationMarkers();
+    this.clearTouristMarkers();
 
      
     if (!this.plannerRestorePending && !this.plannerRestoreCompleted) this.restorePlannerState();
@@ -366,51 +265,7 @@ class AIRouteEngine {
       if (inputId === "route-origin-input" || inputId === "route-dest-input") {
         const presetSelect = document.getElementById("route-preset-select");
         if (presetSelect) presetSelect.value = "custom";
-        this.refreshRevenueCard();
-      }
-    });
-  }
-
-  renderTouristDestinationMarkers() {
-    if (window.TC_ROUTE_CONTEXT?.readOnly) return;
-    if (!this.map || this.mapType !== "google" || !window.TC_TOURIST_DESTINATIONS) return;
-
-    this.clearTouristMarkers();
-
-    const infoWindow = new google.maps.InfoWindow();
-
-    window.TC_TOURIST_DESTINATIONS.forEach((spot) => {
-      const marker = new google.maps.Marker({
-        position: { lat: spot.coords[0], lng: spot.coords[1] },
-        map: this.map,
-        title: spot.name,
-        icon: {
-          path: google.maps.SymbolPath.CIRCLE,
-          scale: 7,
-          fillColor: "#F2994A",
-          fillOpacity: 1,
-          strokeColor: "#FFFFFF",
-          strokeWeight: 2
         }
-      });
-
-      marker.addListener("click", () => {
-        const content = `
-          <div style="font-family: 'Poppins', sans-serif; padding: 4px 6px; max-width: 240px;">
-            <div style="font-weight: 700; font-size: 13px; color: #1F2937; margin-bottom: 2px;">${spot.name}</div>
-            <span style="display:inline-block; font-size: 10px; background: #FEF5EC; color: #F2994A; border: 1px solid #F2994A; padding: 1px 6px; border-radius: 4px; margin-bottom: 6px;">${spot.category}</span>
-            <div style="font-size: 11px; color: #6B7280; margin-bottom: 8px;">${spot.description}</div>
-            <div style="display: flex; gap: 4px;">
-              <button onclick="aiRouteEngine.setTouristSpotAsDestination('${spot.address}')" style="background:#2F80ED; color:#fff; border:none; border-radius:4px; padding:4px 8px; font-size:11px; cursor:pointer; font-weight:600;">Set as Destination</button>
-              <button onclick="aiRouteEngine.addTouristSpotAsWaypoint('${spot.address}')" style="background:#F1F5F9; color:#1F2937; border:1px solid #CBD5E1; border-radius:4px; padding:4px 8px; font-size:11px; cursor:pointer;">+ Add Stop</button>
-            </div>
-          </div>
-        `;
-        infoWindow.setContent(content);
-        infoWindow.open(this.map, marker);
-      });
-
-      this.touristMarkers.push(marker);
     });
   }
 
@@ -458,7 +313,7 @@ class AIRouteEngine {
    
    
   selectMode(mode, el) {
-    if (window.TC_ROUTE_CONTEXT?.readOnly) return;
+    if (window.TC_ROUTE_CONTEXT?.readOnly || window.TC_ROUTE_CONTEXT?.canApply === false || this.appliedRoute) return;
     if (this.applyingRoute || this.navigationStarting || this.isGenerating) return;
     if (this.isNavigating || !['balanced','fastest','fuelEfficient','shortest'].includes(mode) || !this.cachedDirectionsResponse) return;
     this.currentMode = mode;
@@ -1158,7 +1013,6 @@ class AIRouteEngine {
     if (window.TC_ROUTE_CONTEXT?.readOnly) return;
     if (!presetId || presetId === "custom" || !window.TC_ROUTE_DATA) {
       this.activePreset = null;
-      this.refreshRevenueCard();
       return;
     }
     const found = window.TC_ROUTE_DATA.find((p) => p.id === presetId);
@@ -1197,7 +1051,6 @@ class AIRouteEngine {
 
       this.renderCurrentPreset();
       this.updateResultsUI();
-      this.refreshRevenueCard();
     }
   }
 
@@ -1209,7 +1062,7 @@ class AIRouteEngine {
    
    
   generateRoute() {
-    if (window.TC_ROUTE_CONTEXT?.readOnly) return;
+    if (window.TC_ROUTE_CONTEXT?.readOnly || window.TC_ROUTE_CONTEXT?.canApply === false || this.appliedRoute) return;
     const originEl = document.getElementById("route-origin-input");
     const destEl = document.getElementById("route-dest-input");
     const vehicleEl = document.getElementById("route-vehicle-select");
@@ -1445,23 +1298,21 @@ class AIRouteEngine {
       balanced: { time: 0.30, fuel: 0.30, distance: 0.20, cost: 0.20 }
     };
     const weights = weightsByMode[this.currentMode] || weightsByMode.balanced;
-    const vehicleName = document.getElementById("route-vehicle-select")?.value || "Tour Bus";
+    const vehicleName = document.getElementById("route-vehicle-select")?.value || "";
     const economy = this.getVehicleEconomy(vehicleName);
     const configuredPrice=Number(document.getElementById('route-vehicle-select')?.selectedOptions[0]?.dataset.fuelPrice);
     this.fuelPricePerLiter=configuredPrice>0?configuredPrice:null;
-    const vehicleLabel = vehicleName.toLowerCase();
-    const vehicleCapacity = Number(document.getElementById("route-vehicle-select")?.selectedOptions[0]?.dataset.capacity) || (vehicleLabel.includes("tour bus") ? 45
-      : vehicleLabel.includes("coaster") ? 29
-        : vehicleLabel.includes("suv") ? 7 : 14);
-    const vehicleWeightClass = vehicleLabel.includes("tour bus") ? 3
-      : vehicleLabel.includes("coaster") ? 2 : 1;
-    const passengerCount = Number(window.TC_ROUTE_CONTEXT?.passengerCount || 0);
+    const option = document.getElementById("route-vehicle-select")?.selectedOptions[0];
+    const payload = Number(option?.dataset.payloadCapacityKg || 0);
+    const cargoWeight = Number(window.TC_ROUTE_CONTEXT?.cargoWeightKg || 0);
+    const cargoLoadRatio = payload > 0 ? Math.min(1, Math.max(0, cargoWeight / payload)) : 0;
+    const vehicleWeightClass = 1; // No verified truck weight-class mapping is configured.
     const waypointCount = this.getWaypointsList().length;
     const evaluated = candidates.map((candidate) => {
       const trafficRatio = Math.max(1, candidate.trafficDelayRatio || 1);
       const exactDistanceKm = (candidate.distanceMeters || (candidate.distanceKm * 1000)) / 1000;
       const exactDurationSecs = candidate.durationSecs || (candidate.durationMins * 60);
-      const loadRatio=Math.min(1,passengerCount/Math.max(1,vehicleCapacity));
+      const loadRatio=cargoLoadRatio;
       const fuel = economy>0 ? (exactDistanceKm / economy) * (1 + 0.40 * Math.min(2,trafficRatio - 1)) * (1 + 0.12 * loadRatio) + 0.20 * waypointCount : null;
       const toll = null; // No configured toll source exists; exclude it from operational estimates.
       const fuelCost = fuel!==null && this.fuelPricePerLiter!==null ? fuel * this.fuelPricePerLiter : null;
@@ -1482,7 +1333,7 @@ class AIRouteEngine {
           waypoint_count: waypointCount,
           baseline_km_per_liter: economy,
           vehicle_weight_class: vehicleWeightClass,
-          passenger_load_ratio: Math.min(1, Math.max(0, passengerCount / vehicleCapacity)),
+          cargo_load_ratio: cargoLoadRatio,
           highway_ratio: candidate.highwayRatio || 0
         }
       };
@@ -1536,7 +1387,7 @@ class AIRouteEngine {
       fuelEstimate: selected.fuelEstimateLiters===null?'Efficiency unavailable':`${selected.fuelEstimateLiters.toFixed(1)} L`,
       fuelCost: selected.fuelCost===null?'Current fuel price unavailable':`₱${selected.fuelCost.toLocaleString()}`,
       tollEstimate: 'Not Included in Estimate',
-      totalTripCost: selected.totalTripCost===null?'Not Available':`₱${selected.totalTripCost.toLocaleString()}`,
+      totalTripCost: selected.totalTripCost===null?'Estimate Unavailable':`₱${selected.totalTripCost.toLocaleString()}`,
       routeScore: selected.compositeScore,
       explanation: `Selected ${selected.summary} as the best available candidate for ${this.getModeTitle(this.currentMode)}.`,
       modelVersion: "v0-kinematic",
@@ -1639,6 +1490,7 @@ class AIRouteEngine {
         : `${aiData.fuelEstimate} (${aiData.fuelCost})`,
       fuelEstimateLiters: selectedCandidate.fuelEstimateLiters,
       tollEstimate: aiData.tollEstimate,
+      fuelCost: selectedCandidate.fuelCost == null ? "Estimate Unavailable" : `₱${Number(selectedCandidate.fuelCost).toLocaleString("en-PH")}`,
       totalTripCost: aiData.totalTripCost,
       routeScore: `${aiData.routeScore} / 100`,
       reason: aiData.explanation || aiData.reason,
@@ -1666,7 +1518,7 @@ class AIRouteEngine {
     this.revealRouteStrategies();
 
     const vehicleSelect = document.getElementById("route-vehicle-select");
-    const vehicleValue = vehicleSelect ? vehicleSelect.value : "Tour Bus";
+    const vehicleValue = vehicleSelect ? vehicleSelect.value : "";
     const origin = document.getElementById("route-origin-input")?.value.trim() || "Origin";
     const destination = document.getElementById("route-dest-input")?.value.trim() || "Destination";
     const waypointsList = this.getWaypointsList();
@@ -1755,7 +1607,7 @@ class AIRouteEngine {
     form.append("reservation_id", window.TC_ROUTE_CONTEXT?.reservationId || "");
     form.append("mode", this.currentMode);
     form.append("route_phase", window.TC_ROUTE_CONTEXT?.routePhase || "outbound");
-    form.append("passenger_count", window.TC_ROUTE_CONTEXT?.passengerCount ?? 0);
+    form.append("cargo_weight_kg", window.TC_ROUTE_CONTEXT?.cargoWeightKg ?? "");
     form.append("waypoints", JSON.stringify(waypointsList));
     form.append("candidates", JSON.stringify(candidatePayload));
 
@@ -2384,127 +2236,7 @@ class AIRouteEngine {
   }
 
   renderLiveNavigationRoute(lat, lng, options = {}) {
-    // GPS acquisition/recentering is not evidence that a driver has left the route.
-    if (!options.confirmedOffRoute || this.offRouteConsecutiveCount < 3 || !this.appliedRoute) return;
-    if (!this.isNavigating || !this.directionsService || !this.currentDirectionsResult || this.liveNavigationRoutePending) return;
-
-    const now = Date.now();
-    const previousPosition = this.lastLiveNavigationRequestPosition;
-    if (now - this.lastLiveNavigationRequestAt < this.liveNavigationRequestCooldownMs) return;
-    if (previousPosition) {
-      const earthRadiusMeters = 6371000;
-      const toRadians = (degrees) => degrees * Math.PI / 180;
-      const deltaLat = toRadians(lat - previousPosition.lat);
-      const deltaLng = toRadians(lng - previousPosition.lng);
-      const a = Math.sin(deltaLat / 2) ** 2 +
-        Math.cos(toRadians(previousPosition.lat)) * Math.cos(toRadians(lat)) *
-        Math.sin(deltaLng / 2) ** 2;
-      const movedMeters = earthRadiusMeters * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
-      if (movedMeters < this.liveNavigationRequestMinDistanceMeters) return;
-    }
-    const selectedIndex = Number(this.currentEvaluationData?.selectedIndex || 0);
-    const plannedRoute = this.currentDirectionsResult.routes[selectedIndex] || this.currentDirectionsResult.routes[0];
-    const legs = plannedRoute?.legs || [];
-    const pickup = legs[0]?.start_location;
-    if (!pickup || this.getRouteRoadPath(plannedRoute).length < 2) return;
-
-     
-     
-     
-    const plannedPath = this.getRouteRoadPath(plannedRoute);
-    let rejoinIndex = 0;
-    let connectorDestination = pickup;
-    if (this.hasReachedPickup) {
-      const livePoint = new google.maps.LatLng(lat, lng);
-      let nearestDistance = Infinity;
-      plannedPath.forEach((point, index) => {
-        const distance = google.maps.geometry.spherical.computeDistanceBetween(livePoint, point);
-        if (distance < nearestDistance) {
-          nearestDistance = distance;
-          rejoinIndex = index;
-          connectorDestination = point;
-        }
-      });
-    }
-
-    const requestId = ++this.liveNavigationRequestId;
-    this.liveNavigationRoutePending = true;
-    this.lastLiveNavigationRequestAt = now;
-    this.lastLiveNavigationRequestPosition = { lat, lng };
-    const request = {
-      origin: { lat, lng },
-      destination: this.hasReachedPickup ? legs[legs.length-1].end_location : connectorDestination,
-      waypoints:this.hasReachedPickup?legs.slice(this.currentLegIndex,-1).map(leg=>({location:leg.end_location,stopover:true})):[],
-      travelMode: google.maps.TravelMode.DRIVING,
-      provideRouteAlternatives: true
-    };
-    if (this.trafficAware) {
-      request.drivingOptions = {
-         
-        departureTime: new Date(Date.now() + 5 * 60 * 1000),
-        trafficModel: google.maps.TrafficModel.BEST_GUESS
-      };
-    }
-
-    let retriedWithoutTrafficTime = false;
-    let liveRequestFinished = false;
-    const liveRequestTimer = setTimeout(() => {
-      if (liveRequestFinished || requestId !== this.liveNavigationRequestId) return;
-      liveRequestFinished = true;
-      this.liveNavigationRoutePending = false;
-      window.showAppToast?.('Reroute Timed Out', 'Keeping your saved route. Check your connection before rerouting.', 'warning');
-    }, this.directionsRequestTimeoutMs || 30000);
-    const handleLiveRouteResponse = (response, status) => {
-      if (liveRequestFinished || !this.isNavigating || requestId !== this.liveNavigationRequestId) { clearTimeout(liveRequestTimer); return; }
-      if (
-        status === google.maps.DirectionsStatus.INVALID_REQUEST &&
-        request.drivingOptions &&
-        !retriedWithoutTrafficTime
-      ) {
-        retriedWithoutTrafficTime = true;
-        delete request.drivingOptions;
-        this.directionsService.route(request, handleLiveRouteResponse);
-        return;
-      }
-
-      liveRequestFinished = true;
-      clearTimeout(liveRequestTimer);
-      this.liveNavigationRoutePending = false;
-      if (status !== google.maps.DirectionsStatus.OK || !response?.routes?.[0]?.overview_path) return;
-      if(this.hasReachedPickup){
-        this.rerouting=true;this.currentMode=this.appliedRoute.mode;this.generationId=crypto.randomUUID();
-        if(this.liveNavigationPolyline){this.liveNavigationPolyline.setMap(null);this.liveNavigationPolyline=null;}
-        this.processGoogleDirectionsResult(response);return;
-      }
-      if (this.liveNavigationPolyline) this.liveNavigationPolyline.setMap(null);
-       
-       
-      if (this.selectedRoutePolyline) this.selectedRoutePolyline.setMap(null);
-      const connectorCandidates=response.routes.map((route,index)=>{
-        const meters=route.legs.reduce((sum,leg)=>sum+leg.distance.value,0);
-        const seconds=route.legs.reduce((sum,leg)=>sum+(leg.duration_in_traffic||leg.duration).value,0);
-        const base=route.legs.reduce((sum,leg)=>sum+leg.duration.value,0);
-        return {index,distanceMeters:meters,distanceKm:meters/1000,durationSecs:seconds,durationMins:seconds/60,baseDurationMins:base/60,trafficDelayRatio:seconds/Math.max(1,base)};
-      });
-      const connectorIndex=this.evaluateCandidatesLocally(connectorCandidates).selectedIndex;
-      const connectorPath = this.getRouteRoadPath(response.routes[connectorIndex]);
-      const selectedRouteTail = plannedPath.slice(rejoinIndex);
-      const preservedSelectedPath = [
-        ...connectorPath,
-        ...selectedRouteTail.slice(connectorPath.length ? 1 : 0)
-      ];
-      this.liveNavigationPolyline = new google.maps.Polyline({
-        map: this.map,
-        path: preservedSelectedPath,
-        strokeColor: "#0B63E5",
-        strokeWeight: 8,
-        strokeOpacity: 1,
-        clickable: false,
-        zIndex: 45
-      });
-    };
-    try { this.directionsService.route(request, handleLiveRouteResponse); }
-    catch (error) { handleLiveRouteResponse(null, 'REQUEST_FAILED'); }
+    // Keep the exact applied path. Position, camera and arrival updates run independently.
   }
 
   acquireNavigationPosition(focusCamera = false) {
@@ -2746,7 +2478,7 @@ class AIRouteEngine {
     const strategyLabel = document.getElementById('route-strategy-options')?.querySelector('.tc-form-label');
     if (strategyLabel) strategyLabel.textContent = applied ? 'Applied Route' : 'Choose a Generated Route Strategy';
     const needsSelection = context.isDriver && this.currentRouteData && !this.routeSelectionConfirmed;
-    button.disabled = this.routeSaveUncertain || this.isNavigating || this.navigationStarting || this.applyingRoute || applied || needsSelection || context.readOnly || (context.isDriver && context.hasActiveTrip===false) || (Boolean(this.currentRouteData) && context.canApply === false);
+    button.disabled = this.routeSaveUncertain || this.isNavigating || this.navigationStarting || this.applyingRoute || applied || needsSelection || context.readOnly || (context.isDriver && context.hasActiveTrip===false) || context.canApply === false;
     button.textContent = this.isNavigating ? 'Navigation Active' : this.applyingRoute ? 'Applying Route…' : applied ? (context.isDriver ? `${this.getRouteModeLabel(this.currentMode)} — Applied` : 'Applied') : needsSelection ? 'Select a Route' : this.currentRouteData ? this.getModeButtonLabel(this.currentMode) : 'Generate ROUTETHINK Route';
     if(this.routeSaveUncertain)button.textContent='Reload Planner to Confirm Save';
     const navigation = document.getElementById('btn-start-navigation');
@@ -2870,7 +2602,7 @@ class AIRouteEngine {
     if (this.routeSaveUncertain) { window.showAppToast?.('Reload Route Planner','The previous save could not be confirmed. Reload the planner before retrying.','warning'); return; }
     if (this.applyingRoute || this.navigationStarting || this.isNavigating || window.TC_ROUTE_CONTEXT?.canApply === false) return;
     if (window.TC_ROUTE_CONTEXT?.isDriver && !this.routeSelectionConfirmed) return;
-    if (!this.currentRouteData || this.appliedRoute?.routeId===this.currentRouteData.routeId) return;
+    if (!this.currentRouteData || this.appliedRoute) return;
     this.applyingRoute=true;this.updateApplyButton();
     const previous=this.appliedRoute;
     const started=Date.now();let timeout;
@@ -2987,7 +2719,9 @@ class AIRouteEngine {
     setText('ai-res-distance', data.distance || (data.distanceKm != null ? `${data.distanceKm} km` : 'Unavailable'));
     setText('ai-res-duration', data.duration || (data.durationMins != null ? `${data.durationMins} min` : 'Unavailable'));
     setText('ai-res-duration-label', 'Saved travel time');
-    setText('ai-res-fuel', data.fuelEstimate || (data.fuelEstimateLiters != null ? `${data.fuelEstimateLiters} L` : 'Unavailable'));
+    setText('ai-res-fuel-label', 'Estimated Fuel Cost');
+    setText('ai-res-fuel', data.fuelCost || 'Estimate Unavailable');
+    setText('ai-res-cost', data.fuelCost ? (data.totalTripCost || 'Estimate Unavailable') : 'Estimate Unavailable');
     setText('ai-res-score', data.routeScore || 'Unavailable');
     const scoreLabel = document.getElementById('ai-res-score');
     if (scoreLabel && !data.routeScore) scoreLabel.className = 'badge bg-secondary';
@@ -3067,14 +2801,13 @@ class AIRouteEngine {
     setText("ai-res-title", data.title);
     setText("ai-res-distance", data.distance);
     setText("ai-res-duration", data.duration);
-    setText("ai-res-fuel", data.fuelEstimate);
-    if (!["driver", "admin"].includes(window.TC_ROUTE_REVENUE?.role)) {
-      setText("ai-res-cost", data.totalTripCost);
-    }
+    setText("ai-res-fuel", data.fuelCost || "Estimate Unavailable");
+    setText("ai-res-cost", data.totalTripCost || "Estimate Unavailable");
+    setText("ai-res-cost-context", "Supported estimate includes fuel once; tolls and other unverified expenses excluded.");
     setText("ai-res-score", data.routeScore);
     const fullyTrained = Boolean(data.isFullyMlActive);
-    setText("ai-res-duration-label", Boolean(data.durationModelVersion) ? "Fleet AI Travel Time" : "Google Traffic ETA");
-    setText("ai-res-fuel-label", Boolean(data.fuelModelVersion) ? "Fleet AI Fuel Prediction" : "Formula Fuel Estimate");
+    setText("ai-res-duration-label", "Estimated Travel Time");
+    setText("ai-res-fuel-label", "Estimated Fuel Cost");
     setText("ai-res-score-label", "Relative Route Score:");
 
     const reasonEl = document.getElementById("ai-res-reason");
@@ -3147,9 +2880,9 @@ class AIRouteEngine {
     const presetSelect = document.getElementById("route-preset-select");
     const origin = document.getElementById("route-origin-input")?.value;
     const destination = document.getElementById("route-dest-input")?.value;
-    const vehicle = document.getElementById("route-vehicle-select")?.value || "Tour Bus";
+    const vehicle = document.getElementById("route-vehicle-select")?.value || "";
     const presetId = (presetSelect && presetSelect.value !== "custom") ? presetSelect.value : "";
-    const routeTitle = presetId ? (this.activePreset?.name || "AI Tour Route") : `${origin} to ${destination}`;
+    const routeTitle = presetId ? (this.activePreset?.name || "Cargo Delivery Route") : `${origin} to ${destination}`;
     const signature = JSON.stringify({
       presetId,
       origin,

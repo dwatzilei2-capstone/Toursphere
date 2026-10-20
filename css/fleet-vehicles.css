@@ -141,6 +141,61 @@
 .fleet-vehicles-motion-enabled .fleet-vehicles-module.fleet-vehicles-motion-ready .fleet-vehicles-page-shell > *:nth-child(2) { transition-delay: 60ms; }
 .fleet-vehicles-motion-enabled .fleet-vehicles-module.fleet-vehicles-motion-ready .fleet-vehicles-page-shell > *:nth-child(3) { transition-delay: 110ms; }
 
+/* Keep directory columns readable; smaller screens scroll the table, not the page. */
+.fleet-vehicle-directory-page .fleet-vehicles-page-shell,
+.fleet-vehicle-directory-page .fleet-vehicles-page-shell > .tc-card {
+  min-width: 0;
+  max-width: 100%;
+}
+.fleet-vehicle-directory-page .vehicle-directory-table-scroll {
+  max-width: 100%;
+  overflow-x: auto;
+  overscroll-behavior-x: contain;
+  -webkit-overflow-scrolling: touch;
+}
+.fleet-vehicle-directory-page .vehicle-directory-table {
+  table-layout: fixed;
+  width: 100%;
+  min-width: 1995px;
+}
+.vehicle-directory-table th:nth-child(1) { width: 105px; }
+.vehicle-directory-table th:nth-child(2) { width: 145px; }
+.vehicle-directory-table th:nth-child(3) { width: 340px; }
+.vehicle-directory-table th:nth-child(4) { width: 230px; }
+.vehicle-directory-table th:nth-child(5) { width: 90px; }
+.vehicle-directory-table th:nth-child(6) { width: 145px; }
+.vehicle-directory-table th:nth-child(7) { width: 170px; }
+.vehicle-directory-table th:nth-child(8) { width: 120px; }
+.vehicle-directory-table th:nth-child(9) { width: 230px; }
+.vehicle-directory-table th:nth-child(10) { width: 150px; }
+.vehicle-directory-table th:nth-child(11) { width: 270px; }
+.fleet-vehicle-directory-page .vehicle-directory-table td {
+  padding: 10px 16px;
+  height: 82px;
+  vertical-align: middle;
+  white-space: nowrap;
+  word-break: normal;
+  overflow-wrap: normal;
+}
+.vehicle-directory-table .vehicle-directory-identity > div { flex: 1; }
+.vehicle-directory-table .vehicle-directory-text {
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+  line-clamp: 2;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: normal;
+  word-break: normal;
+  overflow-wrap: normal;
+  hyphens: none;
+  line-height: 1.4;
+  max-height: 2.8em;
+}
+.vehicle-directory-table .vehicle-directory-name { font-weight: 500; }
+.vehicle-directory-table .btn-group { display: inline-flex; flex-wrap: nowrap; }
+.vehicle-directory-table .btn-group .tc-btn { white-space: nowrap; }
+
 @keyframes fv-spin { to { transform: rotate(360deg); } }
 @keyframes fv-menu-in {
   from { opacity: 0; transform: translateY(-5px) scale(.99); }

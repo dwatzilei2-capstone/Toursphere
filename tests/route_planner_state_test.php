@@ -8,7 +8,7 @@ function route_check($ok,$message){global $checks;if(!$ok)throw new RuntimeExcep
 function route_reject($state,$message){try{route_planner_validate($state);}catch(DomainException $e){route_check(true,$message);return;}throw new RuntimeException($message);}
 $pdo=db();
 foreach(['route_history','trips','ai_learning_samples','ai_learning_stats','ai_model_registry','route_planner_states'] as $table)$pdo->exec("CREATE TEMP TABLE $table (LIKE public.$table INCLUDING DEFAULTS)");
-$vehicle=['baseline_km_per_liter'=>9.5,'capacity'=>15,'weight_class'=>1,'name'=>'Test vehicle','efficiency_available'=>true];
+$vehicle=['baseline_km_per_liter'=>9.5,'capacity'=>0,'cargo_load_ratio'=>0.25,'is_cargo'=>true,'weight_class'=>1,'name'=>'Test vehicle','efficiency_available'=>true];
 $candidates=[
  ['distanceMeters'=>50000,'distanceKm'=>50,'baseDurationMins'=>30,'trafficDurationMins'=>30,'durationSecs'=>1800,'summary'=>'Fast road'],
  ['distanceMeters'=>30000,'distanceKm'=>30,'baseDurationMins'=>40,'trafficDurationMins'=>100,'durationSecs'=>6000,'summary'=>'Short congested road'],
@@ -16,7 +16,7 @@ $candidates=[
 ];
 $evaluations=[];
 foreach(['fastest'=>0,'shortest'=>1,'fuelEfficient'=>2,'balanced'=>2] as $mode=>$winner){
- $result=RouteThinkEngine::evaluateCandidates($candidates,$vehicle,$mode,5);
+ $result=RouteThinkEngine::evaluateCandidates($candidates,$vehicle,$mode,0);
  route_check($result['selectedIndex']===$winner,"$mode selects its own objective");
  route_check(!empty($result['explanation']),"$mode has its own rationale");
  $result['mode']=$mode;$evaluations[$mode]=$result;

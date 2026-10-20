@@ -17,7 +17,7 @@ $otherReason = trim($_POST['other_reason'] ?? '');
 $notes = trim($_POST['cancellation_notes'] ?? '');
 
 $allowedReasons = [
-    'Customer Request', 'Trip Cancelled', 'Schedule Changed', 'Duplicate Reservation',
+    'Customer Request', 'Requester Request', 'Trip Cancelled', 'Schedule Changed', 'Duplicate Reservation',
     'Vehicle Availability Issue', 'Booking Information Error', 'Other',
 ];
 

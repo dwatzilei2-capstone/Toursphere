@@ -6,6 +6,7 @@
 require_once dirname(__DIR__) . '/includes/bootstrap.php';
 require_once ROOT_PATH . '/includes/vehicle_compliance.php';
 require_once ROOT_PATH . '/includes/driver_vehicle_assignment.php';
+require_once ROOT_PATH . '/includes/driver_license.php';
 require_login();
 
 if ($_SERVER['REQUEST_METHOD'] !== 'POST') {
@@ -24,6 +25,11 @@ if (!in_array($new_status, ['In Transit', 'Returning to Depot', 'Completed'], tr
 }
 
 try {
+    if (($_POST['source']??'')==='dispatch_board') {
+        if(!has_role(['fleet_admin','dispatcher'])||!can('dispatch.manage'))throw new RuntimeException('Only Admin/Dispatcher may update delivery from the Dispatch Board.');
+        if(!is_string($_POST['csrf']??null)||empty($_SESSION['dispatch_board_csrf'])||!hash_equals($_SESSION['dispatch_board_csrf'],$_POST['csrf']))throw new RuntimeException('Session expired. Refresh the Dispatch Board.');
+        if($new_status==='Completed' && (trim($completion_notes)===''||mb_strlen($completion_notes)>2000))throw new RuntimeException('Enter delivery notes (up to 2,000 characters).');
+    }
     $pdo = db();
 
     $resStmt = $pdo->prepare('SELECT * FROM reservations WHERE id = ?');
@@ -45,7 +51,7 @@ try {
         redirect_with_toast($return, 'You are not authorized to update this trip.', 'danger');
     }
 
-    if ($new_status === 'Completed' && $is_assigned_driver) {
+    if ($new_status === 'Completed' && ($is_assigned_driver || ($_POST['source']??'')==='dispatch_board')) {
         $vehicleCheck = $pdo->prepare('SELECT odometer FROM vehicles WHERE id = ?');
         $vehicleCheck->execute([$r['assigned_vehicle_id']]);
         $currentOdometer = (int)$vehicleCheck->fetchColumn();
@@ -88,6 +94,10 @@ try {
     $tripStmt->execute([$reservation_id]);
     $trip = $tripStmt->fetch();
     if ($new_status === 'In Transit' && $trip && $trip['driver_id'] && $trip['vehicle_id']) {
+        $licenseVehicle=$pdo->prepare('SELECT * FROM vehicles WHERE id=? FOR UPDATE');$licenseVehicle->execute([$trip['vehicle_id']]);
+        $licenseDriver=$pdo->prepare('SELECT * FROM drivers WHERE id=? FOR UPDATE');$licenseDriver->execute([$trip['driver_id']]);
+        if($licenseIssue=driver_license_eligibility($licenseVehicle->fetch() ?: [],$licenseDriver->fetch() ?: []))throw new RuntimeException($licenseIssue);
+
         $resourceLock = $pdo->prepare("SELECT pg_advisory_xact_lock(hashtext(?)), pg_advisory_xact_lock(hashtext(?))");
         $resourceLock->execute(['dispatch-driver:' . $trip['driver_id'], 'dispatch-vehicle:' . $trip['vehicle_id']]);
         if (driver_has_active_trip($pdo, $trip['driver_id'], $trip['id'])) throw new RuntimeException('This driver is already operating another active trip.');
@@ -198,8 +208,8 @@ try {
         if ($r['assigned_vehicle_id']) {
             $pendingIssueStmt = $pdo->prepare(
                 "SELECT 1 FROM maintenance_orders
-                  WHERE vehicle_id = ? AND status IN ('Scheduled','In Repair')
-                    AND notes LIKE 'Driver issue report:%' LIMIT 1"
+                  WHERE vehicle_id = ? AND (status='In Repair' OR (status='Scheduled'
+                    AND (notes LIKE 'Driver issue report:%' OR source_trip_id IS NOT NULL))) LIMIT 1"
             );
             $pendingIssueStmt->execute([$r['assigned_vehicle_id']]);
             $hasPendingDriverIssue = (bool)$pendingIssueStmt->fetchColumn();
@@ -222,7 +232,8 @@ try {
                 $r['assigned_vehicle_id']]);
 
             if ($trip && $vehicle_condition !== 'Good') {
-                $woId = next_sequential_id($pdo, 'maintenance_orders', 'id', 'WO-2026-');
+                $pdo->exec("SELECT pg_advisory_xact_lock(hashtext('maintenance-work-order-id'))");
+                $woId = next_sequential_id($pdo, 'maintenance_orders', 'id', 'WO-'.date('Y').'-');
                 $pdo->prepare(
                     "INSERT INTO maintenance_orders (id,vehicle_id,service_type,priority,scheduled_date,status,estimated_cost,notes,source_trip_id)
                      VALUES (?,?,?,?::varchar,CURRENT_DATE,'Scheduled',0,?,?)"

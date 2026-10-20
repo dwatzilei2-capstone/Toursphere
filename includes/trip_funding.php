@@ -1,6 +1,7 @@
 <?php
 require_once __DIR__.'/reservation-assignment.php';
 require_once __DIR__.'/vehicle_efficiency.php';
+require_once __DIR__.'/funding_route_estimate.php';
 const TRIP_FUNDING_MOCK_DELAY_SECONDS = 5;
 function funding_can_manage(): bool { return has_role(['fleet_admin','dispatcher']) && can('dispatch.manage'); }
 function funding_can_view(): bool { return has_role(['fleet_admin','dispatcher','fleet_manager']) && can('dispatch.view'); }
@@ -8,7 +9,8 @@ function fuel_current_price(PDO $pdo,string $type): ?array {
  $q=$pdo->prepare('SELECT * FROM fuel_price_history WHERE lower(fuel_type)=lower(?) AND effective_date<=CURRENT_DATE ORDER BY effective_date DESC,id DESC LIMIT 1');$q->execute([$type]);return $q->fetch() ?: null;
 }
 function fuel_supported_types(PDO $pdo): array {
- return $pdo->query("SELECT DISTINCT fuel_type FROM (SELECT fuel_type FROM vehicles UNION SELECT fuel_type FROM vehicle_variants UNION SELECT fuel_type FROM fuel_price_history) f WHERE fuel_type IS NOT NULL AND btrim(fuel_type)<>'' ORDER BY fuel_type")->fetchAll(PDO::FETCH_COLUMN);
+ // Includes the configurable catalog so a newly offered fuel (CNG, LNG, Ethanol / Flex Fuel, Other…) can be priced before any vehicle uses it.
+ return $pdo->query("SELECT DISTINCT fuel_type FROM (SELECT name AS fuel_type FROM fuel_types WHERE status='Active' UNION SELECT fuel_type FROM vehicles UNION SELECT fuel_type FROM vehicle_variants UNION SELECT fuel_type FROM fuel_price_history) f WHERE fuel_type IS NOT NULL AND btrim(fuel_type)<>'' ORDER BY fuel_type")->fetchAll(PDO::FETCH_COLUMN);
 }
 function fuel_save_price(PDO $pdo,string $type,string $price,string $effective,string $source): void {
  if(!has_role('fleet_admin'))throw new DomainException('Only Admin can update current fuel prices.');
@@ -21,6 +23,7 @@ function fuel_save_price(PDO $pdo,string $type,string $price,string $effective,s
 function funding_trip(PDO $pdo,string $id): ?array {
  $q=$pdo->prepare("SELECT t.*,r.status reservation_status,r.assigned_vehicle_id,r.assigned_driver_id,r.route_distance_km,r.departure_schedule_instance_id,
  r.departure_date,r.departure_time,r.return_date,r.return_time,r.passenger_count,r.required_capacity,r.vehicle_requested,r.customer_id,r.notes,
+ r.request_kind,r.cargo_type,r.cargo_weight_kg,r.cargo_volume_m3,r.cargo_quantity,r.special_handling,
  v.fuel_type,v.avg_fuel_km,v.plate_number,v.brand,v.model,v.status vehicle_status,d.name driver_name
  FROM trips t JOIN reservations r ON r.id=t.reservation_id LEFT JOIN vehicles v ON v.id=t.vehicle_id LEFT JOIN drivers d ON d.id=t.driver_id WHERE t.id=?");
  $q->execute([$id]);return $q->fetch() ?: null;
@@ -29,26 +32,39 @@ function funding_request(PDO $pdo,string $tripId): ?array {
  $q=$pdo->prepare('SELECT f.*,e.estimated_total_cost,e.estimated_fuel_cost,e.estimated_liters,e.distance_km,e.distance_source,e.reference_price,e.fuel_type,e.expected_km_per_liter,e.inputs FROM trip_funding_requests f JOIN trip_cost_estimates e ON e.id=f.estimate_id WHERE f.trip_id=? ORDER BY f.id DESC LIMIT 1');$q->execute([$tripId]);return $q->fetch() ?: null;
 }
 function funding_inputs(array $t): array {
- return ['trip_id'=>$t['id'],'reservation_id'=>$t['reservation_id'],'vehicle_id'=>$t['vehicle_id'],'driver_id'=>$t['driver_id'],'origin'=>$t['origin'],'destination'=>$t['destination'],
+ $inputs=['trip_id'=>$t['id'],'reservation_id'=>$t['reservation_id'],'vehicle_id'=>$t['vehicle_id'],'driver_id'=>$t['driver_id'],'origin'=>$t['origin'],'destination'=>$t['destination'],
   'scheduled_departure'=>$t['scheduled_departure'],'return_date'=>$t['return_date'],'return_time'=>$t['return_time'],'passengers'=>$t['passengers'],
   'distance_km'=>(float)($t['distance_km']>0?$t['distance_km']:$t['route_distance_km'])];
+ if(($t['request_kind']??'Passenger')==='Cargo')foreach(['request_kind','cargo_type','cargo_weight_kg','cargo_volume_m3','cargo_quantity','special_handling'] as $key)$inputs[$key]=$t[$key]??null;
+ return $inputs;
 }
-function funding_estimate(PDO $pdo,array $t): array {
+function funding_estimate(PDO $pdo,array $t,?array $manualReference=null): array {
  $issues=[]; $distance=(float)($t['distance_km']>0?$t['distance_km']:$t['route_distance_km']);
- $efficiency=vehicle_efficiency_value((string)$t['avg_fuel_km']) ?? 0;
+ // Match the archived funding calculator: configured vehicle km/L is the planning input.
+ $configured=vehicle_efficiency_value((string)$t['avg_fuel_km']);
+ $reference=$configured!==null
+  ? ['value'=>$configured,'source'=>str_contains(strtolower((string)$t['avg_fuel_km']),'(est.)')?'Configured vehicle planning estimate (not measured)':'Configured vehicle reference (planning only)']
+  : vehicle_efficiency_reference($pdo,(string)$t['vehicle_id'],(string)$t['avg_fuel_km']);
+ $efficiency=$reference['value']??0;
+ if($manualReference!==null){
+  $value=$manualReference['value']??null;$source=trim((string)($manualReference['source']??''));
+  if(!is_numeric($value)||!is_finite((float)$value)||(float)$value<=0||(float)$value>1000||$source===''||mb_strlen($source)>2000)throw new DomainException('Provide a positive efficiency value and its supporting record/source (up to 2,000 characters).');
+  $efficiency=(float)$value;$reference=['value'=>$efficiency,'source'=>'Documented planning reference: '.$source];
+ }
+
  $price=fuel_current_price($pdo,(string)$t['fuel_type']);
  if(!$t['vehicle_id'] || !$t['driver_id'])$issues[]='Assign a vehicle and driver first.';
- if($distance<=0)$issues[]='Route distance unavailable. Prepare the route in the existing AI Route Planner.';
+ if($distance<=0)$issues[]='Automatic driving-distance estimate unavailable. Verify the pickup/delivery locations or retry.';
  if($efficiency<=0)$issues[]='Vehicle fuel efficiency data unavailable.';
  if(!$price)$issues[]='Current '.($t['fuel_type'] ?: 'vehicle fuel').' price unavailable. Admin must configure it in Settings → Fuel Prices.';
  $liters=$distance>0 && $efficiency>0 ? $distance/$efficiency : null;
  $fuel=$liters!==null && $price ? round($liters*(float)$price['price_per_liter'],2) : null;
- return ['issues'=>$issues,'distance_km'=>$distance,'distance_source'=>$t['distance_km']>0?'Saved trip route':'Saved reservation route','expected_km_per_liter'=>$efficiency,
- 'fuel_type'=>$t['fuel_type'],'price'=>$price,'reference_price'=>$price['price_per_liter']??null,'estimated_liters'=>$liters,'estimated_fuel_cost'=>$fuel,'estimated_total_cost'=>$fuel,
+ return ['issues'=>$issues,'distance_km'=>$distance,'distance_source'=>$t['distance_km']>0?'Saved trip planning distance':'Saved reservation planning distance','expected_km_per_liter'=>$efficiency,
+ 'fuel_type'=>$t['fuel_type'],'efficiency_source'=>$reference['source'],'price'=>$price,'reference_price'=>$price['price_per_liter']??null,'estimated_liters'=>$liters,'estimated_fuel_cost'=>$fuel,'estimated_total_cost'=>$fuel,
  'toll'=>'Not Included in Estimate','parking'=>'Not Included in Estimate'];
 }
 function funding_matches(array $request,array $t): bool {
- $saved=json_decode($request['inputs'],true);return $saved==funding_inputs($t);
+ $saved=json_decode($request['inputs'],true);unset($saved['fuel_efficiency_reference']);return $saved==funding_inputs($t);
 }
 function funding_confirmed(PDO $pdo,array $t): bool {
  $f=funding_request($pdo,$t['id']);return $f && $f['status']==='Funding Confirmed' && funding_matches($f,$t);
@@ -72,13 +88,13 @@ function funding_comparison_rows(PDO $pdo,string $start,string $end,?string $dri
  $q=$pdo->prepare("SELECT t.id,t.vehicle_id,t.status,t.scheduled_departure,t.origin,t.destination,
  e.estimated_total_cost,e.estimated_fuel_cost,e.estimated_liters,e.reference_price,f.approved_amount,f.status funding_status,
  fuel.liters actual_fuel_logged,fuel.cost actual_fuel_cost,CASE WHEN fuel.liters>0 THEN fuel.cost/fuel.liters END average_price,
- CASE WHEN rh.actual_fuel_verified=1 THEN rh.actual_fuel_liters END verified_consumption,
+ CASE WHEN rh.actual_fuel_verified=1 AND EXISTS(SELECT 1 FROM fuel_transactions vf WHERE vf.id=rh.actual_fuel_transaction_id AND vf.verification_status='Verified') THEN rh.actual_fuel_liters END verified_consumption,
  CASE WHEN fuel.cost IS NOT NULL OR maintenance.cost IS NOT NULL OR t.toll_fee IS NOT NULL
  THEN COALESCE(fuel.cost,0)+COALESCE(maintenance.cost,0)+COALESCE(t.toll_fee,0) END actual_recorded_cost
  FROM trips t
  LEFT JOIN LATERAL(SELECT * FROM trip_funding_requests WHERE trip_id=t.id AND status='Funding Confirmed' ORDER BY id DESC LIMIT 1) f ON true
  LEFT JOIN trip_cost_estimates e ON e.id=f.estimate_id
- LEFT JOIN LATERAL(SELECT SUM(liters) liters,SUM(total_cost) cost FROM fuel_transactions WHERE trip_id=t.id) fuel ON true
+ LEFT JOIN LATERAL(SELECT SUM(liters) liters,SUM(total_cost) cost FROM fuel_transactions WHERE trip_id=t.id AND verification_status='Verified') fuel ON true
  LEFT JOIN LATERAL(SELECT SUM(estimated_cost) cost FROM maintenance_orders WHERE source_trip_id=t.id AND status='Completed') maintenance ON true
  LEFT JOIN route_history rh ON rh.log_id=t.route_history_id
  WHERE COALESCE(t.actual_arrival,t.scheduled_departure)>=?::date AND COALESCE(t.actual_arrival,t.scheduled_departure)<?::date
@@ -87,7 +103,7 @@ function funding_comparison_rows(PDO $pdo,string $start,string $end,?string $dri
  $q->execute([$start,$end,$driverId,$driverId,$vehicleId,$vehicleId]);return $q->fetchAll();
 }
 function funding_actual_cost(PDO $pdo,string $tripId): ?float {
- $q=$pdo->prepare("SELECT (SELECT SUM(total_cost) FROM fuel_transactions WHERE trip_id=t.id) fuel,(SELECT SUM(estimated_cost) FROM maintenance_orders WHERE source_trip_id=t.id AND status='Completed') maintenance,t.toll_fee FROM trips t WHERE t.id=?");$q->execute([$tripId]);$r=$q->fetch();
+ $q=$pdo->prepare("SELECT (SELECT SUM(total_cost) FROM fuel_transactions WHERE trip_id=t.id AND verification_status='Verified') fuel,(SELECT SUM(estimated_cost) FROM maintenance_orders WHERE source_trip_id=t.id AND status='Completed') maintenance,t.toll_fee FROM trips t WHERE t.id=?");$q->execute([$tripId]);$r=$q->fetch();
  if(!$r || ($r['fuel']===null && $r['maintenance']===null && $r['toll_fee']===null))return null;
  return (float)($r['fuel']??0)+(float)($r['maintenance']??0)+(float)($r['toll_fee']??0);
 }
@@ -96,16 +112,19 @@ function funding_audit(PDO $pdo,string $action,array $f): void {
  $actor=$action==='TRIP_FUNDING_CONFIRMED'?null:$f['requested_by'];
  $pdo->prepare('INSERT INTO audit_logs(action,user_id,entity_type,entity_id,details) VALUES (?,?,?,?,?)')->execute([$action,$actor,'trip_funding',$f['trip_id'],json_encode(['request_id'=>$f['id'],'requested_by'=>$f['requested_by'],'finance_source'=>$f['finance_source'],'status'=>$f['status'],'requested_amount'=>$f['requested_amount'],'approved_amount'=>$f['approved_amount']??null])]);
 }
-function funding_create(PDO $pdo,string $tripId,string $method,string $amount): array {
+function funding_create(PDO $pdo,string $tripId,string $method,string $amount,?string $fuelAmount=null,?array $manualReference=null): array {
  if(!funding_can_manage())throw new DomainException('Only Admin and Dispatcher can request Trip Funding.');
  if(fleet_setting('funding.finance_mode','mock')!=='mock')throw new DomainException('The real Finance connector is not configured. Mock approval is disabled.');
  if(!is_numeric($amount) || !is_finite((float)$amount) || (float)$amount<=0 || (float)$amount>999999999)throw new DomainException('Enter a valid requested funding amount.');
+ $preparation=funding_trip($pdo,$tripId);
+ if($preparation)funding_prepare_automatic_distance($pdo,$preparation);
  $pdo->beginTransaction();
  try {
+  $pdo->prepare('SELECT pg_advisory_xact_lock(hashtext(?))')->execute(['fuel-budget:'.$tripId]);
   $t=funding_trip($pdo,$tripId);if(!$t)throw new DomainException('Trip not found.');
   $pdo->prepare('SELECT id FROM reservations WHERE id=? FOR UPDATE')->execute([$t['reservation_id']]);
   $pdo->prepare('SELECT id FROM trips WHERE id=? FOR UPDATE')->execute([$tripId]);$t=funding_trip($pdo,$tripId);
-  if(!in_array($t['status'],['Assigned','Confirmed','Scheduled'],true) || !in_array($t['reservation_status'],['Assigned','Confirmed'],true))throw new DomainException('Funding requires an approved, assigned trip before dispatch.');
+  if(!in_array($t['status'],['Assigned','Confirmed','Scheduled','Dispatched','In Transit','Returning to Depot'],true) || !in_array($t['reservation_status'],['Assigned','Confirmed','Dispatched','In Transit','Returning to Depot'],true))throw new DomainException('Funding requires an approved assigned or active trip.');
   if($t['vehicle_id']!==$t['assigned_vehicle_id'] || $t['driver_id']!==$t['assigned_driver_id'])throw new DomainException('Trip assignment is inconsistent. Refresh the assignment.');
   $existing=funding_request($pdo,$tripId);
   if($existing && in_array($existing['status'],['Pending Finance Approval','Funding Confirmed'],true)) {
@@ -114,23 +133,28 @@ function funding_create(PDO $pdo,string $tripId,string $method,string $amount): 
    $pdo->prepare("UPDATE trip_funding_requests SET status='Superseded',response_reason='Trip preparation changed' WHERE id=?")->execute([$existing['id']]);
   }
   $m=$pdo->prepare('SELECT name FROM trip_funding_methods WHERE code=? AND enabled');$m->execute([$method]);$name=$m->fetchColumn();if(!$name)throw new DomainException('Select an enabled funding method.');
-  $e=funding_estimate($pdo,$t);if($e['issues'])throw new DomainException(implode(' ',$e['issues']));
+  $e=funding_estimate($pdo,$t,$manualReference);if($e['issues'])throw new DomainException(implode(' ',$e['issues']));
   if(round((float)$amount,2)<$e['estimated_total_cost'])throw new DomainException('Requested funding must cover the estimated trip cost.');
   $q=$pdo->prepare('INSERT INTO trip_cost_estimates(trip_id,reservation_id,vehicle_id,driver_id,distance_km,distance_source,expected_km_per_liter,fuel_type,fuel_price_id,reference_price,estimated_liters,estimated_fuel_cost,estimated_total_cost,inputs,created_by) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?::jsonb,?) RETURNING id');
-  $q->execute([$t['id'],$t['reservation_id'],$t['vehicle_id'],$t['driver_id'],$e['distance_km'],$e['distance_source'],$e['expected_km_per_liter'],$e['fuel_type'],$e['price']['id'],$e['reference_price'],$e['estimated_liters'],$e['estimated_fuel_cost'],$e['estimated_total_cost'],json_encode(funding_inputs($t)),current_user()['id']]);$eid=$q->fetchColumn();
-  $q=$pdo->prepare('INSERT INTO trip_funding_requests(trip_id,reservation_id,vehicle_id,driver_id,estimate_id,funding_method,method_name,requested_amount,requested_by) VALUES (?,?,?,?,?,?,?,?,?) RETURNING id');$q->execute([$tripId,$t['reservation_id'],$t['vehicle_id'],$t['driver_id'],$eid,$method,$name,round((float)$amount,2),current_user()['id']]);$id=$q->fetchColumn();
+  $q->execute([$t['id'],$t['reservation_id'],$t['vehicle_id'],$t['driver_id'],$e['distance_km'],$e['distance_source'],$e['expected_km_per_liter'],$e['fuel_type'],$e['price']['id'],$e['reference_price'],$e['estimated_liters'],$e['estimated_fuel_cost'],$e['estimated_total_cost'],json_encode(funding_inputs($t)+($manualReference!==null?['fuel_efficiency_reference'=>$manualReference]:[])),current_user()['id']]);$eid=$q->fetchColumn();
+  $fuelAmount=$fuelAmount??(string)$e['estimated_fuel_cost'];
+  if(!is_numeric($fuelAmount)||!is_finite((float)$fuelAmount)||(float)$fuelAmount<0||(float)$fuelAmount>(float)$amount)throw new DomainException('Fuel allocation must be between zero and the overall trip budget.');
+  $committed=$pdo->prepare("SELECT COALESCE((SELECT SUM(maximum_amount) FROM fuel_authorizations WHERE trip_id=? AND status IN ('Authorized','Submitted')),0)+COALESCE((SELECT SUM(total_cost) FROM fuel_transactions WHERE trip_id=? AND verification_status='Verified'),0)");$committed->execute([$tripId,$tripId]);
+  if(round((float)$fuelAmount,2)<(float)$committed->fetchColumn())throw new DomainException('Fuel allocation cannot be lower than committed authorizations and verified expenses.');
+  $q=$pdo->prepare('INSERT INTO trip_funding_requests(trip_id,reservation_id,vehicle_id,driver_id,estimate_id,funding_method,method_name,requested_amount,requested_fuel_amount,requested_by) VALUES (?,?,?,?,?,?,?,?,?,?) RETURNING id');$q->execute([$tripId,$t['reservation_id'],$t['vehicle_id'],$t['driver_id'],$eid,$method,$name,round((float)$amount,2),round((float)$fuelAmount,2),current_user()['id']]);$id=$q->fetchColumn();
   $f=funding_request($pdo,$tripId);funding_audit($pdo,'TRIP_FUNDING_REQUESTED',$f);$pdo->commit();return $f;
  }catch(Throwable $e){if($pdo->inTransaction())$pdo->rollBack();throw $e;}
 }
 function funding_revise(PDO $pdo,string $tripId): void {
  if(!funding_can_manage())throw new DomainException('Only Admin and Dispatcher can revise funding.');
  $pdo->beginTransaction();try {
+  $pdo->prepare('SELECT pg_advisory_xact_lock(hashtext(?))')->execute(['fuel-budget:'.$tripId]);
   $t=funding_trip($pdo,$tripId);if(!$t)throw new DomainException('Trip not found.');
   $pdo->prepare('SELECT id FROM reservations WHERE id=? FOR UPDATE')->execute([$t['reservation_id']]);
   $pdo->prepare('SELECT id FROM trips WHERE id=? FOR UPDATE')->execute([$tripId]);$t=funding_trip($pdo,$tripId);
-  if(!in_array($t['status'],['Assigned','Confirmed','Scheduled'],true) || !in_array($t['reservation_status'],['Assigned','Confirmed'],true))throw new DomainException('Funding can only be revised before dispatch.');
+  if(!in_array($t['status'],['Assigned','Confirmed','Scheduled','Dispatched','In Transit','Returning to Depot'],true) || !in_array($t['reservation_status'],['Assigned','Confirmed','Dispatched','In Transit','Returning to Depot'],true))throw new DomainException('Funding cannot be revised for a closed trip.');
   $f=funding_request($pdo,$tripId);if(!$f || $f['status']==='Pending Finance Approval')throw new DomainException('Wait for the pending response before revising.');
-  $pdo->prepare("UPDATE trip_funding_requests SET status='Superseded',response_reason='Revised by Fleet before dispatch' WHERE id=? AND status='Funding Confirmed'")->execute([$f['id']]);
+  $pdo->prepare("UPDATE trip_funding_requests SET status='Superseded',response_reason='Cumulative trip budget adjustment requested by Fleet' WHERE id=? AND status='Funding Confirmed'")->execute([$f['id']]);
   funding_audit($pdo,'TRIP_FUNDING_REVISED',funding_request($pdo,$tripId));$pdo->commit();
  }catch(Throwable $e){if($pdo->inTransaction())$pdo->rollBack();throw $e;}
 }
@@ -141,15 +165,16 @@ function funding_mock_response(PDO $pdo,int $id): void {
  audit_set_actor($pdo,null);
  $pdo->beginTransaction();
  try {
+  $pdo->prepare('SELECT pg_advisory_xact_lock(hashtext(?))')->execute(['fuel-budget:'.$f['trip_id']]);
   $pdo->prepare('SELECT id FROM reservations WHERE id=? FOR UPDATE')->execute([$f['reservation_id']]);
   $pdo->prepare('SELECT id FROM trips WHERE id=? FOR UPDATE')->execute([$f['trip_id']]);
   $q=$pdo->prepare("SELECT *,clock_timestamp()>=approval_due_at due FROM trip_funding_requests WHERE id=? FOR UPDATE");$q->execute([$id]);$f=$q->fetch();
   if($f['status']!=='Pending Finance Approval' || !filter_var($f['due'],FILTER_VALIDATE_BOOLEAN)){$pdo->commit();return;}
   $t=funding_trip($pdo,$f['trip_id']);$full=funding_request($pdo,$f['trip_id']);
-  if(!in_array($t['reservation_status'],['Assigned','Confirmed'],true) || !in_array($t['status'],['Assigned','Confirmed','Scheduled'],true) || !funding_matches($full,$t)) {
+  if(!in_array($t['reservation_status'],['Assigned','Confirmed','Dispatched','In Transit','Returning to Depot'],true) || !in_array($t['status'],['Assigned','Confirmed','Scheduled','Dispatched','In Transit','Returning to Depot'],true) || !funding_matches($full,$t)) {
    $pdo->prepare("UPDATE trip_funding_requests SET status=?,response_reason='Trip preparation changed during approval',response_at=clock_timestamp() WHERE id=?")->execute([$t['reservation_status']==='Cancelled'?'Cancelled':'Superseded',$id]);
   }else {
-   $pdo->prepare("UPDATE trip_funding_requests SET status='Funding Confirmed',approval_status='APPROVED',approved_amount=requested_amount,finance_funding_id=?,approved_at=clock_timestamp(),response_at=clock_timestamp() WHERE id=?")->execute(['MOCK-'.$id,$id]);
+   $pdo->prepare("UPDATE trip_funding_requests SET status='Funding Confirmed',approval_status='APPROVED',approved_amount=requested_amount,approved_fuel_amount=requested_fuel_amount,finance_funding_id=?,approved_at=clock_timestamp(),response_at=clock_timestamp() WHERE id=?")->execute(['MOCK-'.$id,$id]);
    $f=funding_request($pdo,$f['trip_id']);funding_audit($pdo,'TRIP_FUNDING_CONFIRMED',$f);
    $pdo->prepare("INSERT INTO notifications(user_id,title,body,type,category,target) VALUES (?,?,?,'success','dispatch',?)")->execute([$f['requested_by'],'Trip Funding Confirmed','Mock Finance — Test Mode approved funding for '.$f['trip_id'].'. Dispatch requirements will be revalidated.','trip-details:'.$f['trip_id']]);
   }
@@ -163,9 +188,11 @@ function funding_assert_dispatch(PDO $pdo,string $reservationId): void {
  foreach($ids as $id){$t=funding_trip($pdo,$id);if(!funding_confirmed($pdo,$t))throw new DomainException('No Confirmed Trip Funding = Cannot Dispatch. Prepare funding for trip '.$id.'.');}
 }
 function funding_payload(PDO $pdo,array $t): array {
+ $t=funding_prepare_automatic_distance($pdo,$t);
  $pretrip=in_array($t['status'],['Scheduled','Assigned','Confirmed'],true);
  $f=funding_request($pdo,$t['id']);$e=$f && in_array($f['status'],['Pending Finance Approval','Funding Confirmed'],true) && (!$pretrip || funding_matches($f,$t))?$f:funding_estimate($pdo,$t);
- $e['efficiency_source']=str_contains((string)$t['avg_fuel_km'],'(est.)')?'Type estimate':'Saved vehicle efficiency';
+ $savedReference=isset($e['inputs'])?(json_decode($e['inputs'],true)['fuel_efficiency_reference']??null):null;
+ $e['efficiency_source']=$e['efficiency_source']??($savedReference?'Saved planning reference: '.$savedReference['source']:'Saved estimate snapshot');
  $status=$f?$f['status']:'Not Requested';if($f && $status==='Funding Confirmed' && $pretrip && !funding_matches($f,$t))$status='Superseded';
  return ['trip'=>['id'=>$t['id'],'reservation_id'=>$t['reservation_id'],'driver'=>$t['driver_name'],'vehicle'=>$t['vehicle_id'].' — '.trim($t['brand'].' '.$t['model']),'vehicle_id'=>$t['vehicle_id'],'driver_id'=>$t['driver_id'],'departure'=>$t['scheduled_departure'],'notes'=>$t['notes'],'status'=>$t['status'],'origin'=>$t['origin'],'destination'=>$t['destination']],
  'estimate'=>$e,'request'=>$f,'status'=>$status,'methods'=>$pdo->query('SELECT code,name FROM trip_funding_methods WHERE enabled ORDER BY code')->fetchAll(),'can_manage'=>funding_can_manage(),

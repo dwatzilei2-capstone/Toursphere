@@ -4,45 +4,37 @@ require_once dirname(__DIR__, 2) . '/includes/bootstrap.php';
 require_login();
 require_permission('drivers.view');
 
+require_once ROOT_PATH.'/includes/driver_license.php';
+require_once ROOT_PATH.'/includes/trip_performance.php';
 $pdo = db();
 
 $drivers = $pdo->query(
     "WITH trip_perf AS (
        SELECT driver_id,COUNT(*) live_trip_count,
-              COUNT(*) FILTER (WHERE status='Completed') live_completed_trips,
-              COUNT(*) FILTER (WHERE status='Completed' AND actual_departure IS NOT NULL AND scheduled_departure IS NOT NULL) measurable,
-              COUNT(*) FILTER (WHERE status='Completed' AND actual_departure IS NOT NULL AND scheduled_departure IS NOT NULL AND actual_departure<=scheduled_departure+INTERVAL '15 minutes') on_time,
-              COUNT(*) FILTER (WHERE status='Completed' AND actual_departure IS NOT NULL AND scheduled_departure IS NOT NULL AND actual_departure>scheduled_departure+INTERVAL '15 minutes') late_trips
+              COUNT(*) FILTER (WHERE status='Completed') live_completed_trips
          FROM trips GROUP BY driver_id
      ), cancelled AS (
        SELECT COALESCE(assigned_driver_id, cancelled_driver_id) driver_id,COUNT(*) live_cancelled_trips
          FROM reservations
         WHERE status='Cancelled' AND COALESCE(assigned_driver_id, cancelled_driver_id) IS NOT NULL
         GROUP BY COALESCE(assigned_driver_id, cancelled_driver_id)
-     ), rating_summary AS (
-       SELECT driver_id, COUNT(*) rating_count, ROUND(AVG(stars)::numeric, 2) average_rating,
-              json_agg(json_build_object(
-                'stars', stars,
-                'feedback', feedback,
-                'createdAt', created_at
-              ) ORDER BY created_at DESC) FILTER (WHERE feedback IS NOT NULL AND BTRIM(feedback) <> '') recent_reviews
-         FROM driver_ratings
+     ), performance_summary AS (
+       SELECT driver_id, COUNT(*) evaluated_trips, ROUND(AVG(overall_score)::numeric, 2) performance_score
+         FROM trip_performance_evaluations
+        WHERE status='Finalized' AND overall_score IS NOT NULL
         GROUP BY driver_id
      )
      SELECT d.*, v.id AS vehicle_id, v.plate_number, u.avatar AS account_avatar,
             active_vehicle.id AS current_vehicle_id, active_vehicle.plate_number AS current_vehicle_plate,
             COALESCE(tp.live_trip_count,0) live_trip_count,COALESCE(tp.live_completed_trips,0) live_completed_trips,
-            COALESCE(tp.late_trips,0) late_trips,COALESCE(c.live_cancelled_trips,0) live_cancelled_trips,
-            CASE WHEN COALESCE(tp.measurable,0)>0 THEN 100.0*tp.on_time/tp.measurable ELSE 0 END live_on_time_rate,
-            COALESCE(rs.rating_count,0) rating_count,
-            rs.average_rating,
-            COALESCE(rs.recent_reviews, '[]'::json) recent_reviews
+            COALESCE(c.live_cancelled_trips,0) live_cancelled_trips,
+            COALESCE(ps.evaluated_trips,0) evaluated_trips, ps.performance_score
        FROM drivers d
        LEFT JOIN vehicles v ON v.assigned_driver_id = d.id
        LEFT JOIN users u ON u.id = d.user_id
        LEFT JOIN trip_perf tp ON tp.driver_id=d.id
        LEFT JOIN cancelled c ON c.driver_id=d.id
-       LEFT JOIN rating_summary rs ON rs.driver_id=d.id
+       LEFT JOIN performance_summary ps ON ps.driver_id=d.id
        LEFT JOIN LATERAL (
          SELECT av.id,av.plate_number FROM trips at JOIN vehicles av ON av.id=at.vehicle_id
           WHERE at.driver_id=d.id AND at.status IN ('In Transit','Returning to Depot')
@@ -50,6 +42,16 @@ $drivers = $pdo->query(
        ) active_vehicle ON TRUE
       ORDER BY u.created_at DESC NULLS LAST, d.id DESC"
 )->fetchAll();
+
+// Share delivery observations and exclusions with Trip Performance, not departure punctuality.
+$deliveryByDriver=performance_delivery_kpis($pdo)['on_time_score_by_driver'];
+foreach($drivers as &$driver){
+    $delivery=$deliveryByDriver[$driver['id']]??null;
+    $driver['live_on_time_rate']=$delivery['average']??null;
+    $driver['late_trips']=$delivery['late']??null;
+    $driver['on_time_label']=$driver['live_on_time_rate']===null?'No data':number_format($driver['live_on_time_rate'],1).' / 100';
+}
+unset($driver);
 
 $active_page = 'drivers';
 $body_class = trim(($body_class ?? '') . ' driver-trip-monitoring-module driver-performance-page');
@@ -79,7 +81,10 @@ require ROOT_PATH . '/includes/header.php';
                'empId' => $d['emp_id'],
                'phone' => $d['phone'],
                'licenseNo' => $d['license_no'],
-               'licenseClass' => $d['license_class'],
+               'licenseClass' => driver_license_active($d)
+                   ? 'Verified Professional - LTO DL Codes: ' . implode(', ', driver_dl_codes($d['authorized_dl_codes']))
+                   : (driver_license_dev_display($d) ? 'Verified' : 'Not verified - LTO DL codes pending verification'),
+               'licenseDev' => !driver_license_active($d) && driver_license_dev_display($d),
                'expiration' => $d['license_expiration'],
                'status' => $d['status'],
                'assignedVehicle' => $d['vehicle_id'] ? $d['vehicle_id'] . ' (' . $d['plate_number'] . ')' : 'None',
@@ -87,10 +92,10 @@ require ROOT_PATH . '/includes/header.php';
                'tripCount' => (int)$d['live_trip_count'],
                'completedTrips' => (int)$d['live_completed_trips'],
                'cancelledTrips' => (int)$d['live_cancelled_trips'],
-               'rating' => $d['average_rating'] !== null ? (float)$d['average_rating'] : null,
-               'ratingCount' => (int)$d['rating_count'],
-               'recentReviews' => array_slice(json_decode($d['recent_reviews'] ?? '[]', true) ?: [], 0, 5),
-               'onTimeRate' => number_format((float)$d['live_on_time_rate'], 1) . '%',
+               'performanceScore' => $d['performance_score'] !== null ? (float)$d['performance_score'] : null,
+               'evaluatedTrips' => (int)$d['evaluated_trips'],
+               'onTimeRate' => $d['on_time_label'],
+               'onTimeMetricLabel' => 'On-Time Score',
                'safetyScore' => (int)$d['safety_score'],
                'fuelEfficiencyScore' => (int)$d['fuel_efficiency_score'],
                'department' => $d['department'],
@@ -114,6 +119,8 @@ require ROOT_PATH . '/includes/header.php';
           </div>
 
           <div class="bg-light p-2 rounded mb-3 small">
+            <div class="mb-2"><strong>License qualification:</strong> <?php if(driver_license_active($d)): ?><span class="text-success"><?= e('Verified Professional - DL '.implode(', ',driver_dl_codes($d['authorized_dl_codes']))) ?></span><?php elseif(driver_license_dev_display($d)): ?><span class="text-success">Verified</span> <span class="small text-muted-custom ms-1" title="Development display only; actual LTO qualifications remain unverified.">Dev</span><?php else: ?>Pending verification - unavailable for assignment<?php endif; ?></div>
+
             <div class="d-flex justify-content-between mb-1">
               <span class="text-muted-custom">License Number:</span>
               <span class="fw-semibold"><?= e($d['license_no']) ?></span>
@@ -134,20 +141,20 @@ require ROOT_PATH . '/includes/header.php';
               <div class="text-muted-custom" style="font-size: 11px;">Completed</div>
             </div>
             <div class="col-4 border-end">
-              <div class="fw-bold text-success"><?= number_format((float)$d['live_on_time_rate'], 1) ?>%</div>
-              <div class="text-muted-custom" style="font-size: 11px;">On-Time</div>
+              <div class="fw-bold text-success" title="Average numeric On-Time Delivery score from qualifying finalized evaluations."><?= e($d['on_time_label']) ?></div>
+              <div class="text-muted-custom" style="font-size: 11px;">On-Time Score</div>
             </div>
             <div class="col-4">
-              <div class="fw-bold text-warning"><?= (int)$d['late_trips'] ?></div>
-              <div class="text-muted-custom" style="font-size: 11px;">Late</div>
+              <div class="fw-bold text-primary-custom"><?= (int)$d['evaluated_trips'] ?></div>
+              <div class="text-muted-custom" style="font-size: 11px;">Evaluated Trips</div>
             </div>
           </div>
           <div class="d-flex justify-content-between align-items-center border-top pt-2 mb-2 small">
-            <span class="text-muted-custom">Customer Rating</span>
-            <?php if ((int)$d['rating_count'] > 0): ?>
-              <span class="fw-bold text-warning"><i class="bi bi-star-fill me-1"></i><?= number_format((float)$d['average_rating'], 2) ?>/5 <span class="text-muted-custom fw-normal">(<?= (int)$d['rating_count'] ?>)</span></span>
+            <span class="text-muted-custom">Performance Score</span>
+            <?php if ($d['performance_score'] !== null): ?>
+              <span class="fw-bold text-primary-custom" title="Average overall score from finalized Trip Performance evaluations."><?= number_format((float)$d['performance_score'], 2) ?>/100</span>
             <?php else: ?>
-              <span class="text-muted-custom">No ratings yet</span>
+              <span class="text-muted-custom">Not evaluated</span>
             <?php endif; ?>
           </div>
         </div>

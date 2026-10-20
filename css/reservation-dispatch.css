@@ -105,6 +105,67 @@
   animation: rd-content-in .24s var(--rd-ease);
 }
 
+/* Match the Vehicle Directory's compact rows without affecting other pages. */
+.reservations-page .reservation-dispatch-page-shell,
+.reservations-page .reservation-dispatch-page-shell > .tc-card {
+  min-width: 0;
+}
+.reservations-page .reservation-table-scroll {
+  max-width: 100%;
+  overflow-x: auto;
+  overscroll-behavior-x: contain;
+  -webkit-overflow-scrolling: touch;
+}
+.reservations-page .reservation-queue-table {
+  table-layout: fixed;
+  width: 100%;
+  min-width: 2100px;
+  font-size: 13px;
+}
+.reservations-page .reservation-queue-table th:nth-child(1) { width: 140px; }
+.reservations-page .reservation-queue-table th:nth-child(2) { width: 190px; }
+.reservations-page .reservation-queue-table th:nth-child(3) { width: 250px; }
+.reservations-page .reservation-queue-table th:nth-child(4) { width: 250px; }
+.reservations-page .reservation-queue-table th:nth-child(5) { width: 260px; }
+.reservations-page .reservation-queue-table th:nth-child(6) { width: 170px; }
+.reservations-page .reservation-queue-table th:nth-child(7) { width: 220px; }
+.reservations-page .reservation-queue-table th:nth-child(8) { width: 620px; }
+.reservations-page .reservation-queue-table td {
+  padding: 10px 16px;
+  height: 82px;
+  vertical-align: middle;
+  white-space: nowrap;
+  word-break: normal;
+  overflow-wrap: normal;
+}
+.reservations-page .reservation-cell-text {
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+  line-clamp: 2;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: normal;
+  overflow-wrap: break-word;
+  line-height: 1.4;
+  max-height: 2.8em;
+}
+.reservations-page .reservation-cell-line {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  line-height: 1.4;
+}
+.reservations-page .reservation-measurements { white-space: nowrap; }
+.reservations-page .reservation-queue-table .reservation-actions {
+  flex-wrap: nowrap;
+  justify-content: flex-end;
+  gap: 6px;
+}
+.reservations-page .reservation-actions :is(.tc-btn, form) {
+  flex-shrink: 0;
+}
+
 .dispatch-board-page .dispatch-kanban-board {
   scroll-behavior: smooth;
 }
@@ -119,7 +180,31 @@
 }
 
 .dispatch-board-page .kanban-card {
+  min-width: 0;
+  line-height: 1.4;
   transition: transform .2s var(--rd-ease), box-shadow .2s ease, border-color .18s ease, opacity .18s ease;
+}
+
+.dispatch-board-page .board-one-line {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  min-width: 0;
+}
+.dispatch-board-page .board-two-lines {
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+  overflow: hidden;
+  overflow-wrap: break-word;
+}
+.dispatch-board-page .board-assignment {
+  display: grid;
+  gap: 2px;
+}
+.dispatch-board-page .board-test-badge {
+  font-size: 10px;
+  font-weight: 500;
 }
 
 .dispatch-board-page .kanban-card:not([aria-disabled="true"]):hover {
@@ -140,6 +225,64 @@
 .trip-schedule-page .table-responsive {
   scroll-behavior: smooth;
   -webkit-overflow-scrolling: touch;
+}
+
+.trip-schedule-page .schedule-timetable {
+  table-layout: fixed;
+  width: 100%;
+  min-width: 2920px;
+}
+.trip-schedule-page .schedule-timetable th:not(:first-child) { width: 400px; }
+.trip-schedule-page .schedule-timetable :is(td, th) {
+  vertical-align: top;
+}
+.trip-schedule-page .schedule-entry {
+  min-width: 0;
+  line-height: 1.25;
+  font-size: 11px;
+  padding: 5px 8px !important;
+  margin-bottom: 4px !important;
+}
+.trip-schedule-page .schedule-timetable td.p-2 { padding: 4px !important; }
+.trip-schedule-page .schedule-resource-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+  gap: 6px;
+}
+.trip-schedule-page .schedule-cargo-summary {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 10px;
+  border-top: 1px solid var(--tc-border);
+  margin-top: 3px;
+  padding-top: 3px;
+}
+.trip-schedule-page .schedule-cargo-line {
+  display: flex;
+  align-items: baseline;
+  gap: 4px;
+}
+.trip-schedule-page .schedule-cargo-line > :first-child { min-width: 0; }
+.trip-schedule-page .schedule-cargo-line > :last-child { flex-shrink: 0; white-space: nowrap; }
+.trip-schedule-page .schedule-one-line {
+  display: block;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.trip-schedule-page .schedule-two-lines {
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+  overflow: hidden;
+  overflow-wrap: break-word;
+}
+.trip-schedule-page .schedule-times {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+  gap: 10px;
+  font-size: 11px;
+  margin-top: 2px;
 }
 
 .trip-schedule-page .table tbody :is(td, th) {
@@ -191,7 +334,7 @@
 
 @media (max-width: 991.98px) {
   .dispatch-board-page .dispatch-kanban-board {
-    grid-template-columns: repeat(6, minmax(270px, 1fr));
+    grid-template-columns: repeat(8, minmax(270px, 1fr));
     overflow-x: auto;
     overscroll-behavior-inline: contain;
     padding-bottom: .5rem;

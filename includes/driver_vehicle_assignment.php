@@ -44,14 +44,14 @@ function refresh_vehicle_operational_status(PDO $pdo, string $vehicleId): void
     $lifecycle = $pdo->prepare('SELECT status FROM vehicles WHERE id=?');
     $lifecycle->execute([$vehicleId]);
     if ($lifecycle->fetchColumn() === 'Retired') return;
-    $repair = $pdo->prepare("SELECT 1 FROM maintenance_orders WHERE vehicle_id=? AND status IN ('Scheduled','In Repair') LIMIT 1");
+    if (vehicle_has_active_trip($pdo, $vehicleId)) {
+        $pdo->prepare("UPDATE vehicles SET status='On Trip', location='On Trip' WHERE id=?")->execute([$vehicleId]);
+        return;
+    }
+    $repair = $pdo->prepare("SELECT 1 FROM maintenance_orders WHERE vehicle_id=? AND (status='In Repair' OR (status='Scheduled' AND (notes LIKE 'Driver issue report:%' OR source_trip_id IS NOT NULL))) LIMIT 1");
     $repair->execute([$vehicleId]);
     if ($repair->fetchColumn()) {
         $pdo->prepare("UPDATE vehicles SET status='Maintenance', location='Maintenance / Inspection' WHERE id=?")->execute([$vehicleId]);
-        return;
-    }
-    if (vehicle_has_active_trip($pdo, $vehicleId)) {
-        $pdo->prepare("UPDATE vehicles SET status='On Trip', location='On Trip' WHERE id=?")->execute([$vehicleId]);
         return;
     }
     $scheduled = $pdo->prepare("SELECT origin,destination FROM reservations WHERE assigned_vehicle_id=? AND status IN ('Assigned','Confirmed','Dispatched') ORDER BY departure_date,created_at LIMIT 1");

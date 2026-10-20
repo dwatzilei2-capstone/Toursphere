@@ -18,7 +18,8 @@ $orders = $pdo->query(
 )->fetchAll();
 
  
-$vehicles = $pdo->query('SELECT id, plate_number, brand, model FROM vehicles ORDER BY id')->fetchAll();
+$vehicles = $pdo->query("SELECT id, plate_number, brand, model, type, service_category, payload_capacity_kg, status FROM vehicles WHERE NOT is_archived AND status <> 'Retired' ORDER BY id")->fetchAll();
+if (can('vehicles.manage') && empty($_SESSION['maintenance_csrf'])) $_SESSION['maintenance_csrf'] = bin2hex(random_bytes(32));
 
 $active_page = 'maintenance';
 $body_class = trim(($body_class ?? '') . ' fleet-vehicles-module fleet-maintenance-page');
@@ -83,12 +84,14 @@ require ROOT_PATH . '/includes/header.php';
                 <td class="text-end">
                   <?php if ($o['status'] === 'Scheduled'): ?>
                   <form method="post" action="<?= BASE_URL ?>/actions/work-order.php" class="d-inline">
+                    <input type="hidden" name="csrf_token" value="<?= e($_SESSION['maintenance_csrf']) ?>">
                     <input type="hidden" name="action" value="update_status"><input type="hidden" name="work_order_id" value="<?= e($o['id']) ?>">
                     <input type="hidden" name="status" value="In Repair"><input type="hidden" name="return" value="<?= e(BASE_URL . '/modules/fleet-vehicle-management/maintenance.php') ?>">
                     <button class="tc-btn tc-btn-secondary tc-btn-sm" type="submit"><?= str_starts_with((string)$o['notes'], 'Driver issue report:') ? 'Confirm & Start Repair' : 'Start Repair' ?></button>
                   </form>
                   <?php elseif ($o['status'] === 'In Repair'): ?>
                   <form method="post" action="<?= BASE_URL ?>/actions/work-order.php" class="d-inline">
+                    <input type="hidden" name="csrf_token" value="<?= e($_SESSION['maintenance_csrf']) ?>">
                     <input type="hidden" name="action" value="update_status"><input type="hidden" name="work_order_id" value="<?= e($o['id']) ?>">
                     <input type="hidden" name="status" value="Completed"><input type="hidden" name="return" value="<?= e(BASE_URL . '/modules/fleet-vehicle-management/maintenance.php') ?>">
                     <button class="tc-btn tc-btn-accent tc-btn-sm" type="submit">Complete</button>
@@ -117,6 +120,7 @@ require ROOT_PATH . '/includes/header.php';
     <div class="tc-card-body">
       <form method="post" action="<?= BASE_URL ?>/actions/work-order.php">
         <input type="hidden" name="action" value="create">
+        <input type="hidden" name="csrf_token" value="<?= e($_SESSION['maintenance_csrf']) ?>">
         <input type="hidden" name="return" value="<?= e(BASE_URL . '/modules/fleet-vehicle-management/maintenance.php') ?>">
         <div class="row g-2 mb-3">
           <div class="col-12">
@@ -124,13 +128,13 @@ require ROOT_PATH . '/includes/header.php';
             <select class="tc-form-select" name="vehicle_id" required>
               <option value="">— Choose vehicle —</option>
               <?php foreach ($vehicles as $v): ?>
-                <option value="<?= e($v['id']) ?>"><?= e($v['id']) ?> (<?= e($v['plate_number']) ?>) - <?= e($v['brand']) ?> <?= e($v['model']) ?></option>
+                <option value="<?= e($v['id']) ?>"><?= e($v['id']) ?> (<?= e($v['plate_number']) ?>) - <?= e($v['brand']) ?> <?= e($v['model']) ?> · <?= e($v['type']) ?><?= $v['service_category']==='Cargo' ? ' · '.number_format((float)$v['payload_capacity_kg']).' kg payload' : '' ?></option>
               <?php endforeach; ?>
             </select>
           </div>
           <div class="col-12">
             <label class="tc-form-label">Service Type</label>
-            <input type="text" name="service_type" class="tc-form-control" placeholder="e.g. 40,000 km Major PMS, Engine Oil & Filter" required>
+            <input type="text" name="service_type" class="tc-form-control" maxlength="200" placeholder="e.g. Truck PMS, Brake Inspection, Refrigeration Unit Service" required>
           </div>
           <div class="col-6">
             <label class="tc-form-label">Priority</label>
@@ -146,7 +150,7 @@ require ROOT_PATH . '/includes/header.php';
           </div>
           <div class="col-6">
             <label class="tc-form-label">Estimated Cost (<?= e(currency_symbol()) ?>)</label>
-            <input type="number" step="0.01" name="estimated_cost" class="tc-form-control" placeholder="18500.00" required>
+            <input type="number" min="0" max="9999999999.99" step="0.01" name="estimated_cost" class="tc-form-control" placeholder="18500.00" required>
           </div>
           <div class="col-6">
             <label class="tc-form-label">Status</label>
